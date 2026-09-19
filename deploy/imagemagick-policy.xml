@@ -1,0 +1,47 @@
+<!--
+  ImageMagick policy for the Duefold worker.
+
+  ImageMagick's shipped policy decodes far more than Duefold accepts, and several of
+  those coders are remotely triggerable by file content rather than by configuration.
+  Branding and watermark composition only ever need PNG and JPEG input, and all
+  preview derivatives and watermark output are PNG, so everything else is denied
+  by default and the needed coders are re-enabled explicitly.
+
+  This is defence in depth, not the boundary. The boundary is the credential-free
+  sandbox and the content-inspection checks in branding.ts, which refuse SVG,
+  HTML-as-PNG, and polyglots before a tool ever runs. A policy file cannot be the
+  only control, because it can be replaced by a rebuild that forgets it -- hence the
+  test that asserts the refusals independently.
+-->
+<policymap>
+  <!-- Deny every coder, then allow the raster formats the fixed pipelines use. -->
+  <policy domain="delegate" rights="none" pattern="*" />
+  <policy domain="coder" rights="none" pattern="*" />
+  <policy domain="coder" rights="read | write" pattern="{PNG,JPEG,JPG,WEBP,CAPTION}" />
+
+  <!--
+    SVG and MSVG carry script and external references; MVG is a drawing language that
+    can read local files. These stay denied even though the blanket rule above
+    already covers them, because an explicit line survives a future "allow more
+    formats" edit that relaxes the wildcard.
+  -->
+  <policy domain="coder" rights="none" pattern="{SVG,MSVG,MVG,SVGZ}" />
+  <policy domain="coder" rights="none" pattern="{URL,HTTPS,HTTP,FTP}" />
+  <policy domain="coder" rights="none" pattern="{TEXT,LABEL,PANGO}" />
+  <policy domain="coder" rights="none" pattern="EPHEMERAL" />
+  <policy domain="coder" rights="none" pattern="{MSL,XPS,PDF,PS,PS2,PS3,EPS}" />
+
+  <!-- No indirect filesystem access. Text rendering may consume stdin only. -->
+  <policy domain="path" rights="none" pattern="@*" />
+  <policy domain="path" rights="read" pattern="@-" />
+
+  <!-- Resource ceilings matching the fixed limits in resource-policy.ts. -->
+  <policy domain="resource" name="memory" value="256MiB" />
+  <policy domain="resource" name="map" value="512MiB" />
+  <policy domain="resource" name="area" value="128MP" />
+  <policy domain="resource" name="width" value="16KP" />
+  <policy domain="resource" name="height" value="16KP" />
+  <policy domain="resource" name="disk" value="1GiB" />
+  <policy domain="resource" name="time" value="30" />
+  <policy domain="resource" name="thread" value="1" />
+</policymap>

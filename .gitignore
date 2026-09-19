@@ -1,0 +1,22 @@
+# Dependencies and generated application output
+node_modules/
+dist/
+/build/
+coverage/
+.env
+.env.*
+!.env.example
+
+# Playwright output
+test-results/
+playwright-report/
+
+# Local editor and operating-system files
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Generated composition registries
+.duefold/

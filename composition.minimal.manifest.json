@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "modules": ["core-security", "rooms-documents", "participants-access"],
+  "adapters": {
+    "storage": "s3-compatible",
+    "mail": "smtp",
+    "identity": "oidc"
+  }
+}

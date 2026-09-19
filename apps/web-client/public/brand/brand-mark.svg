@@ -1,0 +1,14 @@
+<svg class="df-brand-art" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <style>
+  .df-brand-art{color:#1b211f}
+  .df-ribbon-stem{fill:#1b211f}
+  .df-ribbon-bowl{fill:#006b5e}
+  @media(prefers-color-scheme:dark){
+    .df-brand-art{color:#e8ebe7}
+    .df-ribbon-stem{fill:#e8ebe7}
+    .df-ribbon-bowl{fill:#5fc9b4}
+  }
+</style>
+  <path class="df-ribbon-stem" d="M6 4.75 11.33 10.09V28H6Z"/>
+  <path class="df-ribbon-bowl" d="M6.75 4H14A12 12 0 0 1 14 28H12.33V22.67H14A6.67 6.67 0 0 0 14 9.33H11.33V8.58Z"/>
+</svg>

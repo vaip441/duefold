@@ -1,0 +1,193 @@
+# Duefold reference deployment.
+#
+# Reference environment: web at 2 vCPU / 2 GiB, worker at 4 vCPU / 4 GiB.
+# CPU limits may be lowered explicitly for constrained validation hosts; production
+# sizing guidance remains the defaults below.
+#
+# FOUR DATABASE ROLES, not one connection string. The split is a security boundary:
+# the authenticator owns session, otp_challenge, and oidc_transaction and has no
+# EXECUTE on any delivery or grant function, while the runtime role can read neither
+# document_version nor document_derivative. The web process verifies role separation
+# at startup and refuses to start if two roles match.
+#
+# Passwords and secrets come from .env or a secret store.
+
+name: duefold
+
+services:
+  postgres:
+    image: postgres:18.3-trixie@sha256:7e32e9833a6fb1c92c32552794cb6ed569d51b445a54907d35fc112ef39684db
+    environment:
+      POSTGRES_DB: duefold
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?superuser password is required}
+      DUEFOLD_DB_MIGRATION_PASSWORD: ${DUEFOLD_DB_MIGRATION_PASSWORD:?migration password is required}
+      DUEFOLD_DB_RUNTIME_PASSWORD: ${DUEFOLD_DB_RUNTIME_PASSWORD:?runtime password is required}
+      DUEFOLD_DB_AUTHENTICATOR_PASSWORD: ${DUEFOLD_DB_AUTHENTICATOR_PASSWORD:?authenticator password is required}
+      DUEFOLD_DB_WORKER_PASSWORD: ${DUEFOLD_DB_WORKER_PASSWORD:?worker password is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./deploy/10-init-roles.sh:/docker-entrypoint-initdb.d/10-init-roles.sh:ro
+      - ./deploy/postgres-roles.sql:/usr/local/share/duefold/postgres-roles.sql:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d duefold']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav-debian:1.5@sha256:cc16781fe005e49de6a8fc1231b63b265f74b18fc2a6347c670c35716914c3b6
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdscan --ping 3 || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  migrate:
+    image: ghcr.io/vaip441/duefold-web:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    entrypoint: ['node', 'apps/cli/src/main.ts']
+    environment:
+      DUEFOLD_MIGRATION_DATABASE_URL: postgresql://duefold_migration:${DUEFOLD_DB_MIGRATION_PASSWORD:?migration password is required}@postgres:5432/duefold
+    command: ['db', 'migrate']
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  web:
+    image: ghcr.io/vaip441/duefold-web:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    environment:
+      DUEFOLD_DATABASE_URL: postgresql://duefold_runtime:${DUEFOLD_DB_RUNTIME_PASSWORD:?runtime password is required}@postgres:5432/duefold
+      DUEFOLD_AUTH_DATABASE_URL: postgresql://duefold_authenticator:${DUEFOLD_DB_AUTHENTICATOR_PASSWORD:?authenticator password is required}@postgres:5432/duefold
+      DUEFOLD_PUBLIC_URL: ${DUEFOLD_PUBLIC_URL:?public URL is required}
+      DUEFOLD_OWNER_EMAIL_ALLOWLIST: ${DUEFOLD_OWNER_EMAIL_ALLOWLIST:?owner allowlist is required}
+      DUEFOLD_ORGANIZATION_NAME: ${DUEFOLD_ORGANIZATION_NAME:?organization name is required}
+      DUEFOLD_OIDC_ISSUER: ${DUEFOLD_OIDC_ISSUER:?OIDC issuer is required}
+      DUEFOLD_OIDC_CLIENT_ID: ${DUEFOLD_OIDC_CLIENT_ID:?OIDC client id is required}
+      DUEFOLD_OIDC_CLIENT_SECRET: ${DUEFOLD_OIDC_CLIENT_SECRET:?OIDC client secret is required}
+      DUEFOLD_AUTH_MAIL_FROM: ${DUEFOLD_AUTH_MAIL_FROM:?auth mail from is required}
+      DUEFOLD_SMTP_URL: ${DUEFOLD_SMTP_URL:-}
+      DUEFOLD_RESEND_API_KEY: ${DUEFOLD_RESEND_API_KEY:-}
+      DUEFOLD_STORAGE_ENDPOINT: ${DUEFOLD_STORAGE_ENDPOINT:?storage endpoint is required}
+      DUEFOLD_STORAGE_REGION: ${DUEFOLD_STORAGE_REGION:-auto}
+      DUEFOLD_STORAGE_BUCKET: ${DUEFOLD_STORAGE_BUCKET:?storage bucket is required}
+      DUEFOLD_STORAGE_PATH_STYLE: ${DUEFOLD_STORAGE_PATH_STYLE:-false}
+      DUEFOLD_STORAGE_CHECKSUM_SUPPORT: ${DUEFOLD_STORAGE_CHECKSUM_SUPPORT:-true}
+      DUEFOLD_STORAGE_WEB_ACCESS_KEY_ID: ${DUEFOLD_STORAGE_WEB_ACCESS_KEY_ID:?storage web key is required}
+      DUEFOLD_STORAGE_WEB_SECRET_ACCESS_KEY: ${DUEFOLD_STORAGE_WEB_SECRET_ACCESS_KEY:?storage web secret is required}
+      DUEFOLD_OTP_DIGEST_KEY: ${DUEFOLD_OTP_DIGEST_KEY:?OTP digest key is required}
+      DUEFOLD_NETWORK_HMAC_KEY: ${DUEFOLD_NETWORK_HMAC_KEY:?network HMAC key is required}
+      DUEFOLD_TRUSTED_PROXIES: ${DUEFOLD_TRUSTED_PROXIES:-}
+      DUEFOLD_SESSION_IDLE_MINUTES: ${DUEFOLD_SESSION_IDLE_MINUTES:-30}
+      DUEFOLD_SESSION_ABSOLUTE_HOURS: ${DUEFOLD_SESSION_ABSOLUTE_HOURS:-12}
+      DUEFOLD_CLAMAV_HOST: clamav
+      DUEFOLD_CLAMAV_PORT: 3310
+      DUEFOLD_WATERMARK_IMAGE_PROGRAM: /usr/bin/magick-im7.q16
+    ports:
+      - '${DUEFOLD_BIND:-127.0.0.1}:8080:8080'
+    cpus: ${DUEFOLD_WEB_CPUS:-2}
+    mem_limit: 2g
+    read_only: true
+    tmpfs:
+      - /var/lib/duefold/scratch:size=1g,mode=0700
+      - /tmp:size=128m,mode=1777
+    cap_drop: ['ALL']
+    cap_add: ['SYS_ADMIN']
+    # Docker's default AppArmor profile denies bubblewrap's mount-propagation
+    # setup before the inner namespace exists. The versioned seccomp profile is
+    # Moby's default plus only CAP_SYS_ADMIN-gated pivot_root, which bubblewrap
+    # needs to construct the stricter inner sandbox.
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=unconfined
+      - seccomp=deploy/seccomp-bubblewrap.json
+    networks:
+      - internal
+      - default
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(\"http://127.0.0.1:8080/api/health/live\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/vaip441/duefold-worker:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    build:
+      context: .
+      dockerfile: deploy/worker.Dockerfile
+    environment:
+      DUEFOLD_WORKER_DATABASE_URL: postgresql://duefold_worker:${DUEFOLD_DB_WORKER_PASSWORD:?worker password is required}@postgres:5432/duefold
+      DUEFOLD_PUBLIC_URL: ${DUEFOLD_PUBLIC_URL:?public URL is required}
+      DUEFOLD_AUTH_MAIL_FROM: ${DUEFOLD_AUTH_MAIL_FROM:?auth mail from is required}
+      DUEFOLD_SMTP_URL: ${DUEFOLD_SMTP_URL:-}
+      DUEFOLD_RESEND_API_KEY: ${DUEFOLD_RESEND_API_KEY:-}
+      DUEFOLD_STORAGE_ENDPOINT: ${DUEFOLD_STORAGE_ENDPOINT:?storage endpoint is required}
+      DUEFOLD_STORAGE_REGION: ${DUEFOLD_STORAGE_REGION:-auto}
+      DUEFOLD_STORAGE_BUCKET: ${DUEFOLD_STORAGE_BUCKET:?storage bucket is required}
+      DUEFOLD_STORAGE_PATH_STYLE: ${DUEFOLD_STORAGE_PATH_STYLE:-false}
+      DUEFOLD_STORAGE_CHECKSUM_SUPPORT: ${DUEFOLD_STORAGE_CHECKSUM_SUPPORT:-true}
+      DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID: ${DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID:?storage worker key is required}
+      DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY: ${DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY:?storage worker secret is required}
+      DUEFOLD_OTP_DIGEST_KEY: ${DUEFOLD_OTP_DIGEST_KEY:?OTP digest key is required}
+      DUEFOLD_PII_HMAC_KEY: ${DUEFOLD_PII_HMAC_KEY:?PII HMAC key is required}
+      DUEFOLD_CLAMAV_HOST: clamav
+      DUEFOLD_CLAMAV_PORT: 3310
+      DUEFOLD_SANDBOX_MODE: production
+      DUEFOLD_PROCESSOR_PDF_PROGRAM: /usr/bin/mutool
+      DUEFOLD_PROCESSOR_OFFICE_PROGRAM: /usr/lib/libreoffice/program/soffice.bin
+      DUEFOLD_PROCESSOR_IMAGE_PROGRAM: /usr/bin/magick-im7.q16
+      DUEFOLD_PROCESSOR_TEXT_PROGRAM: /usr/bin/magick-im7.q16
+    cpus: ${DUEFOLD_WORKER_CPUS:-4}
+    mem_limit: 4g
+    cap_drop: ['ALL']
+    cap_add: ['SYS_ADMIN']
+    # See the web service: Docker seccomp remains active and is verified by the
+    # worker's production sandbox preflight.
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=unconfined
+      - seccomp=deploy/seccomp-bubblewrap.json
+    tmpfs:
+      - /var/lib/duefold/scratch:size=2g,mode=0700
+      - /tmp:size=256m,mode=1777
+    read_only: true
+    networks:
+      - internal
+      - default
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+networks:
+  internal:
+    internal: true
+  default:

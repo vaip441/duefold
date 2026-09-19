@@ -1,0 +1,484 @@
+/*
+ * The app shell: the persistent frame every member surface inhabits.
+ *
+ * THE ONE-PLANE RULE, stated so later surfaces cannot drift into cards:
+ * every region sits on the same plane. A region is separated from its neighbour
+ * by exactly one of
+ *   (a) a 1px rule on the shared edge,
+ *   (b) a small ground shift (--ground-sunken behind the index and notes), or
+ *   (c) space.
+ * Never by a border on all four sides, never by a shadow, never by a radius
+ * above --radius-control, and never by a floating container. A region that needs
+ * to feel separate gets a heading and a rule, not a box.
+ *
+ * Regions, in DOM and focus order: room facts (with the primary action), the
+ * collection index, the worktable, the access notes margin, the counterparty
+ * strip. Narrow viewports restack them into one column rather than scaling the
+ * desktop layout down.
+ */
+
+.df-shell {
+  display: grid;
+  min-height: 100dvh;
+  grid-template-columns: var(--index-width) minmax(0, 1fr) var(--notes-width);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'facts facts facts'
+    'index worktable notes'
+    'counterparties counterparties counterparties';
+  background: var(--ground);
+}
+
+/* --- Room facts: the line that holds the primary action ------------------- */
+
+.df-facts {
+  grid-area: facts;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+
+.df-facts__identity {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-inline-end: auto;
+  /* The wordmark never forces the line wider than the viewport. */
+  min-width: 0;
+}
+
+.df-brand-identity {
+  display: inline-flex;
+  align-items: center;
+  /* The 32-unit mark viewBox has 3.0375px of trailing clear space at this
+     size; 2px of flex gap produces an approximately 6px visible gap. */
+  gap: 0.125rem;
+  font-size: var(--size-section);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+
+.df-brand-identity__mark {
+  /* The drawn Ribbon is 24/32 of its viewBox. A 1.2em SVG therefore gives
+     it a visible height of exactly 0.9 × the inherited wordmark size. */
+  width: 1.2em;
+  height: 1.2em;
+  flex-shrink: 0;
+}
+
+.df-brand-identity__custom-logo {
+  height: 1.75rem;
+  max-width: 180px;
+  object-fit: contain;
+}
+
+.df-sheet__powered {
+  font-size: var(--size-meta);
+  color: var(--ink-faint);
+  margin-top: var(--space-2);
+}
+
+.df-notes__intro {
+  margin-bottom: var(--space-3);
+  font-weight: var(--weight-medium);
+}
+
+.df-facts__wordmark {
+  font-family: var(--font-text);
+  font-size: 1em;
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-title);
+}
+
+.df-facts__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.df-account-menu {
+  display: contents;
+}
+
+.df-account-menu__panel {
+  display: contents;
+}
+
+/* Two classes, so .df-button's display (components.css loads later) cannot
+   reveal the phone-only toggle on wide layouts. */
+.df-account-menu > .df-account-menu__toggle {
+  display: none;
+}
+
+/* --- Collection index: a finding aid, scanned rather than read ------------ */
+
+.df-index {
+  grid-area: index;
+  background: var(--ground-sunken);
+  padding: var(--space-5) 0 var(--space-6);
+  overflow-y: auto;
+}
+
+.df-index__heading,
+.df-notes__heading,
+.df-counterparties__heading {
+  font-family: var(--font-ui);
+  font-size: var(--size-label);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-inline: var(--space-5);
+  margin-bottom: var(--space-3);
+}
+
+.df-index__tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.df-index__entry {
+  display: block;
+  width: 100%;
+  text-align: start;
+  background: none;
+  border: 0;
+  /* The current-item marker is a 2px inline-start bar in the accent, plus a
+   * ground shift, plus aria-current. Three signals, so meaning never rests on
+   * colour alone. */
+  border-inline-start: 2px solid transparent;
+  padding: var(--space-2) var(--space-5);
+  color: var(--ink-muted);
+  font-size: var(--size-body);
+  cursor: pointer;
+  transition: color var(--duration-state) var(--ease-out);
+}
+
+.df-index__entry:hover {
+  color: var(--ink);
+}
+
+.df-index__entry[aria-current='true'] {
+  border-inline-start-color: var(--accent);
+  background: var(--ground-raised);
+  color: var(--ink);
+  font-weight: var(--weight-medium);
+}
+
+/* --- Worktable: the document region owns the centre ---------------------- */
+
+.df-worktable {
+  grid-area: worktable;
+  min-width: 0;
+  padding: var(--space-6) var(--space-6) var(--space-7);
+  overflow-y: auto;
+}
+
+.df-worktable__title {
+  margin-bottom: var(--space-2);
+}
+
+.df-worktable__lead {
+  color: var(--ink-muted);
+  max-width: var(--measure-prose);
+}
+
+/* --- Access notes: plain language, on the table edge -------------------- */
+
+.df-notes {
+  grid-area: notes;
+  background: var(--ground-sunken);
+  padding: var(--space-5) 0;
+  overflow-y: auto;
+}
+
+.df-notes__body,
+.df-counterparties__body {
+  padding-inline: var(--space-5);
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+}
+
+.df-reading-room__introduction {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--hairline) solid var(--rule);
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* --- Counterparty strip: anchors the lower edge -------------------------- */
+
+.df-counterparties {
+  grid-area: counterparties;
+  border-top: var(--hairline) solid var(--rule);
+  padding: var(--space-4) 0;
+}
+
+.df-counterparties__heading {
+  margin-bottom: var(--space-2);
+}
+
+/* --- Empty states teach the region rather than announcing nothing -------- */
+
+.df-empty {
+  padding-inline: var(--space-5);
+  color: var(--ink-faint);
+  font-size: var(--size-meta);
+  max-width: var(--measure-prose);
+}
+
+.df-empty--worktable {
+  padding-inline: 0;
+}
+
+.df-empty__lead {
+  /* Block, so the lead and its help text are two lines rather than running
+     together as one sentence. */
+  display: block;
+  color: var(--ink-muted);
+  font-size: var(--size-body);
+  margin-bottom: var(--space-1);
+}
+
+/* --- Skip link ---------------------------------------------------------- */
+
+.df-skip {
+  position: absolute;
+  inset-inline-start: var(--space-3);
+  inset-block-start: var(--space-3);
+  z-index: 10;
+  padding: var(--space-2) var(--space-3);
+  background: var(--ground);
+  color: var(--accent);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  /* Moving into view IS the state change, and it is the one shell transition.
+     `transform` rather than a layout property, so it stays off the main thread. */
+  transform: translateY(calc(-100% - var(--space-4)));
+  transition: transform var(--duration-state) var(--ease-out);
+}
+
+.df-skip:focus-visible {
+  transform: translateY(0);
+}
+
+/* --- Narrow viewports --------------------------------------------------- */
+
+@media (max-width: 30rem) {
+  .df-facts {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    position: relative;
+  }
+
+  .df-facts__identity,
+  .df-brand-identity,
+  .df-facts__wordmark {
+    min-width: 0;
+  }
+
+  .df-sheet__header > .df-brand-identity {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+    overflow: visible;
+  }
+
+  .df-sheet__header > .df-brand-identity .df-facts__wordmark {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .df-facts__identity {
+    flex: 1 1 100%;
+    overflow: visible;
+  }
+
+  .df-facts__actions {
+    flex: 0 1 auto;
+    gap: var(--space-1);
+    margin-inline-start: auto;
+  }
+
+  .df-facts__actions > .df-button {
+    max-width: 6.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .df-account-menu {
+    display: block;
+  }
+
+  .df-account-menu > .df-account-menu__toggle {
+    display: inline-flex;
+    cursor: pointer;
+  }
+
+  .df-account-menu__toggle::after {
+    content: '';
+    width: 0.45rem;
+    height: 0.45rem;
+    border-inline-end: 1.5px solid currentcolor;
+    border-block-end: 1.5px solid currentcolor;
+    transform: translateY(-0.125rem) rotate(45deg);
+    transition: transform var(--duration-state) var(--ease-out);
+  }
+
+  .df-account-menu[data-open='true'] > .df-account-menu__toggle::after {
+    transform: translateY(0.125rem) rotate(225deg);
+  }
+
+  .df-account-menu__panel .df-theme {
+    flex: 1 0 100%;
+  }
+
+  .df-account-menu__panel {
+    position: absolute;
+    z-index: 4;
+    inset-block-start: calc(100% + var(--hairline));
+    inset-inline: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: var(--hairline) solid var(--rule);
+    background: var(--ground);
+  }
+
+  .df-account-menu[data-open='false'] > .df-account-menu__panel {
+    display: none;
+  }
+
+  .df-brand-identity {
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .df-facts__wordmark {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .df-facts .df-brand-identity {
+    overflow: visible;
+  }
+
+  .df-facts .df-facts__wordmark {
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
+
+@media (max-width: 68rem) {
+  /* The notes margin cannot hold plain-language policy at this width, so it
+   * moves below the worktable rather than being compressed into a column. */
+  .df-shell {
+    grid-template-columns: var(--index-width) minmax(0, 1fr);
+    grid-template-areas:
+      'facts facts'
+      'index worktable'
+      'index notes'
+      'counterparties counterparties';
+  }
+
+  .df-notes {
+    border-inline-start: 0;
+    border-top: var(--hairline) solid var(--rule);
+    background: var(--ground);
+  }
+}
+
+@media (max-width: 48rem) {
+  /* One column. The index becomes a disclosure above the worktable: at this
+   * width a persistent tree would leave the document no room, and a scaled-down
+   * desktop layout would leave both unusable. */
+  .df-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'facts'
+      'index'
+      'worktable'
+      'notes'
+      'counterparties';
+  }
+
+  .df-index {
+    border-inline-end: 0;
+    border-bottom: var(--hairline) solid var(--rule);
+    padding-block: var(--space-3);
+  }
+
+  /* The disclosure hides the tree wrapper, so both the list and the empty state
+     collapse together. */
+  .df-index[data-collapsed='true'] .df-index__panel {
+    display: none;
+  }
+
+  .df-worktable {
+    padding: var(--space-5) var(--space-4) var(--space-6);
+  }
+
+  .df-facts {
+    padding-inline: var(--space-4);
+  }
+
+  .df-notes__body,
+  .df-counterparties__body,
+  .df-empty:not(.df-empty--worktable),
+  .df-index__heading,
+  .df-notes__heading,
+  .df-counterparties__heading {
+    padding-inline: var(--space-4);
+  }
+
+  .df-index__entry {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* The index disclosure exists only in the one-column layout. */
+.df-index__disclosure {
+  display: none;
+}
+
+@media (max-width: 48rem) {
+  .df-index__disclosure {
+    display: block;
+    padding-inline: var(--space-2);
+  }
+
+  /* The disclosure carries the region name at this width, so the heading would
+     be a duplicate label. */
+  .df-index__heading {
+    display: none;
+  }
+
+  /* A rotating marker states open/closed in addition to `aria-expanded`, so the
+     state is visible as well as announced. */
+  .df-index__disclosure button::before {
+    content: '';
+    width: 0.5rem;
+    height: 0.5rem;
+    border-inline-end: 1.5px solid currentcolor;
+    border-block-end: 1.5px solid currentcolor;
+    transform: rotate(45deg);
+    transform-origin: center;
+    transition: transform var(--duration-state) var(--ease-out);
+  }
+
+  .df-index__disclosure button[aria-expanded='false']::before {
+    transform: rotate(-45deg);
+  }
+}

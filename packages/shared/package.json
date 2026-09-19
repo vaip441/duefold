@@ -1,0 +1,21 @@
+{
+  "name": "@duefold/shared",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    "./ids": "./src/ids.ts",
+    "./result": "./src/result.ts",
+    "./errors": "./src/errors.ts",
+    "./email": "./src/email.ts",
+    "./naming": "./src/naming.ts",
+    "./clock": "./src/clock.ts",
+    "./redact": "./src/redact.ts",
+    "./support-contact": "./src/support-contact.ts",
+    "./brand-mark": "./src/brand-mark.ts",
+    "./process-errors": "./src/process-errors.ts",
+    "./ordering": "./src/ordering.ts",
+    "./assert": "./src/assert.ts"
+  }
+}

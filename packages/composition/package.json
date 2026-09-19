@@ -1,0 +1,16 @@
+{
+  "name": "@duefold/composition",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    "./contract": "./src/contract.ts",
+    "./registry-types": "./src/registry-types.ts",
+    "./manifest": "./src/manifest.ts",
+    "./generate": "./src/generate.ts"
+  },
+  "dependencies": {
+    "@duefold/shared": "0.1.0"
+  }
+}

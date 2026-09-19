@@ -1,0 +1,222 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DUEFOLD_TEST_DATABASE_URL: postgresql://duefold_runtime:duefold_local_runtime@127.0.0.1:5432/duefold_test
+  DUEFOLD_TEST_AUTH_DATABASE_URL: postgresql://duefold_authenticator:duefold_local_authenticator@127.0.0.1:5432/duefold_test
+  DUEFOLD_TEST_WORKER_DATABASE_URL: postgresql://duefold_worker:duefold_local_worker@127.0.0.1:5432/duefold_test
+  DUEFOLD_TEST_MIGRATION_DATABASE_URL: postgresql://duefold_migration:duefold_local_migration@127.0.0.1:5432/duefold_test
+
+jobs:
+  verify:
+    name: Format, lint, typecheck, composition, unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: bash .github/scripts/setup-sandbox.sh
+      - name: Production tools are mandatory in CI
+        run: |
+          command -v magick || command -v convert
+          test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+      - run: npm run verify
+      - name: Audit production dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --omit=dev && exit 0
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          exit 1
+
+  image-smoke:
+    name: Build and process documents in production images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: docker build -f deploy/web.Dockerfile -t duefold-web:ci .
+      - run: docker build -f deploy/worker.Dockerfile -t duefold-worker:ci .
+      - name: Enable unprivileged sandbox namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Smoke web image
+        run: docker run --rm --entrypoint node --cap-drop ALL --cap-add SYS_ADMIN --read-only --tmpfs /var/lib/duefold/scratch:size=1g,mode=0700 --tmpfs /tmp:size=128m,mode=1777 --security-opt no-new-privileges --security-opt apparmor=unconfined --security-opt seccomp=deploy/seccomp-bubblewrap.json duefold-web:ci deploy/image-smoke.ts web
+      - name: Smoke worker image
+        run: docker run --rm --entrypoint node --cap-drop ALL --cap-add SYS_ADMIN --read-only --tmpfs /var/lib/duefold/scratch:size=2g,mode=0700 --tmpfs /tmp:size=256m,mode=1777 --security-opt no-new-privileges --security-opt apparmor=unconfined --security-opt seccomp=deploy/seccomp-bubblewrap.json duefold-worker:ci deploy/image-smoke.ts worker
+
+  compose-smoke:
+    name: Clean Docker Compose initialization
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure synthetic startup environment
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_PASSWORD=synthetic-superuser-password
+          DUEFOLD_DB_MIGRATION_PASSWORD=synthetic-migration-password
+          DUEFOLD_DB_RUNTIME_PASSWORD=synthetic-runtime-password
+          DUEFOLD_DB_AUTHENTICATOR_PASSWORD=synthetic-authenticator-password
+          DUEFOLD_DB_WORKER_PASSWORD=synthetic-worker-password
+          DUEFOLD_PUBLIC_URL=https://duefold.invalid
+          DUEFOLD_ORGANIZATION_NAME=Duefold CI
+          DUEFOLD_OWNER_EMAIL_ALLOWLIST=owner@duefold.invalid
+          DUEFOLD_OIDC_ISSUER=https://oidc:8443
+          DUEFOLD_OIDC_CLIENT_ID=synthetic-client
+          DUEFOLD_OIDC_CLIENT_SECRET=synthetic-secret
+          DUEFOLD_AUTH_MAIL_FROM=Duefold CI <no-reply@duefold.invalid>
+          DUEFOLD_SMTP_URL=smtp://mail.invalid:25
+          DUEFOLD_STORAGE_ENDPOINT=https://storage.invalid
+          DUEFOLD_STORAGE_BUCKET=synthetic
+          DUEFOLD_STORAGE_WEB_ACCESS_KEY_ID=synthetic-web
+          DUEFOLD_STORAGE_WEB_SECRET_ACCESS_KEY=synthetic-web-secret
+          DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID=synthetic-worker
+          DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY=synthetic-worker-secret
+          DUEFOLD_WEB_CPUS=2
+          DUEFOLD_WORKER_CPUS=2
+          DUEFOLD_OTP_DIGEST_KEY=sykt1mSWM7GYhL5bNBhYsNxMo7aRq-j9upohCeKz1CU
+          DUEFOLD_NETWORK_HMAC_KEY=n4Oj47i-YXNLqo9npNdOFwKgkXW0HrpkyvyGyQRXlRM
+          DUEFOLD_PII_HMAC_KEY=j5m6dMOYqfb1L_q_2zjM6caQLhJo5G8Zz7zXOMVpwqQ
+          COMPOSE_FILE=compose.yaml:compose.ci.yaml
+          EOF
+          mkdir -p .ci-oidc
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout .ci-oidc/key.pem -out .ci-oidc/cert.pem -subj '/CN=oidc' \
+            -addext 'subjectAltName=DNS:oidc'
+          chmod 0644 .ci-oidc/key.pem
+          cat > .ci-oidc/server.mjs <<'EOF'
+          import { readFileSync } from 'node:fs';
+          import { createServer } from 'node:https';
+          const metadata = JSON.stringify({
+            issuer: 'https://oidc:8443',
+            authorization_endpoint: 'https://oidc:8443/authorize',
+            token_endpoint: 'https://oidc:8443/token',
+            jwks_uri: 'https://oidc:8443/jwks',
+          });
+          createServer({ key: readFileSync('/oidc/key.pem'), cert: readFileSync('/oidc/cert.pem') },
+            (request, response) => {
+              if (request.url !== '/.well-known/openid-configuration') {
+                response.writeHead(404).end();
+                return;
+              }
+              response.writeHead(200, { 'content-type': 'application/json' }).end(metadata);
+            }).listen(8443);
+          EOF
+          cat > compose.ci.yaml <<'EOF'
+          services:
+            oidc:
+              image: node:26.5.0-trixie
+              command: ['node', '/oidc/server.mjs']
+              read_only: true
+              cap_drop: ['ALL']
+              security_opt: ['no-new-privileges']
+              volumes: ['./.ci-oidc:/oidc:ro']
+              networks: [internal]
+              healthcheck:
+                test: ['CMD', 'node', '-e', 'require("node:https").get("https://127.0.0.1:8443/.well-known/openid-configuration",{rejectUnauthorized:false},r=>process.exit(r.statusCode===200?0:1)).on("error",()=>process.exit(1))']
+                interval: 2s
+                timeout: 2s
+                retries: 20
+            web:
+              environment:
+                NODE_EXTRA_CA_CERTS: /oidc/cert.pem
+              volumes: ['./.ci-oidc/cert.pem:/oidc/cert.pem:ro']
+              depends_on:
+                oidc:
+                  condition: service_healthy
+          EOF
+      - name: Enable unprivileged sandbox namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: docker compose config --quiet
+      - run: docker compose build web worker migrate
+      - name: Start complete composition
+        run: |
+          if ! docker compose up -d --wait; then
+            docker compose ps --all
+            docker compose logs --no-color postgres clamav migrate oidc web worker
+            exit 1
+          fi
+      - name: Assert complete migration and job compatibility checks
+        run: |
+          response="$(docker compose exec -T web node -e 'fetch("http://127.0.0.1:8080/api/health/ready").then(async r=>process.stdout.write(JSON.stringify({status:r.status,body:await r.json()})))')"
+          node -e 'const response=JSON.parse(process.argv[1]);if(response.status!==503||response.body.status!=="unready"||response.body.checks.postgresql!=="ok"||response.body.checks.migrations!=="ok"||response.body.checks.jobs!=="ok"||response.body.checks.storage==="ok")process.exit(1)' "$response"
+      - name: Run image smoke through Compose security boundaries
+        run: |
+          docker compose run --rm --no-deps --entrypoint node web deploy/image-smoke.ts web
+          docker compose run --rm --no-deps --entrypoint node worker deploy/image-smoke.ts worker
+      - name: Run migrations twice
+        run: |
+          for attempt in 1 2; do
+            if ! docker compose run --rm migrate; then
+              docker compose logs --no-color postgres
+              exit 1
+            fi
+          done
+      - if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  database:
+    name: Integration and authorization matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: bash .github/scripts/setup-postgres.sh
+      - run: bash .github/scripts/setup-sandbox.sh
+      - run: npm run compose
+      - run: npm run test:integration
+      - run: npm run test:authz
+
+  browser:
+    name: Browser journeys (Chromium, Firefox)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: bash .github/scripts/setup-postgres.sh
+      - run: bash .github/scripts/setup-sandbox.sh
+      - run: npx playwright install --with-deps chromium firefox
+      # The harness serves the built client, so the bundle must exist first.
+      - run: npm run build
+      - run: npm run test:browser
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

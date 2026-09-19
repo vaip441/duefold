@@ -1,0 +1,31 @@
+{
+  "name": "@duefold/core-security",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    "./declaration": "./src/declaration.ts",
+    "./db": "./src/db/database.ts",
+    "./migrations": "./src/db/migrate.ts",
+    "./auth": "./src/auth/index.ts",
+    "./sessions": "./src/sessions.ts",
+    "./authorization": "./src/authorization.ts",
+    "./audit": "./src/audit.ts",
+    "./recovery": "./src/recovery.ts",
+    "./config": "./src/config.ts"
+  },
+  "dependencies": {
+    "@duefold/composition": "0.1.0",
+    "@duefold/shared": "0.1.0",
+    "@sinclair/typebox": "0.34.52",
+    "@types/pg": "8.23.1",
+    "kysely": "0.29.6",
+    "nodemailer": "10.0.10",
+    "openid-client": "6.8.8",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "8.0.2"
+  }
+}

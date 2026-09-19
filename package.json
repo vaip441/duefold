@@ -1,0 +1,55 @@
+{
+  "name": "duefold",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Lightweight, modular, self-hosted investor data room",
+  "type": "module",
+  "engines": {
+    "node": "26.5.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "modules/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "compose": "node packages/composition/src/cli.ts generate",
+    "compose:verify": "node packages/composition/src/cli.ts verify",
+    "compose:verify:minimal": "node packages/composition/src/cli.ts verify --manifest composition.minimal.manifest.json",
+    "build": "npm run compose && npm run build --workspace @duefold/web-client",
+    "typecheck": "npm run compose && tsc -p tsconfig.json && tsc -p apps/web-client/tsconfig.json && tsc -p test/browser/tsconfig.json",
+    "lint": "npm run compose && eslint . --max-warnings 0",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "test": "vitest run --project unit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "npm run compose && vitest run --project integration",
+    "test:authz": "npm run compose && vitest run --project authz",
+    "test:watch": "vitest",
+    "test:browser": "npm run compose && playwright test",
+    "docs:screenshots": "npm run build && playwright test --config test/screenshots/playwright.config.ts",
+    "db:migrate": "node apps/cli/src/main.ts db migrate",
+    "db:reset": "node apps/cli/src/main.ts db reset",
+    "verify": "npm run format && npm run lint && npm run typecheck && npm run compose:verify && npm run compose:verify:minimal && npm run compose && npm run test:unit"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@eslint/js": "10.0.1",
+    "@fontsource-variable/public-sans": "5.3.0",
+    "@fontsource-variable/source-serif-4": "5.3.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "@vitest/coverage-v8": "5.0.1",
+    "eslint": "10.10.0",
+    "prettier": "3.9.7",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}

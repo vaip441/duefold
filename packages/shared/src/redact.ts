@@ -1,0 +1,51 @@
+const TELEMETRY_EVENTS = ['request.failed', 'process.failure'] as const;
+const TELEMETRY_CODES = ['REQUEST_FAILED', 'PROCESS_FAILED'] as const;
+const TELEMETRY_LEVELS = ['info', 'warn', 'error'] as const;
+const TELEMETRY_SERVICES = ['web', 'worker', 'cli'] as const;
+const TELEMETRY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const;
+const TELEMETRY_STAGES = ['config', 'oidc', 'database', 'application', 'listen'] as const;
+
+import { isCorrelationId } from './ids.ts';
+
+export type TelemetryValue = number | string;
+export type TelemetryRecord = Readonly<Record<string, TelemetryValue>>;
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function isOneOf<const Values extends readonly string[]>(
+  value: unknown,
+  values: Values,
+): value is Values[number] {
+  return typeof value === 'string' && (values as readonly string[]).includes(value);
+}
+function boundedInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return (
+    typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum
+  );
+}
+
+/**
+ * Telemetry fields have closed value contracts. Unknown fields and invalid
+ * values are dropped, including sensitive free text placed under a known key.
+ */
+export function allowlistedTelemetry(value: unknown): TelemetryRecord {
+  if (!isRecord(value)) return {};
+  const output: Record<string, TelemetryValue> = {};
+  if (isOneOf(value['event'], TELEMETRY_EVENTS)) output['event'] = value['event'];
+  if (isOneOf(value['level'], TELEMETRY_LEVELS)) output['level'] = value['level'];
+  if (isOneOf(value['code'], TELEMETRY_CODES)) output['code'] = value['code'];
+  if (boundedInteger(value['status'], 100, 599)) output['status'] = value['status'];
+  if (boundedInteger(value['durationMs'], 0, 86_400_000))
+    output['durationMs'] = value['durationMs'];
+  if (isOneOf(value['method'], TELEMETRY_METHODS)) output['method'] = value['method'];
+  if (isOneOf(value['service'], TELEMETRY_SERVICES)) output['service'] = value['service'];
+  if (isOneOf(value['stage'], TELEMETRY_STAGES)) output['stage'] = value['stage'];
+  if (
+    typeof value['version'] === 'string' &&
+    /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/u.test(value['version'])
+  )
+    output['version'] = value['version'];
+  if (isCorrelationId(value['correlation'])) output['correlation'] = value['correlation'];
+  return output;
+}

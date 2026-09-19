@@ -1,0 +1,430 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
+import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
+import { migrate } from '../../modules/core-security/src/db/migrate.ts';
+import type { MemberIdentity } from '../../modules/core-security/src/authorization.ts';
+import {
+  readMemberRooms,
+  readTrash,
+  readWorkingStructure,
+} from '../../modules/rooms-documents/src/workspace-reads.ts';
+
+/**
+ * Authorization for the member workspace readers added in migration 006.
+ *
+ * duefold_runtime has no SELECT on room, folder, working_structure_entry,
+ * published_structure_entry or room_trash, so these readers are the entire read
+ * surface for the workspace. Every negative arm here is POPULATED: a second room
+ * and a second member exist, so "sees nothing" can never pass because the fixture
+ * was empty.
+ */
+
+const bootstrapPool = new Pool({
+  host: '/var/run/postgresql',
+  database: 'duefold_test',
+});
+const migrationPool = new Pool({
+  connectionString: process.env['DUEFOLD_TEST_MIGRATION_DATABASE_URL'],
+});
+const runtimePool = new Pool({ connectionString: process.env['DUEFOLD_TEST_DATABASE_URL'] });
+
+const ownerId = createOpaqueId(),
+  managerId = createOpaqueId(),
+  contributorId = createOpaqueId(),
+  outsiderId = createOpaqueId();
+const assignedRoomId = createOpaqueId(),
+  otherRoomId = createOpaqueId(),
+  archivedRoomId = createOpaqueId();
+const parentFolderId = createOpaqueId(),
+  childFolderId = createOpaqueId(),
+  trashedFolderId = createOpaqueId();
+
+function audit(): readonly [string, string] {
+  return [createOpaqueId(), createCorrelationId()];
+}
+function identity(id: string): MemberIdentity {
+  return {
+    kind: 'member',
+    id,
+    globalRole: 'member',
+    oidcAuthenticatedAt: new Date(),
+    roomRoles: {},
+  };
+}
+async function workingRevision(roomId: string): Promise<number> {
+  const row = (
+    await migrationPool.query<{ working_revision: number }>(
+      'SELECT working_revision FROM room WHERE id=$1',
+      [roomId],
+    )
+  ).rows[0];
+  if (row === undefined) throw new Error('room absent');
+  return row.working_revision;
+}
+
+beforeAll(async () => {
+  await bootstrapPool.query(
+    'DROP SCHEMA public CASCADE; CREATE SCHEMA public; ALTER SCHEMA public OWNER TO duefold_migration;',
+  );
+  await migrate(migrationPool, generatedMigrations);
+  const client = await migrationPool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const [id, role, local] of [
+      [ownerId, 'owner', 'owner'],
+      [managerId, 'member', 'manager'],
+      [contributorId, 'member', 'contributor'],
+      [outsiderId, 'member', 'outsider'],
+    ] as const)
+      await client.query(
+        "INSERT INTO member(id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state) VALUES($1,$2,$2,'https://issuer.example',$1,$3,'active')",
+        [id, `${local}@workspace.invalid`, role],
+      );
+    await client.query("INSERT INTO organization(id,name) VALUES($1,'Workspace readers')", [
+      createOpaqueId(),
+    ]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  for (const [roomId, title] of [
+    [assignedRoomId, 'Assigned room'],
+    [otherRoomId, 'Other room'],
+    [archivedRoomId, 'Archived room'],
+  ] as const)
+    await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+      roomId,
+      title,
+      '',
+      ownerId,
+      ...audit(),
+    ]);
+
+  // The manager and contributor are assigned to ONE room only. The other two
+  // rooms are fully populated, so a leak would surface as extra rows rather than
+  // as an empty result that proves nothing.
+  await runtimePool.query(
+    "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager'),($4,$2,$5,'contributor')",
+    [createOpaqueId(), assignedRoomId, managerId, createOpaqueId(), contributorId],
+  );
+
+  await runtimePool.query('SELECT create_folder_entry($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9)', [
+    parentFolderId,
+    assignedRoomId,
+    'Financials',
+    'Working description',
+    1000,
+    ownerId,
+    await workingRevision(assignedRoomId),
+    ...audit(),
+  ]);
+  await runtimePool.query('SELECT create_folder_entry($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [
+    childFolderId,
+    assignedRoomId,
+    parentFolderId,
+    'Statements',
+    '',
+    1000,
+    ownerId,
+    await workingRevision(assignedRoomId),
+    ...audit(),
+  ]);
+  // Populate the OTHER room too, so cross-room isolation has something to leak.
+  await runtimePool.query('SELECT create_folder_entry($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9)', [
+    createOpaqueId(),
+    otherRoomId,
+    'Other-room secret folder',
+    '',
+    1000,
+    ownerId,
+    await workingRevision(otherRoomId),
+    ...audit(),
+  ]);
+
+  // A trashed draft-only folder in the assigned room.
+  await runtimePool.query('SELECT create_folder_entry($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9)', [
+    trashedFolderId,
+    assignedRoomId,
+    'Superseded model',
+    '',
+    3000,
+    ownerId,
+    await workingRevision(assignedRoomId),
+    ...audit(),
+  ]);
+  const trashedEntry = (
+    await migrationPool.query<{ id: string; revision: number }>(
+      'SELECT id,revision FROM working_structure_entry WHERE folder_id=$1',
+      [trashedFolderId],
+    )
+  ).rows[0];
+  if (trashedEntry === undefined) throw new Error('trash fixture entry absent');
+  await runtimePool.query(
+    'SELECT * FROM mutate_structure_entry($1,NULL,$2,$3,true,$4,$5,$6,$7,$8)',
+    [
+      trashedEntry.id,
+      'Superseded model',
+      3000,
+      ownerId,
+      trashedEntry.revision,
+      await workingRevision(assignedRoomId),
+      ...audit(),
+    ],
+  );
+
+  await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+    archivedRoomId,
+    'archived',
+    ownerId,
+    1,
+    ...audit(),
+  ]);
+}, 120_000);
+
+afterAll(async () => {
+  await Promise.all([bootstrapPool.end(), migrationPool.end(), runtimePool.end()]);
+});
+
+describe('member workspace readers', () => {
+  it('reports why each room is reachable and never presents a global-role room as an assignment', async () => {
+    const ownerRooms = await readMemberRooms({
+      pool: runtimePool,
+      identity: identity(ownerId),
+    });
+    // An owner holds NO room_assignment, yet member_can_mutate_room admits every
+    // room. That must be labelled as role-derived rather than looking like an
+    // invitation from a colleague.
+    expect(ownerRooms.length).toBeGreaterThanOrEqual(3);
+    for (const room of ownerRooms) {
+      expect(room.accessSource).toBe('global_role');
+      expect(room.roomRole).toBeNull();
+    }
+
+    const managerRooms = await readMemberRooms({
+      pool: runtimePool,
+      identity: identity(managerId),
+    });
+    expect(managerRooms).toHaveLength(1);
+    expect(managerRooms[0]).toMatchObject({
+      roomId: assignedRoomId,
+      accessSource: 'assignment',
+      roomRole: 'manager',
+      canPublish: true,
+    });
+  });
+
+  it('confines a contributor to assigned rooms and withholds the manager-only publish decision', async () => {
+    const rooms = await readMemberRooms({
+      pool: runtimePool,
+      identity: identity(contributorId),
+    });
+    // The negative arm is populated: two other rooms exist and one is archived.
+    expect(rooms).toHaveLength(1);
+    expect(rooms.map((room) => room.roomId)).not.toContain(otherRoomId);
+    expect(rooms.map((room) => room.roomId)).not.toContain(archivedRoomId);
+    expect(rooms[0]).toMatchObject({
+      roomId: assignedRoomId,
+      accessSource: 'assignment',
+      roomRole: 'contributor',
+      // A Contributor stages; a Manager publishes. The server says so here, and
+      // the workspace must not offer a control this forbids.
+      canPublish: false,
+    });
+  });
+
+  it('includes archived rooms with their state so records stay reachable', async () => {
+    const rooms = await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) });
+    const archived = rooms.find((room) => room.roomId === archivedRoomId);
+    expect(archived).toMatchObject({ state: 'archived' });
+  });
+
+  it('returns no rooms at all to a member with neither assignment nor global role', async () => {
+    const rooms = await readMemberRooms({ pool: runtimePool, identity: identity(outsiderId) });
+    // Three populated rooms exist; an outsider still sees none of them.
+    expect(rooms).toHaveLength(0);
+  });
+
+  it('projects the working tree with dense positions and never the fractional order key', async () => {
+    const entries = await readWorkingStructure({
+      pool: runtimePool,
+      identity: identity(managerId),
+      roomId: assignedRoomId,
+    });
+    const names = entries.map((entry) => entry.displayName);
+    expect(names).toContain('Financials');
+    expect(names).toContain('Statements');
+    expect(names).not.toContain('Other-room secret folder');
+
+    const parent = entries.find((entry) => entry.displayName === 'Financials');
+    const child = entries.find((entry) => entry.displayName === 'Statements');
+    expect(parent).toMatchObject({ depth: 0, position: 1, canMoveUp: false });
+    expect(child).toMatchObject({ depth: 1, position: 1, parentFolderId: parentFolderId });
+
+    // No fractional ordering key, object key, or digest may appear anywhere in the
+    // serialized projection.
+    const serialized = JSON.stringify(entries);
+    expect(serialized).not.toMatch(/orderKey|order_key/u);
+    expect(serialized).not.toMatch(/objectKey|sha256|quarantine\//u);
+  });
+
+  it('computes movement flags over active siblings only, so a staged removal cannot enable a no-op move', async () => {
+    /*
+     * The reader's position and movement flags MUST be computed over the same
+     * active-sibling set the mutation resolver uses when placing an entry. When
+     * they were computed over all siblings including staged-removed ones, the
+     * last active row still reported canMoveDown=true because a removed sibling
+     * padded the count -- offering a move that was a no-op or landed at a
+     * different active position.
+     *
+     * Both arms are populated: three root folders are created, the last is staged
+     * for removal, and the assertions then cover the remaining ACTIVE rows plus
+     * the removed row itself.
+     */
+    const movementRoomId = createOpaqueId();
+    await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+      movementRoomId,
+      'Movement room',
+      '',
+      ownerId,
+      ...audit(),
+    ]);
+    await runtimePool.query(
+      "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager')",
+      [createOpaqueId(), movementRoomId, managerId],
+    );
+    const first = createOpaqueId(),
+      second = createOpaqueId(),
+      removed = createOpaqueId();
+    for (const [id, name, order] of [
+      [first, 'Movement first', 7000],
+      [second, 'Movement second', 7100],
+      [removed, 'Movement removed', 7200],
+    ] as const)
+      await runtimePool.query('SELECT create_folder_entry($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9)', [
+        id,
+        movementRoomId,
+        name,
+        '',
+        order,
+        ownerId,
+        await workingRevision(movementRoomId),
+        ...audit(),
+      ]);
+    const entryRevision = (
+      await migrationPool.query<{ revision: number }>(
+        'SELECT revision FROM working_structure_entry WHERE id=$1',
+        [removed],
+      )
+    ).rows[0];
+    if (!entryRevision) throw new Error('MOVEMENT_FIXTURE_ABSENT');
+    /*
+     * mutate_structure_entry writes each column it is given, so NULL means "set
+     * null", not "leave unchanged". The current name is passed back deliberately
+     * to isolate the staged-removal change.
+     */
+    await runtimePool.query(
+      'SELECT mutate_structure_entry($1,NULL,$2,7200,true,$3,$4,$5,$6,$7)',
+      [
+        removed,
+        'Movement removed',
+        ownerId,
+        entryRevision.revision,
+        await workingRevision(movementRoomId),
+        ...audit(),
+      ],
+    );
+
+    const entries = await readWorkingStructure({
+      pool: runtimePool,
+      identity: identity(managerId),
+      roomId: movementRoomId,
+    });
+    const byName = (name: string) => entries.find((entry) => entry.displayName === name);
+    // Populated positive arm: the staged-removed row is still projected.
+    expect(byName('Movement removed')?.stagedRemoved).toBe(true);
+    // A staged removal is a pending removal, not an orderable row.
+    expect(byName('Movement removed')).toMatchObject({
+      position: null,
+      canMoveUp: false,
+      canMoveDown: false,
+    });
+    /*
+     * 'Movement second' is the LAST ACTIVE root sibling. It must report
+     * canMoveDown=false; counting the removed row made this true and is exactly
+     * the arm the previous test omitted.
+     */
+    expect(byName('Movement second')?.canMoveDown).toBe(false);
+    expect(byName('Movement first')?.canMoveDown).toBe(true);
+  });
+
+  it('marks an unpublished entry as a pending change and a never-published entry as not live', async () => {
+    const entries = await readWorkingStructure({
+      pool: runtimePool,
+      identity: identity(managerId),
+      roomId: assignedRoomId,
+    });
+    const parent = entries.find((entry) => entry.displayName === 'Financials');
+    // Nothing in this room is published yet, so publishing would ADD it. The
+    // positive arm is populated: the entry exists and is returned.
+    expect(parent?.isPublished).toBe(false);
+    expect(parent?.changeKinds).toContain('add');
+  });
+
+  it('returns an empty working tree to a member of a different room', async () => {
+    const entries = await readWorkingStructure({
+      pool: runtimePool,
+      identity: identity(managerId),
+      roomId: otherRoomId,
+    });
+    // otherRoomId genuinely contains a folder, so this proves the gate, not emptiness.
+    expect(entries).toHaveLength(0);
+    const outsiderEntries = await readWorkingStructure({
+      pool: runtimePool,
+      identity: identity(outsiderId),
+      roomId: assignedRoomId,
+    });
+    expect(outsiderEntries).toHaveLength(0);
+  });
+
+  it('reports trash with absolute server timestamps and no client-computable countdown', async () => {
+    const trash = await readTrash({
+      pool: runtimePool,
+      identity: identity(managerId),
+      roomId: assignedRoomId,
+    });
+    expect(trash).toHaveLength(1);
+    const entry = trash[0];
+    expect(entry).toMatchObject({ displayName: 'Superseded model', wasPublished: false });
+    if (entry === undefined) throw new Error('trash entry absent');
+    // Retention is fixed at 30 days from the server's trashed_at, and the reader
+    // exposes the absolute instant rather than a precomputed days-remaining that a
+    // client clock could render wrongly on an irreversible purge.
+    const days =
+      (Date.parse(entry.purgeAfter) - Date.parse(entry.trashedAt)) / (24 * 60 * 60 * 1000);
+    expect(Math.round(days)).toBe(30);
+    expect(JSON.stringify(entry)).not.toMatch(/daysRemaining|days_remaining/u);
+  });
+
+  it('returns no trash to an unauthorized member while trash genuinely exists', async () => {
+    for (const actor of [outsiderId, contributorId]) {
+      const trash = await readTrash({
+        pool: runtimePool,
+        identity: identity(actor),
+        roomId: actor === contributorId ? otherRoomId : assignedRoomId,
+      });
+      expect(trash).toHaveLength(0);
+    }
+    // Proof the fixture is not simply empty.
+    const visible = await readTrash({
+      pool: runtimePool,
+      identity: identity(managerId),
+      roomId: assignedRoomId,
+    });
+    expect(visible).toHaveLength(1);
+  });
+});

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.duefold/
+.*/
+!.github/
+package-lock.json
+*.md
+!README.md

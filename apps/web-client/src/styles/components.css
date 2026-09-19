@@ -1,0 +1,936 @@
+/*
+ * Components: controls, fields, notices, and the authentication sheet.
+ * Every interactive element ships default, hover, focus, active, and disabled.
+ */
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.df-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-4);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  /* Named properties only, never `all`. */
+  transition:
+    background-color var(--duration-state) var(--ease-out),
+    border-color var(--duration-state) var(--ease-out),
+    color var(--duration-state) var(--ease-out),
+    transform var(--duration-press) var(--ease-out);
+}
+
+.df-button:hover:not(:disabled) {
+  border-color: var(--ink-faint);
+  background: var(--ground-raised);
+}
+
+/* Press feedback confirms the interface heard the press. */
+.df-button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.df-button:disabled {
+  cursor: not-allowed;
+  color: var(--ink-faint);
+  border-color: var(--rule);
+  background: var(--ground-sunken);
+}
+
+/* The one green: primary action and active state. Never decoration. */
+.df-button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: var(--weight-semibold);
+}
+
+.df-button--primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--accent-contrast);
+}
+
+.df-button--primary:disabled {
+  background: var(--ground-sunken);
+  border-color: var(--rule);
+  color: var(--ink-faint);
+}
+
+.df-button--quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--ink-muted);
+  min-height: 2.25rem;
+  padding-inline: var(--space-2);
+}
+
+.df-button--quiet:hover:not(:disabled) {
+  background: var(--ground-sunken);
+  color: var(--ink);
+  border-color: transparent;
+}
+
+/* A link that behaves like a link, styled as one, not as a button. It carries
+ * vertical padding so it still meets the 24px minimum target size (WCAG 2.2
+ * 2.5.8) without looking like a control. */
+.df-textlink {
+  background: none;
+  border: 0;
+  padding: var(--space-1) 0;
+  min-height: 24px;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.df-textlink:hover {
+  color: var(--accent-strong);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+
+.df-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.df-field__label {
+  font-size: var(--size-meta);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+
+.df-field__help {
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+}
+
+.df-field__input {
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--ground-raised);
+  color: var(--ink);
+  font-size: var(--size-body);
+  transition:
+    border-color var(--duration-state) var(--ease-out),
+    background-color var(--duration-state) var(--ease-out);
+}
+
+.df-field__input::placeholder {
+  color: var(--ink-faint);
+}
+
+.df-field__input:hover:not(:disabled) {
+  border-color: var(--ink-faint);
+}
+
+.df-field__input:disabled {
+  background: var(--ground-sunken);
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.df-field__input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+/* The code field is read digit-by-digit, so it is set wide and monospaced in
+ * figures only — tabular numerals, not a monospace costume. */
+.df-field__input--code {
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.25rem;
+  letter-spacing: 0.32em;
+  max-width: 12ch;
+}
+
+.df-field__error {
+  font-size: var(--size-meta);
+  color: var(--danger);
+  font-weight: var(--weight-medium);
+}
+
+/* --- Notices ------------------------------------------------------------- */
+
+/*
+ * A notice is a ruled band on the plane, not a card: one 2px inline-start rule
+ * in the state colour, a text label, and no box. Meaning never rests on colour:
+ * every notice carries wording that states the state in words.
+ */
+.df-notice {
+  border-inline-start: 2px solid var(--rule-strong);
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+  max-width: var(--measure-prose);
+}
+
+.df-notice--action {
+  border-inline-start-color: var(--accent);
+  color: var(--ink);
+}
+
+.df-notice--problem {
+  border-inline-start-color: var(--danger);
+  color: var(--ink);
+}
+
+.df-notice--caution {
+  border-inline-start-color: var(--notice);
+  color: var(--ink);
+}
+
+.df-notice__title {
+  display: block;
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  margin-bottom: var(--space-1);
+}
+
+/* --- Authentication sheet ------------------------------------------------ */
+
+/*
+ * The auth surfaces are a single sheet on the same plane as everything else: a
+ * measured column with a rule under the title. No card, no shadow, no centred
+ * white box.
+ */
+.df-sheet {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100dvh;
+  background: var(--ground);
+}
+
+.df-sheet__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+
+.df-sheet__main {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--space-7) var(--space-5);
+}
+
+.df-sheet__column {
+  width: 100%;
+  max-width: 27rem;
+  margin-inline: auto;
+}
+
+.df-sheet__title {
+  padding-bottom: var(--space-3);
+  border-bottom: var(--hairline) solid var(--rule);
+  margin-bottom: var(--space-4);
+}
+
+.df-sheet__lead {
+  color: var(--ink-muted);
+  margin-bottom: var(--space-5);
+  max-width: var(--measure-prose);
+}
+
+.df-sheet__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.df-sheet__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.df-sheet__aside {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: var(--hairline) solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+  font-size: var(--size-meta);
+}
+
+.df-sheet__footer {
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--hairline) solid var(--rule);
+  color: var(--ink-faint);
+  font-size: var(--size-meta);
+}
+
+@media (max-width: 30rem) {
+  .df-sheet__main {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .df-sheet__header,
+  .df-sheet__footer {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* --- Theme control ------------------------------------------------------- */
+
+.df-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+}
+
+.df-theme__select {
+  min-height: 2rem;
+  padding: var(--space-1) var(--space-2);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--ground);
+  color: var(--ink);
+  font-size: var(--size-meta);
+}
+
+/* --- Busy indication ---------------------------------------------------- */
+
+/*
+ * Pending work is stated in words in the control and announced in the live
+ * region. There is no spinner: a spinner would be decoration next to text that
+ * already says what is happening.
+ */
+.df-button[data-busy='true'] {
+  color: var(--ink-faint);
+}
+
+.df-button--primary[data-busy='true'] {
+  color: var(--accent-contrast);
+  opacity: 0.85;
+}
+
+/*
+ * Member workspace.
+ *
+ * The register is a finding aid, not a data grid: a rule under the header row, a
+ * rule between rows, no vertical rules, no zebra fill, and no card. Hierarchy is
+ * carried by the row header's weight and the meta line's size, so the table reads
+ * as a catalogue page. It stays on the one plane.
+ */
+.df-register {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: var(--space-4) var(--space-5);
+  font-size: var(--size-body);
+}
+.df-register caption {
+  text-align: start;
+}
+.df-register th,
+.df-register td {
+  text-align: start;
+  vertical-align: baseline;
+  padding: var(--space-3) var(--space-3) var(--space-3) 0;
+  border-block-end: var(--hairline) solid var(--rule);
+}
+.df-register thead th {
+  font-size: var(--size-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border-block-end: var(--hairline) solid var(--rule-strong);
+  padding-block-end: var(--space-2);
+}
+.df-register tbody th {
+  font-size: var(--size-body);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+.df-register--compact th,
+.df-register--compact td {
+  padding-block: var(--space-2);
+}
+.df-register__name {
+  max-width: 42ch;
+}
+.df-register__meta {
+  display: block;
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+  font-weight: 400;
+  margin-block-start: var(--space-1);
+}
+/* A wrapper inside the cell, never the <td> itself: a flex td leaves table
+   layout, so its rule and height stop lining up with the row. Controls wrap
+   as whole buttons; a label never breaks inside its button. */
+.df-register__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.df-register__actions .df-button {
+  white-space: nowrap;
+}
+/* A staged-removal row is struck through AND labelled, never colour alone. */
+.df-register tr[data-staged-removed='true'] .df-register__name {
+  text-decoration: line-through;
+  color: var(--ink-muted);
+}
+
+/*
+ * State and change wording. The accent marks the live/current case only; pending
+ * and removal states are carried by words and weight, keeping to the one-green
+ * rule.
+ */
+.df-state {
+  display: block;
+  font-size: var(--size-meta);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-muted);
+}
+.df-state[data-live='true'] {
+  color: var(--accent);
+}
+.df-state[data-state='archived'] {
+  color: var(--ink-faint);
+}
+.df-changes {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+}
+.df-changes > li + li {
+  margin-block-start: 2px;
+}
+
+.df-section__heading {
+  font-size: var(--size-section);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-text);
+  color: var(--ink);
+  margin-block: var(--space-6) var(--space-2);
+}
+.df-results {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.df-results > li {
+  padding-block: var(--space-2);
+  border-block-end: var(--hairline) solid var(--rule);
+}
+.df-results__name {
+  font-weight: var(--weight-semibold);
+}
+.df-field--inline {
+  display: flex;
+  /* .df-field is a column; without this the input's flex-basis becomes its height. */
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+.df-field--inline .df-field__label {
+  flex-basis: 100%;
+}
+.df-field--inline .df-field__input {
+  flex: 1 1 18ch;
+  min-width: 0;
+}
+.df-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.df-inline-form--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 16rem;
+}
+.df-field__input--inline {
+  height: 2.25rem;
+  min-width: 0;
+}
+
+/*
+ * The publication dialog is the one place this system uses an overlay, because a
+ * high-consequence confirmation must take the whole task. The scrim is a tonal
+ * wash rather than a shadow, and the panel is a bordered sheet on the same plane
+ * -- no elevation, no radius above the control token.
+ */
+.df-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  overflow-y: auto;
+}
+.df-modal__panel {
+  background: var(--ground);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  padding: var(--space-5);
+  max-width: 44rem;
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+}
+.df-modal__title {
+  font-size: var(--size-section);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-text);
+  margin-block: 0 var(--space-3);
+}
+.df-modal__lead {
+  font-size: var(--size-body);
+  color: var(--ink-muted);
+  max-width: 68ch;
+  margin-block: 0 var(--space-2);
+}
+.df-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-5);
+}
+
+/*
+ * At narrow widths the register becomes a stacked list: each cell is labelled by
+ * its column so the meaning survives without the header row. A horizontally
+ * scrolling table would hide the action buttons at 320px.
+ */
+@media (max-width: 48rem) {
+  .df-register thead {
+    display: none;
+  }
+  .df-register,
+  .df-register tbody,
+  .df-register tr,
+  .df-register th,
+  .df-register td {
+    display: block;
+    width: auto;
+  }
+  .df-register tr {
+    padding-block: var(--space-3);
+    border-block-end: var(--hairline) solid var(--rule-strong);
+  }
+  .df-register th,
+  .df-register td {
+    border-block-end: 0;
+    padding-block: var(--space-1);
+  }
+  .df-register__name {
+    max-width: none;
+  }
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Viewer reading room
+ *
+ * The page is the only thing on this surface that is not interface, so it gets
+ * the one ground shift and the one rule, and everything else stays quiet.
+ * -----------------------------------------------------------------------------
+ */
+
+.df-page {
+  margin-block: var(--space-4);
+}
+
+/* Caption above the sheet, not over it: nothing overlaps document pixels. */
+.df-page__caption {
+  font-size: var(--size-meta);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  padding-block-end: var(--space-2);
+  border-block-end: var(--hairline) solid var(--rule);
+  margin-block: 0 var(--space-3);
+}
+
+/*
+ * The sheet establishes the positioning context for the text layer. It carries
+ * `.df-document-pixels` in markup, so its ground is pinned white in both themes.
+ */
+.df-page__sheet {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: var(--hairline) solid var(--rule-strong);
+}
+
+.df-page__image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/*
+ * The sanitized text layer sits exactly over the raster page. It is transparent
+ * but fully selectable, which is what makes a raster page support selection,
+ * copy, find, and screen-reader access at once.
+ *
+ * `user-select` is deliberately NOT set to none anywhere in this file;
+ * selection, copy, and the context menu remain enabled.
+ */
+.df-page__text {
+  position: absolute;
+  inset: 0;
+}
+
+.df-page__run {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-text);
+  /*
+   * Transparent glyphs over the raster text. `color: transparent` keeps the text
+   * selectable and readable by assistive technology while the pixels underneath
+   * carry the visual appearance.
+   */
+  color: transparent;
+  background: none;
+  border: 0;
+  white-space: pre;
+  line-height: 1;
+  /* Scale each run to its measured box so selection tracks the visible glyphs. */
+  font-size: calc(var(--size-body) * 0.92);
+  text-align: start;
+  overflow: hidden;
+}
+
+/* A link run is a real button: keyboard-reachable and focusable. */
+.df-page__run--link {
+  cursor: pointer;
+  /* A 1px underline in the accent marks a link without repainting the glyphs. */
+  border-block-end: 1px solid var(--accent);
+}
+.df-page__run--link:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/*
+ * Find highlight. This is the one place a wash touches document pixels, and it
+ * uses the selection tone rather than introducing a hue: a second accent colour
+ * would break the one-green rule, and a saturated highlight over arbitrary
+ * document colour cannot guarantee contrast.
+ */
+.df-page__match {
+  background: var(--selection-ground);
+  /* Current match is stated by structure and announced in the live region too. */
+  outline: 0;
+}
+.df-page__match[data-current='true'] {
+  background: var(--accent-wash);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.df-find {
+  margin-block: var(--space-4) var(--space-3);
+  padding-block-end: var(--space-3);
+  border-block-end: var(--hairline) solid var(--rule);
+}
+
+.df-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+  padding-block-start: var(--space-3);
+  border-block-start: var(--hairline) solid var(--rule);
+}
+.df-pager__position {
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.df-download {
+  margin-block-start: var(--space-6);
+  padding-block-start: var(--space-4);
+  border-block-start: var(--hairline) solid var(--rule);
+}
+
+/* Honest progress: real element, themed from the palette, no decorative bar. */
+.df-progress {
+  display: block;
+  inline-size: min(100%, 24rem);
+  block-size: 0.5rem;
+  margin-block: var(--space-2) var(--space-3);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--ground-sunken);
+  appearance: none;
+}
+.df-progress::-webkit-progress-bar {
+  background: var(--ground-sunken);
+}
+.df-progress::-webkit-progress-value {
+  background: var(--accent);
+}
+.df-progress::-moz-progress-bar {
+  background: var(--accent);
+}
+
+/* The normalized domain is the security-bearing fact in the interstitial. */
+.df-interstitial__domain {
+  font-family: var(--font-text);
+  font-size: var(--size-section);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  word-break: break-all;
+  margin-block: var(--space-1) var(--space-3);
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Access, processing, exports, and branding panels
+ *
+ * Everything here obeys the One-Plane Rule: a region is separated by a heading
+ * plus a rule, a ground shift, or space -- never a bordered floating container.
+ * There is no card, no shadow, and no radius above the control token.
+ * -----------------------------------------------------------------------------
+ */
+
+/*
+ * Section navigation reads as a ruled index strip, not a pill tab bar. The
+ * current entry carries the accent underline AND `aria-current`, so the state is
+ * never colour alone.
+ */
+.df-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-block: var(--space-2) var(--space-5);
+  border-block-end: var(--hairline) solid var(--rule);
+}
+.df-sections__entry {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  padding: var(--space-2) 0;
+  margin-block-end: -1px;
+  min-height: 2.25rem;
+  color: var(--ink-muted);
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
+  cursor: pointer;
+  transition:
+    color var(--duration-state) var(--ease-out),
+    border-color var(--duration-state) var(--ease-out);
+}
+.df-sections__entry:hover {
+  color: var(--ink);
+}
+.df-sections__entry[aria-current='true'] {
+  color: var(--ink);
+  border-block-end-color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+/* A block within a panel: separated by space and a rule, never boxed. */
+.df-panel__block {
+  margin-block-start: var(--space-5);
+  padding-block-start: var(--space-4);
+  border-block-start: var(--hairline) solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 44rem;
+}
+.df-panel__subheading {
+  font-family: var(--font-text);
+  font-size: var(--size-body);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  margin: 0;
+}
+.df-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+/*
+ * The server's impact statement. It sits on the sunken ground to mark it as the
+ * consequence of the change rather than more form -- a ground shift within the
+ * plane, which the system already uses for the index and notes.
+ */
+.df-impact {
+  margin-block-start: var(--space-3);
+  padding: var(--space-4);
+  background: var(--ground-sunken);
+  border-inline-start: 2px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Grants list: one line per grant, expiry always stated in words. */
+.df-grants {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.df-grants__target {
+  display: block;
+  font-size: var(--size-body);
+  color: var(--ink);
+}
+/*
+ * An expired grant is struck through AND labelled in words by
+ * `participants.grant.expiredHelp`, so the state never rests on styling.
+ */
+.df-grants > li[data-expired='true'] .df-grants__target {
+  text-decoration: line-through;
+  color: var(--ink-muted);
+}
+.df-grants__expired {
+  display: block;
+  font-size: var(--size-meta);
+  color: var(--notice);
+  font-weight: var(--weight-medium);
+}
+/* Per-grant actions sit with the grant they change, so a participant holding
+   several grants chooses one explicitly instead of the first being assumed. */
+.df-grants__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* A revoked membership row is dimmed, with the reason stated in the cell. */
+.df-register tr[data-membership='revoked'] .df-register__name {
+  color: var(--ink-muted);
+}
+
+/*
+ * Processing tone. Words carry the state; these only reinforce it, and every tone
+ * has copy that says the same thing.
+ */
+.df-state[data-tone='problem'] {
+  color: var(--danger);
+}
+.df-state[data-tone='caution'] {
+  color: var(--notice);
+}
+.df-state[data-tone='ready'] {
+  color: var(--accent);
+}
+
+.df-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-block-end: var(--space-3);
+}
+.df-controls__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A checkbox row label sits inline with its control. */
+.df-field--check .df-field__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 400;
+}
+
+.df-field__input--area {
+  min-height: 5rem;
+  line-height: 1.55;
+  font-family: var(--font-ui);
+  resize: vertical;
+}
+
+.df-brand-asset-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--ground-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+}
+
+.df-brand-asset-preview__image {
+  max-height: 40px;
+  max-width: 140px;
+  object-fit: contain;
+}
+
+.df-brand-asset-preview__image--square {
+  width: 32px;
+  height: 32px;
+}
+
+@media (max-width: 48rem) {
+  .df-sections {
+    gap: var(--space-3);
+  }
+  .df-panel__block,
+  .df-impact {
+    max-width: none;
+  }
+}
+
+/*
+ * Duefold provides no print action, and print styles hide
+ * protected pages. This does not claim printing is prevented -- a screenshot or a
+ * browser workaround always remains possible, which the interface states plainly
+ * in words. It removes the page from the ordinary print path and leaves a
+ * sentence in its place so the output is not silently blank.
+ */
+@media print {
+  .df-page__sheet,
+  .df-page__image,
+  .df-page__text {
+    display: none !important;
+  }
+  .df-page::after {
+    content: attr(data-print-notice);
+    display: block;
+    font-family: var(--font-ui);
+    font-size: var(--size-body);
+  }
+  .df-find,
+  .df-pager,
+  .df-download {
+    display: none !important;
+  }
+}

@@ -1,0 +1,517 @@
+import { existsSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { createClamAvClient } from './scanning/clamav.ts';
+import { startClamAvTestEndpoint } from '../../../test/support/clamav-endpoint.ts';
+import {
+  invokeSandboxed,
+  sandboxEnvironmentKeys,
+  sandboxProgram,
+} from './processing/sandbox.ts';
+import {
+  createProcessorPrograms,
+  processSource,
+  processorArgumentsForTesting,
+  structuredHttpsLinkForTesting,
+} from './processing/formats.ts';
+import {
+  imageMagickArguments,
+  muPdfArguments,
+  textMagickArguments,
+} from './processing/tool-adapter.ts';
+import {
+  boundedTmpfsMountForTesting,
+  enforceSandboxPreflight,
+  formatSandboxPreflight,
+  SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT,
+  sandboxPreflight,
+} from './processing/preflight.ts';
+import {
+  assertReleasePolicyIntegrity,
+  releaseFormatPolicy,
+  releasePolicyDigest,
+} from './release-policy.ts';
+
+const fixture = new URL(
+  '../../../test/fixtures/processors/processor-fixture.mjs',
+  import.meta.url,
+).pathname;
+const networkFixture = new URL(
+  '../../../test/fixtures/processors/network-fixture.mjs',
+  import.meta.url,
+).pathname;
+const forkFixture = new URL(
+  '../../../test/fixtures/processors/fork-survivor.mjs',
+  import.meta.url,
+).pathname;
+const limits = {
+  timeoutMilliseconds: 2_000,
+  maximumOutputBytes: 1024 * 1024,
+  maximumInputBytes: 1024,
+  maximumTemporaryBytes: 1024 * 1024,
+};
+
+describe('credential-free sandbox boundary', () => {
+  it('constructs an allowlisted environment, removes temporary material, and bounds output/time', async () => {
+    process.env['DUEFOLD_DATABASE_URL'] = 'secret-database';
+    process.env['AWS_SECRET_ACCESS_KEY'] = 'secret-storage';
+    const output = await invokeSandboxed({
+      program: sandboxProgram(process.execPath, [fixture]),
+      arguments: ['--fixture-inspect'],
+      input: Buffer.from('x'),
+      limits,
+    });
+    const inspected = JSON.parse(Buffer.from(output).toString('utf8')) as {
+      env: Record<string, string>;
+      cwd: string;
+    };
+    expect(inspected.env).not.toHaveProperty('DUEFOLD_DATABASE_URL');
+    expect(inspected.env).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
+    expect(Object.keys(inspected.env).sort()).toEqual(
+      [...sandboxEnvironmentKeys(), 'PWD', 'TMPDIR'].sort(),
+    );
+    expect(inspected.cwd).toContain('duefold-job-');
+    /*
+     * Assert THIS invocation's own directory was removed. Scanning tmpdir() for
+     * any duefold-job- entry absent from a pre-scan is a false positive: the unit
+     * project runs files in parallel and every other sandbox test creates its own
+     * directory in the same shared tmpdir, so an unrelated concurrent invocation
+     * was reported as a leak (reproduced roughly one run in three). The cleanup
+     * property is about this sandbox's directory, and the cwd tells us exactly
+     * which one that is.
+     */
+    expect(existsSync(inspected.cwd)).toBe(false);
+    await expect(
+      invokeSandboxed({
+        program: sandboxProgram(process.execPath, [fixture]),
+        arguments: ['--fixture-overflow'],
+        input: Buffer.from('x'),
+        limits: { ...limits, maximumOutputBytes: 10 },
+      }),
+    ).rejects.toThrow('SANDBOX_OUTPUT_LIMIT');
+    await expect(
+      invokeSandboxed({
+        program: sandboxProgram(process.execPath, [fixture]),
+        arguments: ['--fixture-timeout'],
+        input: Buffer.from('x'),
+        limits: { ...limits, timeoutMilliseconds: 20 },
+      }),
+    ).rejects.toThrow('SANDBOX_TIMEOUT');
+    /* Own-directory assertion; a global scan counts parallel tests as leaks. */
+    expect(existsSync(inspected.cwd)).toBe(false);
+  });
+  it('cannot read host secrets, home files, repository source, or .env outside its allowlist', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'duefold-secret-'));
+    const outsideSecret = join(outside, 'recognizable-secret');
+    const homeSecret = join(homedir(), `.duefold-sandbox-secret-${String(process.pid)}`);
+    await writeFile(outsideSecret, 'OUTSIDE_RECOGNIZABLE_SECRET');
+    await writeFile(homeSecret, 'HOME_RECOGNIZABLE_SECRET');
+    try {
+      const output = await invokeSandboxed({
+        program: sandboxProgram(process.execPath, [fixture]),
+        arguments: [
+          '--fixture-read-paths',
+          outsideSecret,
+          homeSecret,
+          new URL('./processing/formats.ts', import.meta.url).pathname,
+          join(process.cwd(), '.env'),
+        ],
+        input: Buffer.alloc(0),
+        limits,
+      });
+      expect(JSON.parse(Buffer.from(output).toString('utf8'))).toEqual([
+        'denied',
+        'denied',
+        'denied',
+        'denied',
+      ]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+      await rm(homeSecret, { force: true });
+    }
+  });
+  it('kills and reaps a forked survivor before cleanup and prevents outside plaintext writes', async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), 'duefold-sandbox-test-'));
+    const scratch = join(testRoot, 'scratch');
+    const outsideDirectory = await mkdtemp(join(testRoot, 'outside-'));
+    const outsidePath = join(outsideDirectory, 'escaped-plaintext');
+    await mkdir(scratch);
+    vi.stubEnv('TMPDIR', scratch);
+    try {
+      await expect(
+        invokeSandboxed({
+          program: sandboxProgram(process.execPath, [forkFixture]),
+          arguments: [outsidePath, 'started'],
+          input: Buffer.from('plaintext'),
+          limits: { ...limits, timeoutMilliseconds: 50 },
+        }),
+      ).rejects.toThrow('SANDBOX_TIMEOUT');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await expect(readFile(outsidePath)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(
+        (await readdir(scratch)).filter((name) => name.startsWith('duefold-job-')),
+      ).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+  it('removes scratch after a crashing child', async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), 'duefold-crash-test-'));
+    vi.stubEnv('TMPDIR', testRoot);
+    try {
+      await expect(
+        invokeSandboxed({
+          program: sandboxProgram(process.execPath, [fixture]),
+          arguments: ['--fixture-crash'],
+          input: Buffer.from('plaintext'),
+          limits,
+        }),
+      ).rejects.toThrow('SANDBOX_CHILD_FAILED');
+      expect(
+        (await readdir(testRoot)).filter((name) => name.startsWith('duefold-job-')),
+      ).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+  it('uses a network namespace so a child cannot reach a listening local socket', async () => {
+    const server = createServer().listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('address missing');
+    try {
+      const output = await invokeSandboxed({
+        program: sandboxProgram(process.execPath, [networkFixture]),
+        arguments: [String(address.port)],
+        input: Buffer.from(''),
+        limits,
+      });
+      expect(Buffer.from(output).toString()).toBe('denied');
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+  it('reports only a fixed parent-owned workbook stage from a failed adapter', async () => {
+    await expect(
+      processSource({
+        mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        bytes: Buffer.from('not a workbook'),
+        programs: createProcessorPrograms({
+          pdf: '/bin/false',
+          office: '/bin/false',
+          image: '/bin/false',
+          text: '/bin/false',
+        }),
+        limits: {
+          timeoutMilliseconds: 5_000,
+          maximumOutputBytes: 1_024,
+          maximumInputBytes: 1_024,
+          maximumTemporaryBytes: 1024 * 1024,
+        },
+      }),
+    ).rejects.toThrow('PROCESSOR_REWRITE_FAILED');
+  });
+
+  it('accepts only bounded tmpfs mounts at both exact processing paths', () => {
+    const mountInfo = [
+      '100 1 0:50 / /tmp rw,nosuid - tmpfs tmpfs rw,nosuid,size=262144k',
+      '101 1 0:51 / /var/lib/duefold/scratch rw,nosuid - tmpfs tmpfs rw,nosuid,size=2097152k',
+      '102 1 0:52 / /tmp-other rw,nosuid - tmpfs tmpfs rw,nosuid,size=1k',
+    ].join('\n');
+    expect(boundedTmpfsMountForTesting(mountInfo, '/tmp')).toBe(true);
+    expect(boundedTmpfsMountForTesting(mountInfo, '/var/lib/duefold/scratch')).toBe(true);
+    expect(
+      boundedTmpfsMountForTesting(
+        '100 1 0:50 / /tmp rw,nosuid - tmpfs tmpfs rw,nosuid',
+        '/tmp',
+      ),
+    ).toBe(false);
+    expect(
+      boundedTmpfsMountForTesting(
+        '100 1 0:50 / /tmp rw,nosuid - ext4 /dev/root rw,size=262144k',
+        '/tmp',
+      ),
+    ).toBe(false);
+  });
+
+  it('reports isolation honestly and fails production while allowing only explicit development acknowledgement', async () => {
+    const report = await sandboxPreflight();
+    expect(report.features.map(({ name }) => name)).toEqual([
+      'namespaces',
+      'seccomp',
+      'cgroups',
+      'no-new-privileges',
+      'read-only-mounts',
+      'bounded-tmpfs',
+      'denied-egress',
+    ]);
+    expect(formatSandboxPreflight(report)).toContain('bounded-tmpfs=absent');
+    expect(() => {
+      enforceSandboxPreflight(report, 'production');
+    }).toThrow('SANDBOX_PREFLIGHT_UNSUPPORTED');
+    expect(() => {
+      enforceSandboxPreflight(report, 'development', 'yes');
+    }).toThrow('SANDBOX_PREFLIGHT_UNSUPPORTED');
+    expect(() => {
+      enforceSandboxPreflight(report, 'development', SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT);
+    }).not.toThrow();
+  });
+});
+
+describe('ClamAV INSTREAM', () => {
+  it('speaks the real framed socket protocol and enforces freshness', async () => {
+    const endpoint = await startClamAvTestEndpoint({
+      signatureDate: new Date(),
+      response: 'clean',
+    });
+    try {
+      await expect(
+        createClamAvClient({ socket: endpoint, timeoutMilliseconds: 500 }).scan(
+          Buffer.from('hello'),
+        ),
+      ).resolves.toMatchObject({ result: 'clean' });
+      const stream = endpoint.requests()[1];
+      expect(
+        Buffer.from(stream ?? [])
+          .subarray(0, 10)
+          .toString(),
+      ).toBe('zINSTREAM\0');
+    } finally {
+      await endpoint.close();
+    }
+    const stale = await startClamAvTestEndpoint({ signatureDate: new Date(0) });
+    try {
+      await expect(
+        createClamAvClient({ socket: stale, timeoutMilliseconds: 500 }).scan(Buffer.from('x')),
+      ).rejects.toThrow('SCANNER_SIGNATURES_STALE');
+    } finally {
+      await stale.close();
+    }
+  });
+  it('supports detached scan invocation without relying on a method receiver', async () => {
+    const endpoint = await startClamAvTestEndpoint({
+      signatureDate: new Date(),
+      response: 'clean',
+    });
+    try {
+      const { scan } = createClamAvClient({ socket: endpoint, timeoutMilliseconds: 500 });
+      await expect(scan(Buffer.from('detached'))).resolves.toMatchObject({ result: 'clean' });
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it('fails closed on malware, errors, malformed replies, outage, and timeout', async () => {
+    for (const response of ['malware', 'error', 'malformed'] as const) {
+      const endpoint = await startClamAvTestEndpoint({ signatureDate: new Date(), response });
+      try {
+        const promise = createClamAvClient({ socket: endpoint, timeoutMilliseconds: 100 }).scan(
+          Buffer.from('x'),
+        );
+        if (response === 'malware')
+          await expect(promise).resolves.toMatchObject({ result: 'malware' });
+        else await expect(promise).rejects.toThrow();
+      } finally {
+        await endpoint.close();
+      }
+    }
+    const closedServer = createServer().listen(0, '127.0.0.1');
+    await once(closedServer, 'listening');
+    const closedAddress = closedServer.address();
+    if (closedAddress === null || typeof closedAddress === 'string')
+      throw new Error('address missing');
+    const closedPort = closedAddress.port;
+    closedServer.close();
+    await once(closedServer, 'close');
+    await expect(
+      createClamAvClient({
+        socket: { host: '127.0.0.1', port: closedPort },
+        timeoutMilliseconds: 50,
+      }).scan(Buffer.from('x')),
+    ).rejects.toThrow('SCANNER_UNAVAILABLE');
+    const stalled = await startClamAvTestEndpoint({ signatureDate: new Date(), stall: true });
+    try {
+      await expect(
+        createClamAvClient({ socket: stalled, timeoutMilliseconds: 20 }).scan(Buffer.from('x')),
+      ).rejects.toThrow('SCANNER_TIMEOUT');
+    } finally {
+      await stalled.close();
+    }
+    for (const disconnectDuring of ['version', 'instream'] as const) {
+      const disconnected = await startClamAvTestEndpoint({
+        signatureDate: new Date(),
+        disconnectDuring,
+      });
+      try {
+        await expect(
+          createClamAvClient({ socket: disconnected, timeoutMilliseconds: 100 }).scan(
+            Buffer.from('x'),
+          ),
+        ).rejects.toThrow();
+      } finally {
+        await disconnected.close();
+      }
+    }
+  });
+});
+
+describe('real tool adapters', () => {
+  it('constructs exact MuPDF 1.25 and ImageMagick 7 vectors', () => {
+    expect(muPdfArguments('/scratch/source.pdf')).toEqual([
+      'draw',
+      '-F',
+      'png',
+      '-o',
+      'page-%04d.png',
+      '-r',
+      '144',
+      '-A',
+      '8',
+      '/scratch/source.pdf',
+    ]);
+    expect(imageMagickArguments('/scratch/source')).toEqual([
+      '/scratch/source[0]',
+      '-auto-orient',
+      '-strip',
+      'page-0001.png',
+    ]);
+    expect(textMagickArguments()).toEqual([
+      '-background',
+      'white',
+      '-fill',
+      'black',
+      '-font',
+      '/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf',
+      '-pointsize',
+      '16',
+      '-size',
+      '1200x',
+      'caption:@-',
+      '-strip',
+      'page-0001.png',
+    ]);
+  });
+});
+
+describe('format processing contracts', () => {
+  it('enables workbook conversion only through the structural adapter modes', () => {
+    expect(
+      processorArgumentsForTesting(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).toEqual(['xlsx']);
+    expect(
+      processorArgumentsForTesting('application/vnd.oasis.opendocument.spreadsheet'),
+    ).toEqual(['ods']);
+  });
+  it('sanitizes child text output', async () => {
+    const program = sandboxProgram(process.execPath, [fixture]);
+    const unsafe = await processSource({
+      mediaType: 'text/plain',
+      bytes: Buffer.from('x'),
+      programs: {
+        pdf: program,
+        office: program,
+        image: program,
+        text: sandboxProgram(process.execPath, [fixture, '--fixture-unsafe-text']),
+      },
+    });
+    expect(unsafe.pages[0]?.textLayer).toBeUndefined();
+    expect(unsafe.pages[0]?.accessibleLabel).toBe('Page 1');
+  });
+  it.each([
+    '<div>x</div>',
+    '<a href=x>x</a>',
+    '<table><tr><td>x</td></tr></table>',
+    '</script>',
+    '<!-- c -->',
+    '<!-- prefix --><section>x</section>',
+    '<div\nclass=x>x</div>',
+  ])('omits markup-like extracted text without rejecting the page: %s', async (value) => {
+    const base = sandboxProgram(process.execPath, [fixture]);
+    const result = await processSource({
+      mediaType: 'application/pdf',
+      bytes: Buffer.from('%PDF-1.7'),
+      programs: {
+        pdf: sandboxProgram(process.execPath, [fixture, `--fixture-text=${value}`]),
+        office: base,
+        image: base,
+        text: base,
+      },
+    });
+    expect(result.pages[0]?.textLayer).toBeUndefined();
+    expect(result.pages[0]?.accessibleLabel).toBe('Page 1');
+  });
+  it.each(['Data: Q1 revenue', 'Revenue < $10m'])(
+    'preserves ordinary extracted prose: %s',
+    async (value) => {
+      const base = sandboxProgram(process.execPath, [fixture]);
+      const result = await processSource({
+        mediaType: 'application/pdf',
+        bytes: Buffer.from('%PDF-1.7'),
+        programs: {
+          pdf: sandboxProgram(process.execPath, [fixture, `--fixture-text=${value}`]),
+          office: base,
+          image: base,
+          text: base,
+        },
+      });
+      expect(result.pages[0]?.textLayer?.[0]?.text).toBe(value);
+    },
+  );
+  it('emits only structured credential-free HTTPS links', () => {
+    expect(structuredHttpsLinkForTesting('https://example.com/path')).toBe(
+      'https://example.com/path',
+    );
+    expect(structuredHttpsLinkForTesting('javascript:alert(1)')).toBeUndefined();
+    expect(structuredHttpsLinkForTesting('data:text/html,x')).toBeUndefined();
+    expect(structuredHttpsLinkForTesting('http://example.com')).toBeUndefined();
+    expect(structuredHttpsLinkForTesting('https://user:pass@example.com')).toBeUndefined();
+  });
+  it('makes formula-like CSV cells inert through explicit deterministic arguments', () => {
+    expect(processorArgumentsForTesting('text/csv')).toEqual(
+      expect.arrayContaining([
+        '--non-html',
+        '--formula-cells=inert-text',
+        '--max-rows',
+        '100000',
+        '--max-columns',
+        '1000',
+      ]),
+    );
+  });
+});
+
+describe('release format policy', () => {
+  it('canonicalizes key order and fails integrity on semantic change', () => {
+    assertReleasePolicyIntegrity();
+    const reversed = Object.fromEntries(
+      Object.entries(releaseFormatPolicy).reverse(),
+    ) as typeof releaseFormatPolicy;
+    expect(releasePolicyDigest(reversed)).toBe(releasePolicyDigest(releaseFormatPolicy));
+    // XLSX/ODS stay disabled until the structural workbook adapter is qualified.
+    // This assertion follows the policy, never the reverse.
+    expect(
+      releaseFormatPolicy['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+        .enabledForNewWork,
+    ).toBe(false);
+    expect(
+      releaseFormatPolicy['application/vnd.oasis.opendocument.spreadsheet'].enabledForNewWork,
+    ).toBe(false);
+    const changed = {
+      ...releaseFormatPolicy,
+      'application/pdf': { enabledForNewWork: false, existingDerivativesSafe: true },
+    };
+    expect(releasePolicyDigest(changed)).not.toBe(releasePolicyDigest(releaseFormatPolicy));
+    expect(() => {
+      assertReleasePolicyIntegrity(changed);
+    }).toThrow('RELEASE_POLICY_INTEGRITY_FAILED');
+  });
+});

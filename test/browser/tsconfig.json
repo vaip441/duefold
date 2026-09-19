@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Playwright's `page.evaluate` callbacks execute in the browser, so these
+    // files legitimately reference `window` and `document`.
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "include": ["**/*.ts", "../support/browser-server.ts", "../../playwright.config.ts"]
+}
