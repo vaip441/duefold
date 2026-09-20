@@ -71,6 +71,9 @@ jobs:
             sudo useradd --system --uid "$uid" --gid "$uid" --no-create-home \
               --shell /usr/sbin/nologin "duefold-conv$offset"
           done
+      - name: Diagnose the workbook stage child as root
+        run: |
+          sudo --preserve-env=PATH env node .github/scripts/diagnose-workbook-stage.mjs || true
       - name: Sandbox tests as root
         run: |
           sudo --preserve-env=PATH env npx vitest run --project unit \
