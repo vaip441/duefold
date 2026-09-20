@@ -39,10 +39,21 @@ services:
     restart: unless-stopped
 
   clamav:
-    image: clamav/clamav-debian:1.5@sha256:cc16781fe005e49de6a8fc1231b63b265f74b18fc2a6347c670c35716914c3b6
+    # Built rather than pulled: the upstream entrypoint starts freshclam before
+    # clamd, so its first update cannot notify the daemon and clamd serves the
+    # image's signatures until the next cycle. Duefold rejects signatures older
+    # than 24 hours, so that startup state is a publication outage. See
+    # deploy/clamav.Dockerfile.
+    image: ghcr.io/vaip441/duefold-clamav:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    build:
+      context: .
+      dockerfile: deploy/clamav.Dockerfile
     networks:
       - internal
     healthcheck:
+      # --ping alone only proves the process answers. Duefold's own readiness check
+      # is what enforces signature freshness; this keeps Compose from routing to a
+      # daemon that is still loading.
       test: ['CMD-SHELL', 'clamdscan --ping 3 || exit 1']
       interval: 10s
       timeout: 5s

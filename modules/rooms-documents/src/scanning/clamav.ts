@@ -61,8 +61,22 @@ async function command(options: ClamAvClientOptions, request: Uint8Array): Promi
     socket.once('connect', () => socket.end(request));
   });
 }
+/**
+ * Parses a clamd VERSION reply into the signature version and its build date.
+ *
+ * The separator after the product name is a SPACE, not a slash: clamd answers
+ * `ClamAV 1.5.4/28129/Mon Sep 14 06:24:19 2026`. An earlier pattern required
+ * `ClamAV/`, which no clamd build emits, so every readiness check and every scan
+ * failed closed as SCANNER_RESPONSE_MALFORMED and no upload could be published.
+ * The test double reproduced the wrong shape, so the suite agreed with the bug;
+ * it now speaks the real format.
+ *
+ * The slash variant is still accepted, because `clamd --version` and some
+ * distribution wrappers print `ClamAV/1.5.4/...`. Accepting both costs nothing,
+ * and failing closed on either is an outage.
+ */
 function version(line: string): { readonly signatureVersion: string; readonly date: Date } {
-  const match = /^ClamAV\/[^/\s]+\/([^/\s]+)\/(.+)$/u.exec(line);
+  const match = /^ClamAV[ /][^/\s]+\/([^/\s]+)\/(.+)$/u.exec(line);
   const signatureVersion = match?.[1];
   const rawDate = match?.[2];
   if (signatureVersion === undefined || rawDate === undefined)
@@ -115,3 +129,7 @@ export function createClamAvClient(options: ClamAvClientOptions) {
   return { checkReady, scan };
 }
 export type ClamAvClient = ReturnType<typeof createClamAvClient>;
+
+/** Exported so a test can pin the exact wire format clamd emits, independently of
+ * the socket double. A double is free to be wrong; a real reply is not. */
+export const parseVersionLineForTesting = version;

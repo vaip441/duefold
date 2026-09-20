@@ -29,7 +29,11 @@ export async function startClamAvTestEndpoint(options: {
           socket.destroy();
           return;
         }
-        socket.end(`ClamAV/1.4.0/27000/${options.signatureDate.toUTCString()}\0`);
+        // The real clamd separates the product name from the version with a
+        // SPACE: `ClamAV 1.5.4/28129/<date>`. This double previously emitted
+        // `ClamAV/1.4.0/...`, which no clamd produces, so the suite validated a
+        // parser that rejected every real reply.
+        socket.end(`ClamAV 1.5.4/28129/${options.signatureDate.toUTCString()}\0`);
         return;
       }
       if (request.subarray(0, 10).toString() !== 'zINSTREAM\0') {

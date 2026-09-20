@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createClamAvClient } from './scanning/clamav.ts';
+import { createClamAvClient, parseVersionLineForTesting } from './scanning/clamav.ts';
 import { startClamAvTestEndpoint } from '../../../test/support/clamav-endpoint.ts';
 import {
   invokeSandboxed,
@@ -498,6 +498,47 @@ describe('credential-free sandbox boundary', () => {
 });
 
 describe('ClamAV INSTREAM', () => {
+  it('parses the VERSION line clamd actually sends', () => {
+    /*
+     * Verbatim from clamav/clamav-debian:1.5 answering zVERSION, captured on a
+     * deployed service. The separator after the product name is a SPACE. The
+     * parser previously required `ClamAV/`, which no clamd emits, so readiness
+     * reported the scanner unavailable and no document could ever be published —
+     * and because the socket double echoed the same fictional shape, the whole
+     * suite passed. This asserts against the real string, not the double.
+     */
+    const parsed = parseVersionLineForTesting('ClamAV 1.5.4/28129/Mon Sep 14 06:24:19 2026');
+    expect(parsed.signatureVersion).toBe('28129');
+    // clamd emits no timezone, so the instant is only well defined against the
+    // process zone; assert the calendar fields rather than a fixed UTC instant,
+    // which would make this test pass only in one timezone. Deployed services and
+    // the clamav container both run UTC, so they agree in practice.
+    expect([
+      parsed.date.getFullYear(),
+      parsed.date.getMonth(),
+      parsed.date.getDate(),
+      parsed.date.getHours(),
+      parsed.date.getMinutes(),
+      parsed.date.getSeconds(),
+    ]).toEqual([2026, 8, 14, 6, 24, 19]);
+    // An explicit zone, which is what the socket double sends, is exact.
+    expect(
+      parseVersionLineForTesting(
+        'ClamAV 1.5.4/28129/Mon, 14 Sep 2026 06:24:19 GMT',
+      ).date.toISOString(),
+    ).toBe('2026-09-14T06:24:19.000Z');
+    // `clamd --version` and some wrappers keep the slash; both are accepted.
+    expect(
+      parseVersionLineForTesting('ClamAV/1.5.4/28129/Mon Sep 14 06:24:19 2026')
+        .signatureVersion,
+    ).toBe('28129');
+    // Anything else still fails closed rather than scanning with an unknown build.
+    for (const line of ['ClamAV', 'ClamAV 1.5.4', 'ClamAV 1.5.4/28129', 'nonsense'])
+      expect(() => parseVersionLineForTesting(line)).toThrow('SCANNER_RESPONSE_MALFORMED');
+    expect(() => parseVersionLineForTesting('ClamAV 1.5.4/28129/not a date')).toThrow(
+      'SCANNER_RESPONSE_MALFORMED',
+    );
+  });
   it('speaks the real framed socket protocol and enforces freshness', async () => {
     const endpoint = await startClamAvTestEndpoint({
       signatureDate: new Date(),

@@ -134,9 +134,19 @@ ordinary `postgresql://` scheme without claiming database-level TLS.
 Every upload is scanned before it can be published, and Duefold rejects signatures
 older than 24 hours, so this service is required.
 
-**+ New** → **Docker Image** → `clamav/clamav-debian:1.5`. Name it `clamav`. It
-needs no variables and no public domain, but it does need egress for signature
-updates and about 2 GB of memory. Note its private domain, `clamav.railway.internal`.
+Build it from this repository rather than pulling `clamav/clamav-debian` directly:
+**+ New** → **GitHub Repo** → your Duefold fork, name it `clamav`, and set
+**Settings** → **Build** → Dockerfile path to `deploy/clamav.Dockerfile`. It needs
+no variables and no public domain, but it does need egress for signature updates
+and about 2 GB of memory. Note its private domain, `clamav.railway.internal`.
+
+The upstream image starts freshclam before clamd, so its first update cannot
+notify the daemon and clamd keeps serving the signatures baked into the image
+until the next scheduled cycle — observed on a real deployment as clamd reporting
+signature 28123 while its own database directory held 28129. Duefold then refuses
+to publish anything, correctly. `deploy/clamav.Dockerfile` starts clamd first and
+runs one notified update before the daemon, so the scanner is current as soon as
+it is reachable.
 
 ## 6. Web and worker services
 
