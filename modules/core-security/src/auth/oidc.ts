@@ -51,7 +51,14 @@ export async function discoverOidc(input: {
     input.issuer,
     input.clientId,
     { redirect_uris: [input.redirectUri], response_types: ['code'] },
-    oidc.ClientSecretBasic(input.clientSecret),
+    // Google advertises both client_secret_basic and client_secret_post, but its
+    // live token endpoint rejects the Basic request produced by oauth4webapi while
+    // accepting the same client credentials in the form body. Use the broadly
+    // supported post method explicitly rather than relying on provider handling of
+    // Basic credential encoding. Discovery remains generic: a provider that does
+    // not support this configured confidential-client method fails closed during
+    // conformance/startup rather than falling back at sign-in time.
+    oidc.ClientSecretPost(input.clientSecret),
   );
 }
 

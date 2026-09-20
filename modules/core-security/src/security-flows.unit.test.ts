@@ -7,6 +7,7 @@ import { signInRefusalCode } from './routes/oidc-callback.ts';
 import { allowlistedTelemetry } from '@duefold/shared/redact';
 import {
   beginOidc,
+  discoverOidc,
   finishOidc,
   OIDC_FRESH_MAX_AGE_SECONDS,
   type StoredOidcTransaction,
@@ -194,6 +195,71 @@ describe('generated startup configuration', () => {
 });
 
 describe('OIDC freshness and protocol parameters', () => {
+  it('uses client_secret_post for token endpoint authentication', async () => {
+    const requests: { readonly authorization: string | null; readonly body: string }[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (input, init) => {
+      const url =
+        input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.endsWith('/.well-known/openid-configuration'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              issuer: 'https://issuer.example',
+              authorization_endpoint: 'https://issuer.example/auth',
+              token_endpoint: 'https://issuer.example/token',
+              jwks_uri: 'https://issuer.example/jwks',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      const requestBody = init?.body;
+      requests.push({
+        authorization: new Headers(init?.headers).get('authorization'),
+        body:
+          typeof requestBody === 'string'
+            ? requestBody
+            : requestBody instanceof URLSearchParams
+              ? requestBody.toString()
+              : '',
+      });
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: 'invalid_grant' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    };
+    try {
+      const config = await discoverOidc({
+        issuer: new URL('https://issuer.example'),
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        redirectUri: 'https://duefold.example/callback',
+      });
+      await expect(
+        finishOidc({
+          config,
+          callbackUrl: new URL(
+            'https://duefold.example/callback?code=code&state=expected-state',
+          ),
+          transaction: {
+            state: 'expected-state',
+            nonce: 'expected-nonce',
+            codeVerifier: 'v'.repeat(43),
+          },
+        }),
+      ).rejects.toMatchObject({ error: 'invalid_grant' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.authorization).toBeNull();
+    const body = new URLSearchParams(requests[0]?.body);
+    expect(body.get('client_id')).toBe('client-id');
+    expect(body.get('client_secret')).toBe('client-secret');
+  });
+
   it('requests PKCE, state, nonce and max_age', async () => {
     const configuration = new oidc.Configuration(
       {
