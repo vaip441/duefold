@@ -8,7 +8,7 @@
   ],
   "adapters": {
     "storage": "s3-compatible",
-    "mail": "smtp",
+    "mail": "resend",
     "identity": "oidc"
   }
 }
