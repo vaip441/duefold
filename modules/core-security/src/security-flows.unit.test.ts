@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import * as oidc from 'openid-client';
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
 import { loadConfig } from './config.ts';
+import { signInRefusalCode } from './routes/oidc-callback.ts';
+import { allowlistedTelemetry } from '@duefold/shared/redact';
 import {
   beginOidc,
   finishOidc,
@@ -299,6 +301,33 @@ describe('OIDC freshness and protocol parameters', () => {
     // A provider that does issue it is still preferred and marked as asserted.
     const asserted = await finishWithIssuer({});
     expect(asserted.authenticationTimeAsserted).toBe(true);
+  });
+
+  it('classifies OAuth failures without retaining provider text', () => {
+    const invalidGrant = new oidc.ResponseBodyError('provider-controlled message', {
+      cause: {
+        error: 'invalid_grant',
+        error_description: 'email and authorization code must never be logged',
+      },
+      response: new Response(null, { status: 400 }),
+    });
+    expect(signInRefusalCode(invalidGrant)).toBe('OIDC_GRANT_REJECTED');
+    expect(
+      allowlistedTelemetry({
+        event: 'auth.oidc.refused',
+        code: signInRefusalCode(invalidGrant),
+        description: invalidGrant.error_description,
+      }),
+    ).toStrictEqual({ event: 'auth.oidc.refused', code: 'OIDC_GRANT_REJECTED' });
+
+    const invalidClient = new oidc.ResponseBodyError('provider-controlled message', {
+      cause: { error: 'invalid_client' },
+      response: new Response(null, { status: 401 }),
+    });
+    expect(signInRefusalCode(invalidClient)).toBe('OIDC_CLIENT_REJECTED');
+    expect(signInRefusalCode(new Error('arbitrary provider text'))).toBe(
+      'OIDC_EXCHANGE_FAILED',
+    );
   });
 
   it('rejects audience, state, nonce and PKCE failures', async () => {

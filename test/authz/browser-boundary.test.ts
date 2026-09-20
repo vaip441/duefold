@@ -13,7 +13,7 @@
  * double, so a regression in the authenticator or the cookie options fails here.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import * as oidc from 'openid-client';
 import { createHash } from 'node:crypto';
@@ -31,6 +31,7 @@ import {
 import { createOpaqueId } from '@duefold/shared/ids';
 import { FixedClock } from '@duefold/shared/clock';
 import { testWebRuntime } from '../support/web-runtime.ts';
+import { SIGN_IN_FAILED_PATH } from '../../modules/core-security/src/routes/oidc-callback.ts';
 
 const bootstrapPool = new Pool({
   host: '/var/run/postgresql',
@@ -457,7 +458,7 @@ describe('OIDC callback failure is one neutral state', () => {
       'client',
     );
     const seen: string[] = [];
-    issuerRequiringIss[oidc.customFetch] = (url: string | URL) => {
+    const customFetch = vi.fn((url: string | URL) => {
       seen.push(String(url));
       return Promise.resolve(
         new Response(JSON.stringify({ error: 'invalid_grant' }), {
@@ -465,7 +466,8 @@ describe('OIDC callback failure is one neutral state', () => {
           headers: { 'content-type': 'application/json' },
         }),
       );
-    };
+    });
+    issuerRequiringIss[oidc.customFetch] = customFetch;
     const state = 'z'.repeat(32);
     const instance = await buildTestWebApp({
       runtime: testWebRuntime({
@@ -486,10 +488,12 @@ describe('OIDC callback failure is one neutral state', () => {
     });
     // Neutral refusal either way; the point is WHY it was refused.
     expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toBe(SIGN_IN_FAILED_PATH);
     // Reaching the token endpoint at all proves the iss check passed. Without the
     // parameter, oauth4webapi rejects before any request is made, so `seen` is
     // empty.
     expect(seen.some((url) => url.includes('/token'))).toBe(true);
+    expect(customFetch).toHaveBeenCalledTimes(1);
     await instance.close();
   });
 

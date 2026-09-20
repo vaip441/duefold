@@ -1,5 +1,6 @@
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import * as oidc from 'openid-client';
 import type { WebRuntime } from '../../../../apps/web/src/runtime.ts';
 import {
   claimFirstOwner,
@@ -27,10 +28,10 @@ import { requireCorrelationId } from '@duefold/shared/ids';
  * the parameters this schema names.
  *
  * Nothing beyond the named properties is read. `callbackQuery` picks exactly
- * `code`, `state`, and the presence of `error`, and the token exchange rebuilds the
- * callback URL from `runtime.oidcRedirectUri` with only `code` and `state`
- * reattached, so an extra parameter cannot reach the provider request, the session,
- * the log, or the response.
+ * `code`, `state`, `iss`, and the presence of `error`, and the token exchange
+ * rebuilds the callback URL from `runtime.oidcRedirectUri` with only those
+ * protocol parameters reattached, so any other parameter cannot reach the
+ * provider request, the session, the log, or the response.
  */
 export const schema = {
   querystring: Type.Object(
@@ -54,9 +55,10 @@ export const SIGN_IN_FAILED_PATH = '/sign-in?state=failed';
 /**
  * Maps a thrown sign-in failure to a closed-set telemetry code.
  *
- * Only this module's own error identifiers are recognized. Anything else becomes
- * `OIDC_EXCHANGE_FAILED`, so a provider or library message can never reach the log
- * as free text, and the redaction allowlist drops any code not enumerated there.
+ * Only this module's own error identifiers and a small set of stable OAuth error
+ * classes/codes are recognized. Provider descriptions, response bodies, status
+ * details, and library messages never reach telemetry. Anything unclassified
+ * becomes `OIDC_EXCHANGE_FAILED`.
  */
 export function signInRefusalCode(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
@@ -71,7 +73,22 @@ export function signInRefusalCode(error: unknown): string {
     'BOOTSTRAP_IDENTITY_NOT_ALLOWED',
     'OWNER_ALREADY_EXISTS',
   ];
-  return known.includes(message) ? message : 'OIDC_EXCHANGE_FAILED';
+  if (known.includes(message)) return message;
+  if (error instanceof oidc.ResponseBodyError) {
+    if (error.error === 'invalid_client' || error.error === 'unauthorized_client')
+      return 'OIDC_CLIENT_REJECTED';
+    if (error.error === 'invalid_grant') return 'OIDC_GRANT_REJECTED';
+    return 'OIDC_TOKEN_ENDPOINT_REJECTED';
+  }
+  if (error instanceof oidc.AuthorizationResponseError)
+    return 'OIDC_AUTHORIZATION_RESPONSE_REJECTED';
+  if (error instanceof oidc.ClientError) {
+    if (error.code === 'OAUTH_JWT_CLAIM_COMPARISON') return 'OIDC_TOKEN_CLAIMS_REJECTED';
+    if (error.code === 'OAUTH_JWT_TIMESTAMP_CHECK') return 'OIDC_TOKEN_TIME_REJECTED';
+    if (error.code === 'OAUTH_INVALID_RESPONSE' || error.code === 'OAUTH_PARSE_ERROR')
+      return 'OIDC_PROVIDER_RESPONSE_INVALID';
+  }
+  return 'OIDC_EXCHANGE_FAILED';
 }
 
 interface CallbackQuery {
