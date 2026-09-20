@@ -1,60 +1,30 @@
-// Temporary CI diagnostic. Runs the workbook adapter child the way the sandbox
-// does, as root, with stderr visible — invokeSandboxed drops the child's stderr,
-// so the root-only PROCESSOR_REWRITE_FAILED -> SANDBOX_CHILD_FAILED difference is
-// invisible from the test alone. Delete once the cause is understood.
-import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-const adapter = new URL(
-  '../../modules/rooms-documents/src/processing/workbook-adapter.ts',
-  import.meta.url,
-).pathname;
+// Temporary CI diagnostic, paired with a one-line stderr change in sandbox.ts on
+// this branch only. Runs the exact failing invocation so the child's own error is
+// visible as root. Delete with the branch.
+import { createProcessorPrograms, processSource } from '../../modules/rooms-documents/src/processing/formats.ts';
 
 console.log('uid', process.getuid(), 'euid', process.geteuid());
 
-const directory = await mkdtemp(join(tmpdir(), 'duefold-diag-'));
-const argv = [
-  '--unshare-user',
-  '--unshare-pid',
-  '--unshare-net',
-  '--die-with-parent',
-  '--new-session',
-  '--bind',
-  directory,
-  directory,
-  '--chdir',
-  directory,
-  '--',
-  '/usr/bin/setpriv',
-  '--no-new-privs',
-  '--',
-  process.execPath,
-  adapter,
-  '/bin/false',
-  '/bin/false',
-  'xlsx',
-];
-console.log('bwrap argv:', argv.join(' '));
-const child = spawn('/usr/bin/bwrap', argv, {
-  env: {
-    LANG: 'C.UTF-8',
-    LC_ALL: 'C.UTF-8',
-    TZ: 'UTC',
-    HOME: '/nonexistent',
-    PATH: '/usr/bin:/bin',
-    TMPDIR: directory,
-  },
-  stdio: ['pipe', 'pipe', 'inherit'],
-  cwd: directory,
+const programs = createProcessorPrograms({
+  pdf: '/bin/false',
+  office: '/bin/false',
+  image: '/bin/false',
+  text: '/bin/false',
 });
-child.stdin.end(Buffer.from('not a workbook'));
-let out = '';
-child.stdout.on('data', (chunk) => {
-  out += chunk;
-});
-child.on('close', (code, signal) => {
-  console.log('exit code:', code, 'signal:', signal);
-  console.log('stdout:', JSON.stringify(out));
-});
+
+try {
+  await processSource({
+    mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    bytes: Buffer.from('not a workbook'),
+    programs,
+    limits: {
+      timeoutMilliseconds: 5_000,
+      maximumOutputBytes: 1_024,
+      maximumInputBytes: 1_024,
+      maximumTemporaryBytes: 1024 * 1024,
+    },
+  });
+  console.log('RESULT: resolved unexpectedly');
+} catch (error) {
+  console.log('RESULT: rejected with', error instanceof Error ? error.message : String(error));
+}

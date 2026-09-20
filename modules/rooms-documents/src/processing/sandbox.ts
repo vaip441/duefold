@@ -478,7 +478,7 @@ export async function invokeSandboxed(invocation: SandboxInvocation): Promise<Ui
         // key material in either mode. In degraded mode this is necessary but not
         // sufficient on its own, which is why the UID differs too.
         env: { ...ALLOWED_CHILD_ENVIRONMENT, TMPDIR: directory },
-        stdio: ['pipe', 'pipe', 'ignore'],
+        stdio: ['pipe', 'pipe', 'inherit'], // DIAGNOSTIC ONLY
         windowsHide: true,
         // Detached so the process group can be killed as a unit. In degraded mode
         // the UID sweep below is the authoritative bound, because a descendant
