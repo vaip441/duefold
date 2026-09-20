@@ -16,6 +16,7 @@
  * selection changed.
  */
 
+import { Collapsible } from '@base-ui/react/collapsible';
 import { useId, useState } from 'react';
 import type { WorkingEntry } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
@@ -70,19 +71,11 @@ export function StructureControls({
   const selectable = entries.filter((entry) => !entry.stagedRemoved);
 
   return (
-    <div className="df-controls">
+    <Collapsible.Root className="df-controls" open={open} onOpenChange={setOpen}>
       <div className="df-controls__row">
-        <button
-          type="button"
-          className="df-button"
-          disabled={pending}
-          aria-expanded={open}
-          onClick={() => {
-            setOpen((value) => !value);
-          }}
-        >
+        <Collapsible.Trigger className="df-button" disabled={pending}>
           {translate('structure.createFolder')}
-        </button>
+        </Collapsible.Trigger>
 
         {/* Bulk selection: real checkboxes, keyboard-operable, no drag anywhere. */}
         <button
@@ -135,7 +128,7 @@ export function StructureControls({
         </Notice>
       )}
 
-      {open ? (
+      <Collapsible.Panel className="df-controls__panel">
         <div className="df-panel__block">
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-name`}>
@@ -229,8 +222,8 @@ export function StructureControls({
             </button>
           </div>
         </div>
-      ) : null}
-    </div>
+      </Collapsible.Panel>
+    </Collapsible.Root>
   );
 }
 

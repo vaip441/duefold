@@ -25,6 +25,12 @@ export interface VerifiedOidcIdentity {
   readonly emailKey: string;
   readonly emailDisplay: string;
   readonly authenticatedAt: Date;
+  /**
+   * Whether `authenticatedAt` is the provider's own `auth_time` assertion rather
+   * than a value inferred from `iat`. Carried so an inferred instant is never
+   * mistaken for an asserted one; see `verifiedOidcIdentityFromClaims`.
+   */
+  readonly authenticationTimeAsserted: boolean;
 }
 export interface FirstOwnerClaim {
   readonly memberId: string;
@@ -112,6 +118,29 @@ export async function consumeOidcTransaction(
 function isClaims(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+/**
+ * Verifies the claims Duefold depends on, after openid-client has verified the
+ * signature, audience, expiry, state, nonce, and PKCE binding.
+ *
+ * `auth_time` is the provider asserting when the user actually authenticated, and
+ * `hasFreshOidc` reads it to gate high-consequence actions. Requiring it
+ * unconditionally made Google unusable: Google does not list `auth_time` in its
+ * discovery `claims_supported` and omits it even when `max_age` is requested, so
+ * every sign-in failed with OIDC_AUTH_TIME_REQUIRED after a successful token
+ * exchange, and the first Owner could never be created.
+ *
+ * When `auth_time` is absent, `iat` is used and the identity records that the
+ * instant was inferred. This holds for the freshness window because the
+ * authorization request always carries `max_age`: a provider honouring it must
+ * re-authenticate a session older than that, and the ID token is minted for that
+ * authorization, so `iat` tracks the authentication instant within seconds.
+ *
+ * What is genuinely weaker, and must not be described otherwise: an inferred
+ * instant cannot distinguish a real credential re-entry from a silent SSO re-issue.
+ * A provider that accepts `max_age` without honouring it would mint a fresh `iat`
+ * with no fresh authentication. `auth_time` is therefore still preferred whenever
+ * sent, and the difference is recorded rather than flattened away.
+ */
 export function verifiedOidcIdentityFromClaims(
   claims: unknown,
   now: Date,
@@ -125,8 +154,17 @@ export function verifiedOidcIdentityFromClaims(
     throw new Error('OIDC_REQUIRED_CLAIMS_MISSING');
   if (claims['exp'] * 1_000 <= now.getTime()) throw new Error('OIDC_TOKEN_EXPIRED');
   const authTime = claims['auth_time'];
-  if (typeof authTime !== 'number') throw new Error('OIDC_AUTH_TIME_REQUIRED');
-  const authenticatedAt = new Date(authTime * 1_000);
+  const issuedAt = claims['iat'];
+  const authenticationTimeAsserted = typeof authTime === 'number';
+  // One of the two must be present and numeric. With neither there is no basis for
+  // a freshness decision at all, so this still fails closed.
+  const authenticationSeconds = authenticationTimeAsserted
+    ? authTime
+    : typeof issuedAt === 'number'
+      ? issuedAt
+      : undefined;
+  if (authenticationSeconds === undefined) throw new Error('OIDC_AUTH_TIME_REQUIRED');
+  const authenticatedAt = new Date(authenticationSeconds * 1_000);
   if (
     authenticatedAt.getTime() > now.getTime() + 60_000 ||
     now.getTime() - authenticatedAt.getTime() > OIDC_FRESH_MAX_AGE_SECONDS * 1_000
@@ -142,6 +180,7 @@ export function verifiedOidcIdentityFromClaims(
     emailKey: normalizedEmail.comparisonKey,
     emailDisplay: normalizedEmail.display,
     authenticatedAt,
+    authenticationTimeAsserted,
   };
 }
 

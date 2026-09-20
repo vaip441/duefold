@@ -113,6 +113,7 @@ describe('owner bootstrap', () => {
       emailKey: 'owner+deal@example.com',
       emailDisplay: 'Owner+Deal@Example.com',
       authenticatedAt: new Date(),
+      authenticationTimeAsserted: true,
     };
     expect(bootstrapEligible(identity, ['OWNER+DEAL@example.com'])).toBe(true);
     expect(bootstrapEligible(identity, ['owner@example.com'])).toBe(false);

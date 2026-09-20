@@ -82,6 +82,16 @@ https://<your-duefold-domain>/api/auth/oidc/callback
 You will not know the domain until step 5, so either register a placeholder and
 correct it, or come back to this step.
 
+High-consequence actions (ownership transfer, broad grants, export, purge) require
+a sign-in less than 15 minutes old. Duefold always requests `max_age` and prefers
+the provider's `auth_time` claim. Google never issues `auth_time`: it is absent
+from Google's discovery `claims_supported` and is not returned even when `max_age`
+is requested, so on Google the instant is inferred from the ID token's `iat`. That
+tracks the real sign-in within seconds, but it cannot distinguish a credential
+re-entry from a silent SSO re-issue. If you need a provider-asserted
+re-authentication guarantee, use Entra, Authentik, or Keycloak, which do issue
+`auth_time`.
+
 ## 4. Railway project and database
 
 ```sh

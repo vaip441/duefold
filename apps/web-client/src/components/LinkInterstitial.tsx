@@ -13,7 +13,8 @@
  * no beacon, no logging call, and no interception of the navigation.
  */
 
-import { useEffect, useId, useRef } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
+import { useId, useRef } from 'react';
 import { translate } from '../i18n/translate.ts';
 import type { InterstitialTarget } from '../api/client.ts';
 import { Notice } from './Notice.tsx';
@@ -34,32 +35,20 @@ export function LinkInterstitial({
   const titleId = useId();
   const cancelButton = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
-    cancelButton.current?.focus();
-  }, []);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      onCancel();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [onCancel]);
-
   return (
-    <div className="df-modal" role="presentation">
-      <div
-        className="df-modal__panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-      >
-        <h2 className="df-modal__title" id={titleId}>
-          {translate('viewer.link.leaving')}
-        </h2>
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Backdrop className="df-modal__backdrop" />
+        <Dialog.Viewport className="df-modal">
+          <Dialog.Popup className="df-modal__panel" initialFocus={cancelButton}>
+            <Dialog.Title className="df-modal__title" id={titleId}>
+              {translate('viewer.link.leaving')}
+            </Dialog.Title>
 
         {loading ? (
           <p className="df-field__help">{translate('viewer.link.resolving')}</p>
@@ -97,7 +86,9 @@ export function LinkInterstitial({
             </a>
           )}
         </div>
-      </div>
-    </div>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

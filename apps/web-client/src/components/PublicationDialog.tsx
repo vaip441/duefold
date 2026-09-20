@@ -16,7 +16,8 @@
  * that would do nothing.
  */
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
+import { useId, useRef, useState } from 'react';
 import { translate, type MessageKey } from '../i18n/translate.ts';
 import type { PublicationChangeKind, PublicationImpact } from '../api/client.ts';
 import { Notice } from './Notice.tsx';
@@ -53,40 +54,29 @@ export function PublicationDialog({
   const confirmId = useId();
   const [typed, setTyped] = useState('');
   const [attempted, setAttempted] = useState(false);
-  const dialog = useRef<HTMLDivElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
-
-  // Focus enters the dialog on open and Escape closes it, so a keyboard user is
-  // never stranded in a modal they cannot leave.
-  useEffect(() => {
-    closeButton.current?.focus();
-  }, []);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || pending) return;
-      event.stopPropagation();
-      onCancel();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [onCancel, pending]);
 
   const matches = impact !== null && typed.trim() === impact.confirmation;
 
   return (
-    <div className="df-modal" role="presentation">
-      <div
-        className="df-modal__panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        ref={dialog}
-      >
-        <h2 className="df-modal__title" id={titleId}>
-          {translate('publish.preview.title')}
-        </h2>
+    <Dialog.Root
+      open
+      disablePointerDismissal={pending}
+      onOpenChange={(open, eventDetails) => {
+        if (!open && pending) {
+          eventDetails.cancel();
+          return;
+        }
+        if (!open) onCancel();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Backdrop className="df-modal__backdrop" />
+        <Dialog.Viewport className="df-modal">
+          <Dialog.Popup className="df-modal__panel" initialFocus={closeButton}>
+            <Dialog.Title className="df-modal__title" id={titleId}>
+              {translate('publish.preview.title')}
+            </Dialog.Title>
 
         {loading ? (
           <p className="df-field__help">{translate('publish.preview.loading')}</p>
@@ -186,7 +176,9 @@ export function PublicationDialog({
             </button>
           ) : null}
         </div>
-      </div>
-    </div>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

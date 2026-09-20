@@ -11,6 +11,7 @@ import {
   verifiedOidcIdentityFromClaims,
 } from './auth/oidc.ts';
 import { constantTimeDigestMatch, digestSecret } from './sessions.ts';
+import { hasFreshOidc } from './authorization.ts';
 
 function signedJwt(privateKey: KeyObject, payload: Readonly<Record<string, unknown>>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'test-key' })).toString(
@@ -203,7 +204,51 @@ describe('OIDC freshness and protocol parameters', () => {
     );
   });
 
-  it('rejects omitted and stale auth_time after verified token processing', () => {
+  it('infers the authentication instant from iat when the provider omits auth_time', () => {
+    /*
+     * Google does not issue auth_time: it is absent from its discovery
+     * claims_supported and omitted even when max_age is requested. Requiring the
+     * claim therefore rejected every Google sign-in with OIDC_AUTH_TIME_REQUIRED
+     * after a successful token exchange, so the first Owner could never be created.
+     *
+     * iat is accepted as the instant because the authorization request always
+     * carries max_age, and the token is minted for that authorization. The identity
+     * records that the value was inferred rather than asserted, so an inferred
+     * instant is never mistaken for a provider guarantee.
+     */
+    const now = new Date('2026-03-01T12:00:00Z');
+    const googleClaims = {
+      iss: 'https://accounts.google.com',
+      sub: '1234567890',
+      exp: now.getTime() / 1_000 + 3_600,
+      iat: now.getTime() / 1_000 - 5,
+      email: 'owner@example.com',
+      email_verified: true,
+    };
+    const identity = verifiedOidcIdentityFromClaims(googleClaims, now);
+    expect(identity.authenticatedAt.getTime()).toBe((now.getTime() / 1_000 - 5) * 1_000);
+    expect(identity.authenticationTimeAsserted).toBe(false);
+    expect(hasFreshOidc(identity.authenticatedAt, now)).toBe(true);
+
+    // auth_time still wins when present, and is marked as asserted.
+    const asserted = verifiedOidcIdentityFromClaims(
+      { ...googleClaims, auth_time: now.getTime() / 1_000 - 120 },
+      now,
+    );
+    expect(asserted.authenticatedAt.getTime()).toBe((now.getTime() / 1_000 - 120) * 1_000);
+    expect(asserted.authenticationTimeAsserted).toBe(true);
+
+    // An inferred instant is still subject to the same freshness window, so a
+    // replayed old token cannot pass by lacking auth_time.
+    expect(() =>
+      verifiedOidcIdentityFromClaims(
+        { ...googleClaims, iat: now.getTime() / 1_000 - OIDC_FRESH_MAX_AGE_SECONDS - 1 },
+        now,
+      ),
+    ).toThrow('OIDC_AUTH_TIME_STALE');
+  });
+
+  it('rejects a token carrying neither auth_time nor iat, and a stale auth_time', () => {
     const now = new Date('2026-03-01T12:00:00Z');
     const claims = {
       iss: 'https://issuer.example',
@@ -212,6 +257,7 @@ describe('OIDC freshness and protocol parameters', () => {
       email: 'owner@example.com',
       email_verified: true,
     };
+    // Neither claim means there is no basis for a freshness decision at all.
     expect(() => verifiedOidcIdentityFromClaims(claims, now)).toThrow(
       'OIDC_AUTH_TIME_REQUIRED',
     );
