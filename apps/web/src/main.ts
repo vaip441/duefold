@@ -1,6 +1,9 @@
 import { Pool } from 'pg';
 import { fileURLToPath } from 'node:url';
-import { discoverOidc } from '../../../modules/core-security/src/auth/oidc.ts';
+import {
+  discoverOidc,
+  type OidcClientAuthMethod,
+} from '../../../modules/core-security/src/auth/oidc.ts';
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
 import { systemClock } from '@duefold/shared/clock';
 import { installProcessFailureHandlers } from '@duefold/shared/process-errors';
@@ -92,6 +95,10 @@ try {
     issuer: new URL(stringConfig(config, 'DUEFOLD_OIDC_ISSUER')),
     clientId: stringConfig(config, 'DUEFOLD_OIDC_CLIENT_ID'),
     clientSecret: stringConfig(config, 'DUEFOLD_OIDC_CLIENT_SECRET'),
+    clientAuthMethod: stringConfig(
+      config,
+      'DUEFOLD_OIDC_CLIENT_AUTH_METHOD',
+    ) as OidcClientAuthMethod,
     redirectUri: oidcRedirectUri,
   });
   startupStage = 'database';

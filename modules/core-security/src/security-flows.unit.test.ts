@@ -10,6 +10,7 @@ import {
   discoverOidc,
   finishOidc,
   OIDC_FRESH_MAX_AGE_SECONDS,
+  resolveOidcClientAuthMethod,
   type StoredOidcTransaction,
   type VerifiedOidcIdentity,
   verifiedOidcIdentityFromClaims,
@@ -173,6 +174,15 @@ describe('generated startup configuration', () => {
         DUEFOLD_SESSION_IDLE_MINUTES: '61',
       }),
     ).toThrow('invalid bounded configuration: DUEFOLD_SESSION_IDLE_MINUTES');
+    expect(
+      loadConfig(generatedConfigSchema, validEnvironment())['DUEFOLD_OIDC_CLIENT_AUTH_METHOD'],
+    ).toBe('auto');
+    expect(() =>
+      loadConfig(generatedConfigSchema, {
+        ...validEnvironment(),
+        DUEFOLD_OIDC_CLIENT_AUTH_METHOD: 'client_secret_jwt',
+      }),
+    ).toThrow('invalid enum configuration: DUEFOLD_OIDC_CLIENT_AUTH_METHOD');
   });
 
   it('requires three independent 256-bit OTP, network, and PII keys', () => {
@@ -209,6 +219,10 @@ describe('OIDC freshness and protocol parameters', () => {
               authorization_endpoint: 'https://issuer.example/auth',
               token_endpoint: 'https://issuer.example/token',
               jwks_uri: 'https://issuer.example/jwks',
+              token_endpoint_auth_methods_supported: [
+                'client_secret_post',
+                'client_secret_basic',
+              ],
             }),
             { status: 200, headers: { 'content-type': 'application/json' } },
           ),
@@ -258,6 +272,96 @@ describe('OIDC freshness and protocol parameters', () => {
     const body = new URLSearchParams(requests[0]?.body);
     expect(body.get('client_id')).toBe('client-id');
     expect(body.get('client_secret')).toBe('client-secret');
+  });
+
+  it('uses Basic authentication when it is the provider default', async () => {
+    const captured: { authorization: string | null; tokenBody: string } = {
+      authorization: null,
+      tokenBody: '',
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (input, init) => {
+      const url =
+        input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.endsWith('/.well-known/openid-configuration'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              issuer: 'https://basic.example',
+              authorization_endpoint: 'https://basic.example/auth',
+              token_endpoint: 'https://basic.example/token',
+              jwks_uri: 'https://basic.example/jwks',
+              // Omitted intentionally: OIDC Discovery defaults this to Basic.
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      captured.authorization = new Headers(init?.headers).get('authorization');
+      captured.tokenBody = init?.body instanceof URLSearchParams ? init.body.toString() : '';
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: 'invalid_grant' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    };
+    try {
+      const config = await discoverOidc({
+        issuer: new URL('https://basic.example'),
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        redirectUri: 'https://duefold.example/callback',
+      });
+      await expect(
+        finishOidc({
+          config,
+          callbackUrl: new URL(
+            'https://duefold.example/callback?code=code&state=expected-state',
+          ),
+          transaction: {
+            state: 'expected-state',
+            nonce: 'expected-nonce',
+            codeVerifier: 'v'.repeat(43),
+          },
+        }),
+      ).rejects.toMatchObject({ error: 'invalid_grant' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(captured.authorization?.startsWith('Basic ')).toBe(true);
+    expect(Buffer.from(captured.authorization?.slice(6) ?? '', 'base64').toString()).toBe(
+      'client%2Did:client%2Dsecret',
+    );
+    expect(new URLSearchParams(captured.tokenBody).has('client_secret')).toBe(false);
+  });
+
+  it('selects only a provider-supported client authentication method', () => {
+    // Google and Entra currently advertise both; prefer post because the same
+    // Google client rejected oauth4webapi's Basic encoding in production.
+    for (const methods of [
+      ['client_secret_post', 'client_secret_basic'],
+      ['client_secret_post', 'private_key_jwt', 'client_secret_basic'],
+    ])
+      expect(resolveOidcClientAuthMethod(methods, 'auto')).toBe('client_secret_post');
+
+    // Authentik/Keycloak registrations can be configured to expose only Basic.
+    expect(resolveOidcClientAuthMethod(['client_secret_basic'], 'auto')).toBe(
+      'client_secret_basic',
+    );
+    // OIDC Discovery specifies Basic when the metadata field is omitted.
+    expect(resolveOidcClientAuthMethod(undefined, 'auto')).toBe('client_secret_basic');
+    expect(
+      resolveOidcClientAuthMethod(
+        ['client_secret_post', 'client_secret_basic'],
+        'client_secret_basic',
+      ),
+    ).toBe('client_secret_basic');
+    expect(() => resolveOidcClientAuthMethod(['private_key_jwt'], 'auto')).toThrow(
+      'OIDC_CLIENT_AUTH_METHOD_UNSUPPORTED',
+    );
+    expect(() =>
+      resolveOidcClientAuthMethod(['client_secret_post'], 'client_secret_basic'),
+    ).toThrow('OIDC_CLIENT_AUTH_METHOD_UNSUPPORTED');
   });
 
   it('requests PKCE, state, nonce and max_age', async () => {

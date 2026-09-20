@@ -82,6 +82,16 @@ https://<your-duefold-domain>/api/auth/oidc/callback
 You will not know the domain until step 5, so either register a placeholder and
 correct it, or come back to this step.
 
+Duefold defaults `DUEFOLD_OIDC_CLIENT_AUTH_METHOD` to `auto`. It reads the
+provider's discovery metadata, prefers `client_secret_post` when advertised,
+uses `client_secret_basic` when that is the only advertised method, and follows
+the OIDC-standard Basic default when the metadata field is omitted. An
+incompatible provider fails startup instead of failing after a user signs in.
+If the provider restricts this specific client registration to one of multiple
+advertised methods, set `DUEFOLD_OIDC_CLIENT_AUTH_METHOD` explicitly to
+`client_secret_post` or `client_secret_basic`. Duefold never retries a consumed
+authorization code with another method.
+
 High-consequence actions (ownership transfer, broad grants, export, purge) require
 a sign-in less than 15 minutes old. Duefold always requests `max_age` and prefers
 the provider's `auth_time` claim. Google never issues `auth_time`: it is absent

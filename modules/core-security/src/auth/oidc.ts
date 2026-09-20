@@ -41,25 +41,62 @@ function stateDigest(state: string): string {
   return createHash('sha256').update(state).digest('hex');
 }
 
+export type OidcClientAuthMethod = 'auto' | 'client_secret_post' | 'client_secret_basic';
+
+/**
+ * Resolves one token endpoint authentication method from discovery metadata.
+ *
+ * OIDC Discovery defines `client_secret_basic` as the default when the metadata
+ * field is omitted. When both methods are advertised, `client_secret_post` is
+ * preferred because it interoperates with Google clients that reject the Basic
+ * request encoding produced by oauth4webapi. An explicit operator selection is
+ * still checked against metadata; there is no callback-time fallback because an
+ * authorization code is single-use.
+ */
+export function resolveOidcClientAuthMethod(
+  advertised: readonly string[] | undefined,
+  configured: OidcClientAuthMethod,
+): Exclude<OidcClientAuthMethod, 'auto'> {
+  const supported = advertised ?? ['client_secret_basic'];
+  if (configured !== 'auto') {
+    if (!supported.includes(configured)) throw new Error('OIDC_CLIENT_AUTH_METHOD_UNSUPPORTED');
+    return configured;
+  }
+  if (supported.includes('client_secret_post')) return 'client_secret_post';
+  if (supported.includes('client_secret_basic')) return 'client_secret_basic';
+  throw new Error('OIDC_CLIENT_AUTH_METHOD_UNSUPPORTED');
+}
+
 export async function discoverOidc(input: {
   readonly issuer: URL;
   readonly clientId: string;
   readonly clientSecret: string;
   readonly redirectUri: string;
+  readonly clientAuthMethod?: OidcClientAuthMethod;
 }): Promise<oidc.Configuration> {
-  return oidc.discovery(
+  const configured = input.clientAuthMethod ?? 'auto';
+  const post = oidc.ClientSecretPost(input.clientSecret);
+  const basic = oidc.ClientSecretBasic(input.clientSecret);
+  const clientAuth: oidc.ClientAuth = (server, client, body, headers) => {
+    const method = resolveOidcClientAuthMethod(
+      server.token_endpoint_auth_methods_supported,
+      configured,
+    );
+    if (method === 'client_secret_post') post(server, client, body, headers);
+    else basic(server, client, body, headers);
+  };
+  const config = await oidc.discovery(
     input.issuer,
     input.clientId,
     { redirect_uris: [input.redirectUri], response_types: ['code'] },
-    // Google advertises both client_secret_basic and client_secret_post, but its
-    // live token endpoint rejects the Basic request produced by oauth4webapi while
-    // accepting the same client credentials in the form body. Use the broadly
-    // supported post method explicitly rather than relying on provider handling of
-    // Basic credential encoding. Discovery remains generic: a provider that does
-    // not support this configured confidential-client method fails closed during
-    // conformance/startup rather than falling back at sign-in time.
-    oidc.ClientSecretPost(input.clientSecret),
+    clientAuth,
   );
+  // Validate compatibility at startup, before accepting a sign-in transaction.
+  resolveOidcClientAuthMethod(
+    config.serverMetadata().token_endpoint_auth_methods_supported,
+    configured,
+  );
+  return config;
 }
 
 /** Builds a fresh-auth Authorization Code + PKCE request. */

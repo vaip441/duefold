@@ -162,6 +162,16 @@ export const moduleDeclaration: ModuleDeclaration = {
       description: 'OIDC client identifier.',
     },
     {
+      key: 'DUEFOLD_OIDC_CLIENT_AUTH_METHOD',
+      kind: 'enum',
+      required: false,
+      service: 'web',
+      default: 'auto',
+      values: ['auto', 'client_secret_post', 'client_secret_basic'],
+      description:
+        'OIDC token endpoint client authentication: automatic discovery-based selection or an explicit confidential-client method.',
+    },
+    {
       key: 'DUEFOLD_OIDC_CLIENT_SECRET',
       kind: 'secret',
       required: true,
