@@ -51,6 +51,29 @@ export const schema = {
 /** One neutral outcome for every failure class; the specific reason stays in audit. */
 export const SIGN_IN_FAILED_PATH = '/sign-in?state=failed';
 
+/**
+ * Maps a thrown sign-in failure to a closed-set telemetry code.
+ *
+ * Only this module's own error identifiers are recognized. Anything else becomes
+ * `OIDC_EXCHANGE_FAILED`, so a provider or library message can never reach the log
+ * as free text, and the redaction allowlist drops any code not enumerated there.
+ */
+export function signInRefusalCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  const known = [
+    'OIDC_TRANSACTION_INVALID',
+    'OIDC_REQUIRED_CLAIMS_MISSING',
+    'OIDC_TOKEN_EXPIRED',
+    'OIDC_AUTH_TIME_REQUIRED',
+    'OIDC_AUTH_TIME_STALE',
+    'OIDC_VERIFIED_EMAIL_REQUIRED',
+    'MEMBER_INVITATION_REQUIRED',
+    'BOOTSTRAP_IDENTITY_NOT_ALLOWED',
+    'OWNER_ALREADY_EXISTS',
+  ];
+  return known.includes(message) ? message : 'OIDC_EXCHANGE_FAILED';
+}
+
 interface CallbackQuery {
   readonly code: string | null;
   readonly state: string | null;
@@ -122,7 +145,19 @@ export function createHandler(runtime: WebRuntime) {
       // required, bootstrap identity not allowed, and owner already exists all
       // collapse to one indistinguishable browser outcome. The specific reason
       // remains in the audit spine and the server log.
-      request.log.warn({ err: error });
+      //
+      // The reason is logged as a closed-set code because the browser outcome is
+      // deliberately uniform: without it a failed sign-in was a redacted
+      // REQUEST_FAILED with no audit row, so the surface told the operator to ask
+      // an administrator to check access while giving that administrator nothing
+      // to check. The code names a cause only; no email, subject, issuer, state,
+      // or token material is recorded, and provider text is never forwarded.
+      request.log.warn({
+        err: error,
+        event: 'auth.oidc.refused',
+        code: signInRefusalCode(error),
+        correlation: request.id,
+      });
       void reply.redirect(SIGN_IN_FAILED_PATH);
       return null;
     }

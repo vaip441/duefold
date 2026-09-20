@@ -15,7 +15,7 @@ import {
   type GeneratedRouteId,
 } from '../../../.duefold/generated/routes.ts';
 import { createCorrelationId } from '@duefold/shared/ids';
-import { allowlistedTelemetry } from '@duefold/shared/redact';
+import { allowlistedTelemetry, type TelemetryRecord } from '@duefold/shared/redact';
 import { constantTimeDigestMatch } from '../../../modules/core-security/src/sessions.ts';
 import { classifyFailure } from './failure-mapping.ts';
 import type { AuthenticatedSession } from './authenticate.ts';
@@ -69,10 +69,22 @@ function property(value: unknown, key: string, fallback: string | number): unkno
   if (!isRecord(value)) return fallback;
   return value[key] ?? fallback;
 }
-function safeLogInput(value: unknown): Readonly<Record<string, unknown>> {
+function safeLogInput(value: unknown): TelemetryRecord {
   const allowed = allowlistedTelemetry(value);
   if (isRecord(value) && 'err' in value)
-    return { ...allowed, event: 'request.failed', code: 'REQUEST_FAILED' };
+    /*
+     * An `err` is replaced with a fixed marker so a thrown message, stack, or
+     * attached provider text can never be serialized. A caller that supplied its
+     * own allowlisted event and code keeps them: that is how a sign-in refusal
+     * records WHY it was refused while still never writing free text. The
+     * allowlist has already dropped anything outside the closed value sets, so
+     * this cannot widen what is loggable.
+     */
+    return {
+      ...allowed,
+      event: allowed['event'] ?? 'request.failed',
+      code: allowed['code'] ?? 'REQUEST_FAILED',
+    } satisfies TelemetryRecord;
   return allowed;
 }
 const AUTHORITIES = {

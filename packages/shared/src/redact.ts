@@ -1,5 +1,28 @@
-const TELEMETRY_EVENTS = ['request.failed', 'process.failure'] as const;
-const TELEMETRY_CODES = ['REQUEST_FAILED', 'PROCESS_FAILED'] as const;
+const TELEMETRY_EVENTS = ['request.failed', 'process.failure', 'auth.oidc.refused'] as const;
+const TELEMETRY_CODES = [
+  'REQUEST_FAILED',
+  'PROCESS_FAILED',
+  /*
+   * Closed set of sign-in refusal reasons. These are the server's own constants,
+   * never provider or database text, and they name a cause without identifying a
+   * person: no email, subject, issuer, state, or token material.
+   *
+   * Without these, a failed member sign-in produced a redacted REQUEST_FAILED and
+   * no audit row, so the failure surface told the operator to "ask your Duefold
+   * administrator to check your access" while giving that administrator nothing to
+   * check. Diagnosing a real outage required reading the source and guessing.
+   */
+  'OIDC_TRANSACTION_INVALID',
+  'OIDC_REQUIRED_CLAIMS_MISSING',
+  'OIDC_TOKEN_EXPIRED',
+  'OIDC_AUTH_TIME_REQUIRED',
+  'OIDC_AUTH_TIME_STALE',
+  'OIDC_VERIFIED_EMAIL_REQUIRED',
+  'OIDC_EXCHANGE_FAILED',
+  'MEMBER_INVITATION_REQUIRED',
+  'BOOTSTRAP_IDENTITY_NOT_ALLOWED',
+  'OWNER_ALREADY_EXISTS',
+] as const;
 const TELEMETRY_LEVELS = ['info', 'warn', 'error'] as const;
 const TELEMETRY_SERVICES = ['web', 'worker', 'cli'] as const;
 const TELEMETRY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const;
