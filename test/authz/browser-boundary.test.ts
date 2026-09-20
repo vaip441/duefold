@@ -15,6 +15,8 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import * as oidc from 'openid-client';
+import { createHash } from 'node:crypto';
 import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
 import { generatedRoutes } from '../../.duefold/generated/routes.ts';
 import { buildTestWebApp } from '../support/web-runtime.ts';
@@ -425,6 +427,69 @@ describe('OIDC callback failure is one neutral state', () => {
     expect(response.body).not.toContain('Leaked');
     expect(response.body).not.toContain('access_denied');
     expect(String(response.headers['location'])).not.toContain('access_denied');
+    await instance.close();
+  });
+
+  it('forwards the iss parameter a provider requires on the callback', async () => {
+    /*
+     * RFC 9207. A provider may advertise
+     * `authorization_response_iss_parameter_supported`, and Google does, in which
+     * case oauth4webapi REQUIRES `iss` on the authorization response and rejects
+     * the exchange with 'response parameter "iss" (issuer) missing'. The handler
+     * rebuilds the callback URL from the configured redirect URI, and it used to
+     * reattach only `code` and `state`, silently dropping `iss`. Every Google
+     * sign-in therefore failed inside the library, surfacing as the neutral
+     * refusal with OIDC_EXCHANGE_FAILED and no indication of the cause.
+     *
+     * Asserted through the real route against a provider that advertises the
+     * requirement. The exchange still fails here because the state was never
+     * persisted and the token endpoint is unreachable; what this pins is that the
+     * reconstructed URL carries `iss`, captured from the handler's own fetch.
+     */
+    const issuerRequiringIss = new oidc.Configuration(
+      {
+        issuer: 'https://accounts.google.example',
+        authorization_endpoint: 'https://accounts.google.example/authorize',
+        token_endpoint: 'https://accounts.google.example/token',
+        jwks_uri: 'https://accounts.google.example/jwks',
+        authorization_response_iss_parameter_supported: true,
+      },
+      'client',
+    );
+    const seen: string[] = [];
+    issuerRequiringIss[oidc.customFetch] = (url: string | URL) => {
+      seen.push(String(url));
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: 'invalid_grant' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    };
+    const state = 'z'.repeat(32);
+    const instance = await buildTestWebApp({
+      runtime: testWebRuntime({
+        pool: databasePool,
+        authPool,
+        oidc: issuerRequiringIss,
+      }),
+      authenticate: createSessionAuthenticator(authPool, sessionPolicy),
+    });
+    await authPool.query(
+      `INSERT INTO oidc_transaction (state_digest, nonce, code_verifier, expires_at)
+         VALUES ($1, $2, $3, transaction_timestamp() + interval '10 minutes')`,
+      [createHash('sha256').update(state).digest('hex'), 'n'.repeat(32), 'v'.repeat(43)],
+    );
+    const response = await instance.inject({
+      method: 'GET',
+      url: `/api/auth/oidc/callback?code=authorization-code&state=${state}&iss=${encodeURIComponent('https://accounts.google.example')}`,
+    });
+    // Neutral refusal either way; the point is WHY it was refused.
+    expect(response.statusCode).toBe(302);
+    // Reaching the token endpoint at all proves the iss check passed. Without the
+    // parameter, oauth4webapi rejects before any request is made, so `seen` is
+    // empty.
+    expect(seen.some((url) => url.includes('/token'))).toBe(true);
     await instance.close();
   });
 

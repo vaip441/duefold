@@ -77,6 +77,7 @@ export function signInRefusalCode(error: unknown): string {
 interface CallbackQuery {
   readonly code: string | null;
   readonly state: string | null;
+  readonly issuer: string | null;
   readonly idpError: boolean;
 }
 function callbackQuery(value: unknown): CallbackQuery {
@@ -84,9 +85,11 @@ function callbackQuery(value: unknown): CallbackQuery {
   const record: Readonly<Record<string, unknown>> = Object.fromEntries(Object.entries(value));
   const code = record['code'];
   const state = record['state'];
+  const issuer = record['iss'];
   return {
     code: typeof code === 'string' ? code : null,
     state: typeof state === 'string' ? state : null,
+    issuer: typeof issuer === 'string' ? issuer : null,
     idpError: typeof record['error'] === 'string',
   };
 }
@@ -107,7 +110,24 @@ export function createHandler(runtime: WebRuntime) {
     try {
       const transaction = await consumeOidcTransaction(runtime.authPool, state);
       const callbackUrl = new URL(runtime.oidcRedirectUri);
-      callbackUrl.search = new URLSearchParams({ code, state }).toString();
+      /*
+       * `iss` must be carried through. RFC 9207 lets a provider advertise
+       * `authorization_response_iss_parameter_supported`, and Google does, so
+       * oauth4webapi REQUIRES the parameter on the authorization response and
+       * rejects the exchange with 'response parameter "iss" (issuer) missing'
+       * without it. Rebuilding the URL from only `code` and `state` silently
+       * dropped it, which made every Google sign-in fail inside the library.
+       *
+       * The value is not trusted here: the library compares it against the
+       * discovered issuer and rejects a mismatch, which is the mix-up defence the
+       * parameter exists for. Forwarding only a string keeps the reconstruction
+       * free of any other attacker-supplied parameter.
+       */
+      callbackUrl.search = new URLSearchParams({
+        code,
+        state,
+        ...(query.issuer === null ? {} : { iss: query.issuer }),
+      }).toString();
       const identity = await finishOidc({
         config: runtime.oidc,
         callbackUrl,
