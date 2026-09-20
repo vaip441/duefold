@@ -6,6 +6,7 @@ import type { ViewerIdentity } from '../../core-security/src/authorization.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { DeliveryStorage } from './storage/s3-compatible.ts';
 import { invokeSandboxed, type SandboxProgram } from './processing/sandbox.ts';
+import type { SandboxIsolation } from './processing/preflight.ts';
 import { normalizeSafeHttpsLink, type SafeHttpsLink } from './safe-links.ts';
 
 const WATERMARK_LIMITS = {
@@ -133,6 +134,7 @@ export async function composeWatermarkPage(input: {
   readonly viewerEmail: string;
   readonly accessDateUtc: string;
   readonly roomName: string;
+  readonly isolation?: SandboxIsolation;
 }): Promise<Uint8Array> {
   const envelope = Buffer.from(
     JSON.stringify({
@@ -150,6 +152,9 @@ export async function composeWatermarkPage(input: {
     arguments: ['watermark-page', '--stdin-envelope'],
     input: envelope,
     limits: WATERMARK_LIMITS,
+    ...(input.isolation === undefined || input.isolation.mode === 'namespaced'
+      ? {}
+      : { mode: input.isolation.mode, identities: input.isolation.identities }),
   });
 }
 
@@ -161,6 +166,7 @@ export async function createWatermarkedPage(input: {
   readonly roomId: string;
   readonly documentId: string;
   readonly pageNumber: number;
+  readonly isolation?: SandboxIsolation;
 }): Promise<{ readonly cacheId: string; readonly expiresAt: Date }> {
   const cacheId = createOpaqueId();
   const objectKey = `watermarks/${createOpaqueId()}/${createOpaqueId()}`;
@@ -186,6 +192,7 @@ export async function createWatermarkedPage(input: {
       viewerEmail: selected.viewer_email,
       accessDateUtc: selected.access_date.toISOString().slice(0, 10),
       roomName: selected.room_name,
+      ...(input.isolation === undefined ? {} : { isolation: input.isolation }),
     });
     await input.storage.putWatermark({
       key: objectKey,

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -27,6 +27,9 @@ import {
   boundedTmpfsMountForTesting,
   enforceSandboxPreflight,
   formatSandboxPreflight,
+  resolveSandboxIsolation,
+  type SandboxIsolation,
+  SANDBOX_DEGRADED_ACKNOWLEDGEMENT,
   SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT,
   sandboxPreflight,
 } from './processing/preflight.ts';
@@ -35,6 +38,7 @@ import {
   releaseFormatPolicy,
   releasePolicyDigest,
 } from './release-policy.ts';
+import { ConverterIdentityPool } from './processing/privilege-separation.ts';
 
 const fixture = new URL(
   '../../../test/fixtures/processors/processor-fixture.mjs',
@@ -263,6 +267,234 @@ describe('credential-free sandbox boundary', () => {
       enforceSandboxPreflight(report, 'development', SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT);
     }).not.toThrow();
   });
+
+  /*
+   * Degraded isolation exists for hosts whose container runtime denies namespace
+   * creation. It is a real reduction in security, so these tests pin both halves:
+   * what it must still guarantee, and what it must never do silently.
+   *
+   * Executing a degraded child requires changing UID, which requires root. These
+   * tests therefore split: the gate logic is verified everywhere, while the
+   * execution behaviour is verified only where privilege separation is actually
+   * available. Skipping is honest; pretending would test a different mode than
+   * the one that ships.
+   */
+  const privileged = process.getuid?.() === 0;
+
+  it('requires an independent typed acknowledgement before degrading isolation', () => {
+    expect(resolveSandboxIsolation({ isolation: '' }).mode).toBe('namespaced');
+    expect(resolveSandboxIsolation({ isolation: 'namespaced' }).mode).toBe('namespaced');
+    // Whitespace is tolerated because a trailing space in a dashboard variable is
+    // invisible and failing closed on it would be a baffling outage.
+    expect(resolveSandboxIsolation({ isolation: '  namespaced  ' }).mode).toBe('namespaced');
+    // The mode alone must not be enough: one variable set while skimming a guide
+    // cannot be allowed to remove the parsing boundary.
+    expect(() => resolveSandboxIsolation({ isolation: 'degraded' })).toThrow(
+      'SANDBOX_DEGRADED_ACKNOWLEDGEMENT_REQUIRED',
+    );
+    expect(() =>
+      resolveSandboxIsolation({ isolation: 'degraded', acknowledgement: 'yes' }),
+    ).toThrow('SANDBOX_DEGRADED_ACKNOWLEDGEMENT_REQUIRED');
+    // Casing is deliberately NOT normalized: the acknowledgement must be typed as
+    // documented, so a near-miss fails rather than quietly counting.
+    expect(() =>
+      resolveSandboxIsolation({
+        isolation: 'degraded',
+        acknowledgement: SANDBOX_DEGRADED_ACKNOWLEDGEMENT.toLowerCase(),
+      }),
+    ).toThrow('SANDBOX_DEGRADED_ACKNOWLEDGEMENT_REQUIRED');
+    // An unrecognized value must fail rather than resolve to either boundary.
+    expect(() => resolveSandboxIsolation({ isolation: 'none' })).toThrow(
+      'SANDBOX_ISOLATION_INVALID',
+    );
+    const resolve = (): SandboxIsolation =>
+      resolveSandboxIsolation({
+        isolation: 'degraded',
+        acknowledgement: SANDBOX_DEGRADED_ACKNOWLEDGEMENT,
+      });
+    if (privileged) {
+      const resolved = resolve();
+      expect(resolved.mode).toBe('degraded');
+      // The pool is the capability: invokeSandboxed cannot launch a degraded child
+      // without one, so the acknowledgement cannot be skipped by passing a string.
+      expect(resolved.mode === 'degraded' && resolved.identities.identities.length).toBe(8);
+    } else expect(resolve).toThrow('CONVERTER_PRIVILEGE_UNAVAILABLE');
+  });
+
+  it('refuses to launch a degraded child without a converter identity', async () => {
+    // The type system already requires the pool, so this covers the runtime guard
+    // that stops a cast or a JS caller from reaching the unseparated path.
+    await expect(
+      invokeSandboxed({
+        program: sandboxProgram(process.execPath, [fixture]),
+        arguments: ['--fixture-inspect'],
+        input: Buffer.from('x'),
+        limits,
+        mode: 'degraded',
+      }),
+    ).rejects.toThrow('SANDBOX_DEGRADED_IDENTITY_REQUIRED');
+  });
+
+  it('hands out a distinct converter identity per concurrent invocation', async () => {
+    const pool = new ConverterIdentityPool(10_200, 2);
+    const first = await pool.acquire();
+    const second = await pool.acquire();
+    // Distinct, because the exit sweep kills every process owned by the identity:
+    // a shared uid would let one job's cleanup kill another job's converter.
+    expect(first.uid).not.toBe(second.uid);
+    let third: { readonly uid: number } | undefined;
+    void pool.acquire().then((slot) => {
+      third = slot;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    // Exhausted pool queues rather than over-issuing, which also bounds how many
+    // untrusted converters can run at once.
+    expect(third).toBeUndefined();
+    pool.release(first);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(third?.uid).toBe(first.uid);
+  });
+
+  it.runIf(privileged)(
+    'confines credentials and bounds resources when isolation is degraded',
+    async () => {
+      const pool = new ConverterIdentityPool(10_200, 2);
+      const output = await invokeSandboxed({
+        program: sandboxProgram(process.execPath, [fixture]),
+        arguments: ['--fixture-inspect'],
+        input: Buffer.from('x'),
+        limits,
+        mode: 'degraded',
+        identities: pool,
+      });
+      const inspected = JSON.parse(Buffer.from(output).toString('utf8')) as {
+        env: Record<string, string>;
+        cwd: string;
+        uid?: number;
+        gid?: number;
+        security: Readonly<Record<string, string>>;
+      };
+      expect(inspected.env).not.toHaveProperty('DUEFOLD_DATABASE_URL');
+      expect(Object.keys(inspected.env).sort()).toEqual(
+        [...sandboxEnvironmentKeys(), 'TMPDIR'].sort(),
+      );
+      // The uid MUST differ from the service user. This is the property that stops
+      // the converter reading the service's /proc/<pid>/environ, which an earlier
+      // version of this mode failed to provide while claiming it did.
+      expect(inspected.uid).not.toBe(process.getuid?.());
+      expect(inspected.gid).toBe(inspected.uid);
+      expect(inspected.security).toMatchObject({
+        CapEff: '0000000000000000',
+        CapBnd: '0000000000000000',
+        NoNewPrivs: '1',
+      });
+      expect(inspected.cwd).toContain('duefold-job-');
+      expect(existsSync(inspected.cwd)).toBe(false);
+      await expect(
+        invokeSandboxed({
+          program: sandboxProgram(process.execPath, [fixture]),
+          arguments: ['--fixture-overflow'],
+          input: Buffer.from('x'),
+          limits: { ...limits, maximumOutputBytes: 10 },
+          mode: 'degraded',
+          identities: pool,
+        }),
+      ).rejects.toThrow('SANDBOX_OUTPUT_LIMIT');
+      await expect(
+        invokeSandboxed({
+          program: sandboxProgram(process.execPath, [fixture]),
+          arguments: ['--fixture-timeout'],
+          input: Buffer.from('x'),
+          limits: { ...limits, timeoutMilliseconds: 20 },
+          mode: 'degraded',
+          identities: pool,
+        }),
+      ).rejects.toThrow('SANDBOX_TIMEOUT');
+    },
+  );
+
+  it.runIf(privileged)(
+    'denies a degraded converter the service process environment',
+    async () => {
+      // The regression test for the critical defect: scrubbing the child's own
+      // environment is worthless if it can read the parent's environ, which is an
+      // exec-time snapshot no in-process deletion can remove.
+      const pool = new ConverterIdentityPool(10_200, 1);
+      const output = await invokeSandboxed({
+        program: sandboxProgram(process.execPath, [fixture]),
+        arguments: ['--fixture-read-paths', `/proc/${String(process.pid)}/environ`],
+        input: Buffer.from('x'),
+        limits,
+        mode: 'degraded',
+        identities: pool,
+      });
+      expect(JSON.parse(Buffer.from(output).toString('utf8'))).toEqual(['denied']);
+    },
+  );
+
+  it.runIf(privileged)(
+    'kills a degraded descendant that escapes its process group',
+    async () => {
+      // setsid escapes the process group, so the uid sweep is what bounds a
+      // malicious converter. Without it the survivor outlives its own timeout and
+      // keeps writing, which is what the earlier implementation allowed.
+      const outside = await mkdtemp(join(tmpdir(), 'duefold-survivor-'));
+      const escaped = join(outside, 'escaped');
+      const pool = new ConverterIdentityPool(10_200, 1);
+      try {
+        await expect(
+          invokeSandboxed({
+            program: sandboxProgram(process.execPath, [forkFixture, escaped, 'MARK']),
+            arguments: [],
+            input: Buffer.from('x'),
+            limits: { ...limits, timeoutMilliseconds: 300 },
+            mode: 'degraded',
+            identities: pool,
+          }),
+        ).rejects.toThrow(/SANDBOX_/u);
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        expect(existsSync(escaped)).toBe(false);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(privileged)(
+    'exposes the host filesystem in degraded mode, unlike the namespaced boundary',
+    async () => {
+      const outside = await mkdtemp(join(tmpdir(), 'duefold-degraded-'));
+      const outsideSecret = join(outside, 'recognizable-secret');
+      await writeFile(outsideSecret, 'OUTSIDE_RECOGNIZABLE_SECRET');
+      // World-readable, so this measures the absence of filesystem isolation
+      // rather than the uid separation already covered above.
+      await chmod(outside, 0o755);
+      await chmod(outsideSecret, 0o644);
+      const pool = new ConverterIdentityPool(10_200, 1);
+      try {
+        const read = async (isolation: SandboxIsolation): Promise<readonly string[]> =>
+          JSON.parse(
+            Buffer.from(
+              await invokeSandboxed({
+                program: sandboxProgram(process.execPath, [fixture]),
+                arguments: ['--fixture-read-paths', outsideSecret],
+                input: Buffer.from('x'),
+                limits,
+                ...(isolation.mode === 'namespaced'
+                  ? {}
+                  : { mode: isolation.mode, identities: isolation.identities }),
+              }),
+            ).toString('utf8'),
+          ) as readonly string[];
+        // The asymmetry is the cost of the mode, asserted so it can never be
+        // described as equivalent to the namespaced boundary.
+        expect(await read({ mode: 'namespaced' })).toEqual(['denied']);
+        expect(await read({ mode: 'degraded', identities: pool })).toEqual(['readable']);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('ClamAV INSTREAM', () => {

@@ -1,4 +1,4 @@
-const { writeFile } = await import('node:fs/promises');
+const { readFile, writeFile } = await import('node:fs/promises');
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const input = Buffer.concat(chunks).toString('utf8');
@@ -12,8 +12,30 @@ if (process.argv.includes('--fixture-overflow')) {
   process.exit(0);
 }
 if (process.argv.includes('--fixture-inspect')) {
+  let security;
+  try {
+    security = Object.fromEntries(
+      (await readFile('/proc/self/status', 'utf8'))
+        .split('\n')
+        .filter((line) => /^(?:CapEff|CapBnd|NoNewPrivs):/u.test(line))
+        .map((line) => {
+          const separator = line.indexOf(':');
+          return [line.slice(0, separator), line.slice(separator + 1).trim()];
+        }),
+    );
+  } catch {
+    // A qualified namespaced sandbox intentionally need not mount host /proc.
+    security = undefined;
+  }
   process.stdout.write(
-    JSON.stringify({ argv: process.argv.slice(2), env: process.env, cwd: process.cwd() }),
+    JSON.stringify({
+      argv: process.argv.slice(2),
+      env: process.env,
+      cwd: process.cwd(),
+      uid: process.getuid?.(),
+      gid: process.getgid?.(),
+      security,
+    }),
   );
   process.exit(0);
 }

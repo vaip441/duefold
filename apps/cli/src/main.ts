@@ -24,6 +24,10 @@ import {
   createWorkerStorage,
   workerStorageConfig,
 } from '../../../modules/rooms-documents/src/storage/s3-compatible.ts';
+import {
+  formatSandboxPreflight,
+  sandboxPreflight,
+} from '../../../modules/rooms-documents/src/processing/preflight.ts';
 
 let activePool: Pool | undefined;
 const terminate = installProcessFailureHandlers('cli', {
@@ -43,7 +47,7 @@ const STORAGE_KEYS = [
   'DUEFOLD_STORAGE_CHECKSUM_SUPPORT',
 ] as const;
 const USAGE =
-  'usage: db migrate | db reset | bootstrap <organization-name> | recover-owner <exact-email> | support-bundle | updates check-file <manifest> | upgrade <sha256:digest> | rollback <sha256:digest> | backup-status [acknowledge <retention> <expectation>] | restore drill | restore reconcile-marker <purge-id> | restore enable-external';
+  'usage: db migrate | db reset | bootstrap <organization-name> | recover-owner <exact-email> | support-bundle | preflight sandbox | updates check-file <manifest> | upgrade <sha256:digest> | rollback <sha256:digest> | backup-status [acknowledge <retention> <expectation>] | restore drill | restore reconcile-marker <purge-id> | restore enable-external';
 
 function requiredString(config: RuntimeConfig, key: string): string {
   const value = config[key];
@@ -138,6 +142,35 @@ const COMMANDS: readonly CommandDefinition[] = [
     database: true,
     run: async (context) => {
       console.log(JSON.stringify(await createSupportBundle(database(context))));
+    },
+  },
+  {
+    /**
+     * Reports the real isolation boundary of the environment this process runs
+     * in, so a candidate host can be evaluated before any document or credential
+     * reaches it. It takes no configuration and no database, because the answer
+     * must be obtainable on a platform where nothing else is configured yet.
+     *
+     * An absent feature is a true answer, not a command fault: the report is
+     * printed and the exit code set directly, rather than throwing, so the
+     * operator sees which features are missing instead of only
+     * `PROCESS_FAILED`. The non-zero exit still lets a deployment gate fail on
+     * it.
+     *
+     * Run this inside the web or worker service, never a helper container that
+     * intentionally lacks the sandbox grants; the reference `migrate` service
+     * has no added capability, seccomp profile, or bounded tmpfs and would
+     * report an unsupported sandbox on a perfectly good host.
+     */
+    matches: ([group, command, extra]) =>
+      group === 'preflight' && command === 'sandbox' && extra === undefined,
+    configKeys: [],
+    database: false,
+    run: async () => {
+      const report = await sandboxPreflight();
+      console.log(formatSandboxPreflight(report));
+      console.log(`supported=${String(report.supported)}`);
+      if (!report.supported) process.exitCode = 1;
     },
   },
   {

@@ -5,6 +5,7 @@ import {
   type SandboxLimits,
   type SandboxProgram,
 } from './sandbox.ts';
+import type { SandboxIsolation } from './preflight.ts';
 import { fileURLToPath } from 'node:url';
 
 export interface PositionalText {
@@ -293,6 +294,7 @@ export async function processSource(input: {
   readonly programs: ProcessorPrograms;
   readonly signal?: AbortSignal;
   readonly limits?: SandboxLimits;
+  readonly isolation?: SandboxIsolation;
 }): Promise<ProcessedDocument> {
   const output = await invokeSandboxed({
     program: programFor(input.programs, input.mediaType),
@@ -300,6 +302,9 @@ export async function processSource(input: {
     input: input.bytes,
     limits: input.limits ?? DEFAULT_LIMITS,
     ...(input.signal === undefined ? {} : { signal: input.signal }),
+    ...(input.isolation === undefined || input.isolation.mode === 'namespaced'
+      ? {}
+      : { mode: input.isolation.mode, identities: input.isolation.identities }),
   });
   return parseOutput(output);
 }

@@ -23,6 +23,7 @@ import { assertDistinctDatabaseRoles } from './database-roles.ts';
 import { loadStaticClient } from './static-client.ts';
 import { parseTrustedProxies } from './proxy.ts';
 import { sandboxProgram } from '../../../modules/rooms-documents/src/processing/sandbox.ts';
+import { resolveSandboxIsolation } from '../../../modules/rooms-documents/src/processing/preflight.ts';
 import type { CoarseClient } from '../../../modules/core-security/src/auth/otp.ts';
 import type { WebRuntime } from './runtime.ts';
 import { createClamAvClient } from '../../../modules/rooms-documents/src/scanning/clamav.ts';
@@ -65,6 +66,23 @@ function classifyClient(): CoarseClient {
 
 try {
   const config = loadConfig(webConfigSchema, process.env);
+  const sandboxIsolation = resolveSandboxIsolation({
+    isolation: stringConfig(config, 'DUEFOLD_SANDBOX_ISOLATION'),
+    ...(typeof config['DUEFOLD_SANDBOX_DEGRADED_ACKNOWLEDGEMENT'] === 'string'
+      ? { acknowledgement: config['DUEFOLD_SANDBOX_DEGRADED_ACKNOWLEDGEMENT'] }
+      : {}),
+  });
+  if (sandboxIsolation.mode === 'degraded')
+    process.stderr.write(
+      `${JSON.stringify({
+        event: 'sandbox.degraded',
+        level: 'warn',
+        code: 'SANDBOX_ISOLATION_DEGRADED',
+        service: 'web',
+        detail:
+          'watermark composition runs as a separate unprivileged uid without filesystem or network isolation',
+      })}\n`,
+    );
   const databaseUrl = stringConfig(config, 'DUEFOLD_DATABASE_URL');
   const authenticatorDatabaseUrl = stringConfig(config, 'DUEFOLD_AUTH_DATABASE_URL');
   const publicUrl = new URL(stringConfig(config, 'DUEFOLD_PUBLIC_URL'));
@@ -156,6 +174,7 @@ try {
       stringConfig(config, 'DUEFOLD_WATERMARK_IMAGE_PROGRAM'),
     ]),
     classifyClient,
+    ...(sandboxIsolation.mode === 'namespaced' ? {} : { sandboxIsolation }),
     deliverOtp: (message) => mailer.deliver(message),
     revokeSession: async (sessionId, principal) => {
       await authDatabase.transaction().execute(async (transaction) => {
@@ -230,7 +249,7 @@ try {
   });
   closeResources = () => app.close();
   startupStage = 'listen';
-  await app.listen({ host: '0.0.0.0', port: 8080 });
+  await app.listen({ host: '0.0.0.0', port: numberConfig(config, 'DUEFOLD_PORT') });
 } catch {
   terminate();
 }

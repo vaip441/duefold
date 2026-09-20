@@ -46,6 +46,40 @@ jobs:
           done
           exit 1
 
+  privilege-separation:
+    name: Degraded-isolation privilege separation (root)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: bash .github/scripts/setup-sandbox.sh
+      # The degraded launch mode drops converters to a separate uid, which needs
+      # root. Those assertions skip on an unprivileged machine, so without this job
+      # the security properties of that mode would never execute anywhere.
+      - name: Create converter identities
+        run: |
+          for offset in 0 1 2 3 4 5 6 7; do
+            uid=$((10200 + offset))
+            sudo groupadd --system --gid "$uid" "duefold-conv$offset"
+            sudo useradd --system --uid "$uid" --gid "$uid" --no-create-home \
+              --shell /usr/sbin/nologin "duefold-conv$offset"
+          done
+      - name: Sandbox tests as root
+        run: |
+          sudo --preserve-env=PATH env npx vitest run --project unit \
+            modules/rooms-documents/src/processing.unit.test.ts \
+            --reporter=default --reporter=json --outputFile=/tmp/privileged.json
+          sudo chown "$(id -u)" /tmp/privileged.json
+      - name: Assert the privileged assertions actually ran
+        run: node .github/scripts/assert-privileged-tests-ran.mjs /tmp/privileged.json
+
   image-smoke:
     name: Build and process documents in production images
     runs-on: ubuntu-24.04
@@ -196,7 +230,7 @@ jobs:
       - run: npm run test:authz
 
   browser:
-    name: Browser journeys (Chromium, Firefox)
+    name: Browser journeys (Chromium, Firefox, WebKit)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -210,7 +244,7 @@ jobs:
       - run: npm ci
       - run: bash .github/scripts/setup-postgres.sh
       - run: bash .github/scripts/setup-sandbox.sh
-      - run: npx playwright install --with-deps chromium firefox
+      - run: npx playwright install --with-deps chromium firefox webkit
       # The harness serves the built client, so the bundle must exist first.
       - run: npm run build
       - run: npm run test:browser

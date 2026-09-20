@@ -71,6 +71,13 @@ docker compose up -d
 
 The [self-hosting guide](docs/self-hosting.md) walks through each setting.
 
+Prefer a managed-host experiment? The [Railway + Cloudflare R2 + Resend](docs/railway-deployment.md)
+guide is explicitly **non-qualified and synthetic-data-only** because Railway cannot
+provide Duefold's filesystem and network sandbox. For production evaluation, start
+with the [host requirements](docs/host-requirements.md) —
+the document sandbox needs specific kernel features that many managed platforms
+do not grant.
+
 ## Good to know
 
 - Watermarks discourage leaks. They can't stop a phone camera.
@@ -78,6 +85,10 @@ The [self-hosting guide](docs/self-hosting.md) walks through each setting.
 - The audit log is append-only, but someone with direct database access could still change it.
 
 Duefold deliberately leaves out NDAs, Q&A, engagement analytics, and DRM.
+
+## Security
+
+Duefold's maintained security documentation includes the [threat model](docs/security/threat-model.md), [data-flow and trust boundaries](docs/security/data-flow.md), [ASVS traceability map](docs/security/asvs-map.md), and [incident-response runbook](docs/security/incident-response.md). Security issues must be reported privately as described in [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

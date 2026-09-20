@@ -10,6 +10,7 @@ import type {
   DeliveryStorage,
 } from '../../../modules/rooms-documents/src/storage/s3-compatible.ts';
 import type { SandboxProgram } from '../../../modules/rooms-documents/src/processing/sandbox.ts';
+import type { SandboxIsolation } from '../../../modules/rooms-documents/src/processing/preflight.ts';
 
 export interface WebRuntime {
   readonly pool: Pool;
@@ -30,6 +31,9 @@ export interface WebRuntime {
   /** Absent in production until a qualified credential-free watermark adapter
    * is explicitly configured. Protected-page creation fails closed without it. */
   readonly watermarkProgram?: SandboxProgram;
+  /** Absent means the namespaced boundary. Set only when the deployment has
+   * explicitly acknowledged a host without namespace support. */
+  readonly sandboxIsolation?: SandboxIsolation;
   classifyClient(request: FastifyRequest): CoarseClient;
   deliverOtp(input: {
     readonly emailDisplay: string;

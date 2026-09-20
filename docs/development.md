@@ -3,8 +3,8 @@
 ## Requirements
 
 - Node.js 26.5.0 (`.nvmrc`)
-- PostgreSQL 18
-- `bubblewrap` and `setpriv`. The tests run real sandboxes, which need unprivileged user namespaces. On Ubuntu 24.04 and later, allow them with `sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0`.
+- PostgreSQL 16 or newer (the reference Compose image and CI currently use 18)
+- `bubblewrap` and `setpriv`. The tests run real sandboxes, which need unprivileged user namespaces. On Ubuntu 24.04 and later, allow them with `sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0`. Check with `node apps/cli/src/main.ts preflight sandbox`; `cgroups` and `bounded-tmpfs` read `absent` outside a container, which is expected locally.
 
 ## Checks
 
@@ -50,7 +50,7 @@ The harness resets the schema as your operating-system user over the local socke
 | `apps/worker`     | Virus scanning and document conversion in the sandbox      |
 | `apps/cli`        | Operator commands                                          |
 | `modules/`        | Feature modules, selected at build time                    |
-| `deploy/`         | Dockerfiles, image policies, and database role scripts     |
+| `deploy/`         | Dockerfiles, image policies, database roles, and the host probe |
 | `test/`           | Integration, authorization, and browser suites             |
 | `compose.yaml`    | Reference Docker Compose deployment                        |
 

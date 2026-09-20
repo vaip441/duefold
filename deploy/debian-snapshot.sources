@@ -1,0 +1,19 @@
+# Immutable Debian package sources used by all Duefold runtime images.
+#
+# Snapshot IDs were retrieved from snapshot.debian.org's timestamp API on
+# 2026-09-20. Check-Valid-Until is disabled because archived Release metadata
+# expires by design; signatures are still verified by APT against Debian's
+# archive keyring inherited from the digest-pinned Node base image.
+Types: deb
+URIs: https://snapshot.debian.org/archive/debian/20260920T082715Z/
+Suites: trixie trixie-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Check-Valid-Until: no
+
+Types: deb
+URIs: https://snapshot.debian.org/archive/debian-security/20260920T082423Z/
+Suites: trixie-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Check-Valid-Until: no

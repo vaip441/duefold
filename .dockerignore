@@ -1,0 +1,44 @@
+# Keep local credentials, repository metadata, dependencies, and generated/test
+# output out of every Docker and Railway build context. Production Dockerfiles
+# use COPY . in build stages, so this file is a security boundary rather than
+# only a build-performance optimization.
+.git
+.github
+.agents
+.claude
+.impeccable
+.pi
+
+.env
+.env.*
+!.env.example
+
+node_modules
+**/node_modules
+**/dist
+build
+coverage
+test
+test-results
+playwright-report
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+docs
+*.md
+AGENTS.md
+COMPETITOR_BENCHMARK.md
+DESIGN.md
+DESIGN_SPEC.md
+GRILLING_DECISIONS.md
+IMPLEMENTATION_PLAN.md
+LAUNCH_PLAN.md
+PRODUCT.md
+
+.DS_Store
+*.swp
+*.swo
+.vscode
+.idea

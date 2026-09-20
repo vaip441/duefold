@@ -6,7 +6,10 @@ on:
 
 permissions:
   contents: write
+  actions: read
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -22,10 +25,37 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # The manifest signer imports the CLI lifecycle module, which reads the
-      # composed registries; the image builds compose inside Docker instead.
-      - run: npm run compose
+      - name: Verify tag and qualified commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$version" = "$(node -p 'require("./package.json").version')"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+          main_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${GITHUB_SHA}" = "$main_sha"
+          conclusion="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&branch=main&status=completed&per_page=100" --jq '.workflow_runs | map(select(.event == "push" and .conclusion == "success")) | first | .conclusion // ""')"
+          test "$conclusion" = success
+      # Repeat deterministic source checks even though this exact commit must
+      # already have a green CI run; a tag never becomes an unchecked path.
+      - run: npm run verify
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
+      - name: Verify release qualification acknowledgement
+        env:
+          QUALIFIED_SHA: ${{ vars.DUEFOLD_RELEASE_QUALIFIED_SHA }}
+        run: |
+          test -n "$QUALIFIED_SHA"
+          test "$QUALIFIED_SHA" = "$GITHUB_SHA"
+      - name: Require immutable converter package sources
+        run: |
+          test -f deploy/debian-snapshot.sources
+          grep -q 'snapshot.debian.org/archive/debian/' deploy/debian-snapshot.sources
+          grep -q 'snapshot.debian.org/archive/debian-security/' deploy/debian-snapshot.sources
+          for file in deploy/web.Dockerfile deploy/worker.Dockerfile; do
+            grep -q 'COPY deploy/debian-snapshot.sources /etc/apt/sources.list.d/debian.sources' "$file"
+          done
       - name: Require release signing key
         env:
           RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
@@ -35,6 +65,36 @@ jobs:
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@151a37f29c09e4ff49f853d2b23682e688bb1fa1 # v0.3.0
+        with:
+          version: v0.74.0
+          cache: true
+      # Build and scan an amd64 copy before authenticating to GHCR. CI already
+      # builds both architecture variants; this gate prevents a known vulnerable
+      # image from being pushed even temporarily by the release job.
+      - name: Build web image for pre-publish scan
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/web.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: duefold-web:release-scan
+      - name: Build worker image for pre-publish scan
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/worker.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: duefold-worker:release-scan
+      - name: Block vulnerable images before registry upload
+        run: |
+          for image in duefold-web:release-scan duefold-worker:release-scan; do
+            trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+              --scanners vuln "$image"
+          done
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -50,6 +110,8 @@ jobs:
           file: deploy/web.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max
+          sbom: true
           tags: |
             ghcr.io/vaip441/duefold-web:${{ github.ref_name }}
             ghcr.io/vaip441/duefold-web:latest
@@ -61,9 +123,35 @@ jobs:
           file: deploy/worker.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max
+          sbom: true
           tags: |
             ghcr.io/vaip441/duefold-worker:${{ github.ref_name }}
             ghcr.io/vaip441/duefold-worker:latest
+
+      - name: Scan immutable release images
+        run: |
+          for image in \
+            "ghcr.io/vaip441/duefold-web@${{ steps.build-web.outputs.digest }}" \
+            "ghcr.io/vaip441/duefold-worker@${{ steps.build-worker.outputs.digest }}"; do
+            trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+              --scanners vuln "$image"
+          done
+      - name: Export release SBOMs
+        run: |
+          trivy image --format cyclonedx --output duefold-web.cdx.json \
+            "ghcr.io/vaip441/duefold-web@${{ steps.build-web.outputs.digest }}"
+          trivy image --format cyclonedx --output duefold-worker.cdx.json \
+            "ghcr.io/vaip441/duefold-worker@${{ steps.build-worker.outputs.digest }}"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+      - name: Sign immutable image digests
+        env:
+          COSIGN_YES: 'true'
+        run: |
+          cosign sign "ghcr.io/vaip441/duefold-web@${{ steps.build-web.outputs.digest }}"
+          cosign sign "ghcr.io/vaip441/duefold-worker@${{ steps.build-worker.outputs.digest }}"
 
       - name: Generate signed release manifest
         env:
@@ -78,5 +166,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: release-manifest.json
+          files: |
+            release-manifest.json
+            duefold-web.cdx.json
+            duefold-worker.cdx.json
           generate_release_notes: true

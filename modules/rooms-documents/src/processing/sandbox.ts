@@ -3,6 +3,12 @@ import { promisify } from 'node:util';
 import { copyFile, mkdtemp, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import {
+  grantScratch,
+  sweepConverterProcesses,
+  type ConverterIdentityPool,
+  type ConverterSlot,
+} from './privilege-separation.ts';
 
 const executeFile = promisify(execFile);
 
@@ -44,6 +50,13 @@ export interface SandboxInvocation {
   readonly input: Uint8Array;
   readonly limits: SandboxLimits;
   readonly signal?: AbortSignal;
+  /** Defaults to the namespaced boundary. Callers only set this when the
+   * deployment has explicitly acknowledged a host without namespaces. */
+  readonly mode?: SandboxLaunchMode;
+  /** Required when mode is 'degraded', and obtainable only from a validated
+   * configuration, so the weaker path cannot be reached by passing a bare
+   * string. Absent in namespaced mode, which needs no separate identity. */
+  readonly identities?: ConverterIdentityPool;
 }
 const ALLOWED_CHILD_ENVIRONMENT = Object.freeze({
   LANG: 'C.UTF-8',
@@ -284,11 +297,130 @@ function mountArguments(
   ];
 }
 
-/** The only child-process boundary for untrusted content. Bubblewrap creates a
- * private PID/network/user namespace and an empty runtime root containing only
- * explicitly selected executables, their shared libraries, processor adapter
- * files, and one writable scratch bind. The detached process group is killed
- * as a whole and the namespace init is reaped before scratch removal. */
+/**
+ * How the untrusted child is launched.
+ *
+ * `namespaced` is the only production-grade boundary and the default everywhere.
+ * `degraded` exists for hosts whose container runtime denies namespace creation
+ * (no CAP_SYS_ADMIN), where bubblewrap cannot run at all. It is selected by
+ * explicit configuration, never by falling back after a failure: a sandbox that
+ * silently weakens itself when the kernel says no is worse than one that stops,
+ * because the operator would never learn the boundary is gone.
+ */
+export type SandboxLaunchMode = 'namespaced' | 'degraded';
+
+/** Builds the bubblewrap argument vector: a private user/PID/network namespace
+ * and an empty root containing only the explicitly selected executables, their
+ * shared libraries, adapter files, and one writable scratch bind. */
+function namespacedCommand(
+  runtime: {
+    readonly executable: string;
+    readonly fixedArguments: readonly string[];
+    readonly files: readonly string[];
+    readonly directories: readonly string[];
+  },
+  invocation: SandboxInvocation,
+  directory: string,
+): { readonly command: string; readonly argv: readonly string[] } {
+  return {
+    command: '/usr/bin/bwrap',
+    argv: [
+      '--unshare-user',
+      '--unshare-pid',
+      '--unshare-net',
+      '--die-with-parent',
+      '--new-session',
+      '--tmpfs',
+      '/',
+      ...mountArguments(runtime.files, runtime.directories),
+      '--dir',
+      '/nonexistent',
+      '--bind',
+      directory,
+      directory,
+      '--dev',
+      '/dev',
+      '--chdir',
+      directory,
+      '--',
+      '/usr/bin/setpriv',
+      '--no-new-privs',
+      '--',
+      runtime.executable,
+      ...runtime.fixedArguments,
+      ...invocation.arguments,
+    ],
+  };
+}
+
+/**
+ * Builds the degraded argument vector for hosts without namespaces.
+ *
+ * Runs the converter as a distinct unprivileged UID. That is not a hardening
+ * detail, it is what makes the mode survivable at all: `/proc/<pid>/environ` is
+ * an exec-time snapshot readable by the owning UID, so a converter sharing the
+ * service's UID can read the service's environment and recover the database
+ * URL, both storage credentials, the OIDC secret, and every HMAC key. Scrubbing
+ * the child's own environment does nothing about that. See
+ * ./privilege-separation.ts for the full reasoning.
+ *
+ * What this mode provides:
+ *   - credentials confined: the converter UID cannot read the service's environ,
+ *     and its own environment carries only ALLOWED_CHILD_ENVIRONMENT;
+ *   - no new privileges: a mandatory pre-exec transition, so the converter
+ *     cannot regain the UID it was dropped from;
+ *   - descendant containment: every process owned by the per-invocation UID is
+ *     swept on exit, which `setsid` cannot escape (a process group can);
+ *   - the parent's timeout, output ceiling, and scratch-size monitor.
+ *
+ * What it does NOT provide, and no UNIX primitive here can supply without a
+ * namespace:
+ *   - filesystem isolation. The converter sees the container's real root and can
+ *     read anything world-readable, including application code. It cannot read
+ *     the service's environ or files private to the service UID.
+ *   - network isolation. The proxy variables only redirect well-behaved HTTP
+ *     clients; a deliberate payload can open a socket directly.
+ *
+ * A converter exploit therefore yields code execution as a throwaway UID with
+ * network access, not as the service user with its credentials. That is a
+ * meaningful reduction from the namespaced boundary and must not be described
+ * as equivalent to it.
+ */
+function degradedCommand(
+  runtime: {
+    readonly executable: string;
+    readonly fixedArguments: readonly string[];
+  },
+  invocation: SandboxInvocation,
+  slot: ConverterSlot,
+): { readonly command: string; readonly argv: readonly string[] } {
+  return {
+    command: '/usr/bin/setpriv',
+    argv: [
+      '--no-new-privs',
+      // Root starts with a broad capability set. Changing UID usually clears
+      // effective capabilities, but explicitly empty every capability set so a
+      // runtime securebits configuration cannot leave a converter privileged.
+      '--bounding-set=-all',
+      '--inh-caps=-all',
+      '--ambient-caps=-all',
+      `--reuid=${String(slot.uid)}`,
+      `--regid=${String(slot.gid)}`,
+      '--clear-groups',
+      '--',
+      runtime.executable,
+      ...runtime.fixedArguments,
+      ...invocation.arguments,
+    ],
+  };
+}
+
+/** The only child-process boundary for untrusted content. With the default
+ * `namespaced` mode, bubblewrap creates a private PID/network/user namespace and
+ * an empty runtime root containing only explicitly selected executables, their
+ * shared libraries, processor adapter files, and one writable scratch bind. The
+ * detached process group is killed as a whole and the namespace init is reaped
+ * before scratch removal. See SandboxLaunchMode for the degraded alternative. */
 export async function invokeSandboxed(invocation: SandboxInvocation): Promise<Uint8Array> {
   const { limits } = invocation;
   if (
@@ -304,50 +436,56 @@ export async function invokeSandboxed(invocation: SandboxInvocation): Promise<Ui
     invocation.arguments.some((argument) => argument.includes('\0'))
   )
     throw new Error('SANDBOX_LIMIT_INVALID');
-  const directory = await mkdtemp(
-    join(
-      scratchRoot(),
-      invocation.program.requiredFiles.length === 0 ? 'duefold-job-' : 'duefold-parser-job-',
-    ),
-  );
+  // Degraded mode requires a converter identity distinct from the service user.
+  // Refusing without one is deliberate: running the converter as the service
+  // user is the configuration that leaks credentials through /proc, so there is
+  // no safe default to fall back to.
+  if (invocation.mode === 'degraded' && invocation.identities === undefined)
+    throw new Error('SANDBOX_DEGRADED_IDENTITY_REQUIRED');
+  const slot =
+    invocation.mode === 'degraded' && invocation.identities !== undefined
+      ? await invocation.identities.acquire()
+      : undefined;
+  let directory: string;
+  try {
+    directory = await mkdtemp(
+      join(
+        scratchRoot(),
+        invocation.program.requiredFiles.length === 0 ? 'duefold-job-' : 'duefold-parser-job-',
+      ),
+    );
+  } catch (error) {
+    // The slot is held before the directory exists, so a failure here must return
+    // it. Leaking one would shrink the pool permanently, and because acquire()
+    // queues rather than rejecting, exhausting it would hang processing instead of
+    // failing a job.
+    if (slot !== undefined) invocation.identities?.release(slot);
+    throw error;
+  }
   try {
     const runtime = await runtimeFiles(invocation, directory);
+    // The converter runs as another UID, so it needs ownership of its own
+    // scratch to write intermediates. The parent retains the parent directory
+    // and therefore can still remove the tree afterwards.
+    if (slot !== undefined) await grantScratch(directory, slot);
+    const { command, argv } =
+      slot === undefined
+        ? namespacedCommand(runtime, invocation, directory)
+        : degradedCommand(runtime, invocation, slot);
     return await new Promise((resolve, reject) => {
-      const child = spawn(
-        '/usr/bin/bwrap',
-        [
-          '--unshare-user',
-          '--unshare-pid',
-          '--unshare-net',
-          '--die-with-parent',
-          '--new-session',
-          '--tmpfs',
-          '/',
-          ...mountArguments(runtime.files, runtime.directories),
-          '--dir',
-          '/nonexistent',
-          '--bind',
-          directory,
-          directory,
-          '--dev',
-          '/dev',
-          '--chdir',
-          directory,
-          '--',
-          '/usr/bin/setpriv',
-          '--no-new-privs',
-          '--',
-          runtime.executable,
-          ...runtime.fixedArguments,
-          ...invocation.arguments,
-        ],
-        {
-          env: { ...ALLOWED_CHILD_ENVIRONMENT, TMPDIR: directory },
-          stdio: ['pipe', 'pipe', 'ignore'],
-          windowsHide: true,
-          detached: true,
-        },
-      );
+      const child = spawn(command, argv, {
+        // The child's environment carries no database URL, storage credential, or
+        // key material in either mode. In degraded mode this is necessary but not
+        // sufficient on its own, which is why the UID differs too.
+        env: { ...ALLOWED_CHILD_ENVIRONMENT, TMPDIR: directory },
+        stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
+        // Detached so the process group can be killed as a unit. In degraded mode
+        // the UID sweep below is the authoritative bound, because a descendant
+        // that calls setsid leaves the group.
+        detached: true,
+        cwd: directory,
+      });
       const stdout = child.stdout;
       const stdin = child.stdin;
       const chunks: Buffer[] = [];
@@ -409,6 +547,17 @@ export async function invokeSandboxed(invocation: SandboxInvocation): Promise<Ui
       stdin.end(invocation.input);
     });
   } finally {
+    // Order matters. Sweep the converter UID before removing scratch, so a
+    // descendant that escaped the process group cannot still be writing into the
+    // tree as it is deleted. This is the bound that replaces the PID namespace,
+    // and it runs on every exit path including timeout and output overrun.
+    if (slot !== undefined) {
+      try {
+        await sweepConverterProcesses(slot);
+      } finally {
+        invocation.identities?.release(slot);
+      }
+    }
     await rm(directory, { recursive: true, force: true });
   }
 }

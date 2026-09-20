@@ -21,6 +21,8 @@ RUN npm run compose && npm run build --workspace @duefold/web-client
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /srv/duefold
 
+COPY deploy/debian-snapshot.sources /etc/apt/sources.list.d/debian.sources
+
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends \
     bubblewrap \
@@ -38,8 +40,13 @@ COPY --from=build /srv/duefold/modules ./modules
 COPY --from=build /srv/duefold/packages ./packages
 RUN npm ci --omit=dev
 COPY --from=build /srv/duefold/.duefold ./.duefold
+COPY --from=build /srv/duefold/composition*.manifest.json ./
 COPY --from=build /srv/duefold/deploy/image-smoke.ts ./deploy/image-smoke.ts
 COPY --from=build /srv/duefold/tsconfig*.json ./
+
+# Invariant 17: generating registries removes import edges, but omitted module
+# source must also be absent from the runtime artifact.
+RUN node packages/composition/src/cli.ts prune
 
 RUN useradd --system --uid 10002 duefold
 USER duefold

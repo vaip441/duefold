@@ -4,6 +4,7 @@ import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { JobContext, LeasedJob } from '../../../../apps/worker/src/runner.ts';
 import type { ClamAvClient } from '../scanning/clamav.ts';
 import { processSource, type ProcessorPrograms } from '../processing/formats.ts';
+import type { SandboxIsolation } from '../processing/preflight.ts';
 import { assertFormatEnabled } from '../release-policy.ts';
 import { validateSourceBytes, type SourceMediaType } from '../source-validation.ts';
 import type { WorkerStorage } from '../storage/s3-compatible.ts';
@@ -13,6 +14,9 @@ export interface SourceValidationDependencies {
   readonly storage: WorkerStorage;
   readonly scanner: ClamAvClient;
   readonly processorPrograms: ProcessorPrograms;
+  /** Absent means the namespaced boundary. Set only by a deployment that has
+   * explicitly acknowledged a host without namespace support. */
+  readonly isolation?: SandboxIsolation;
 }
 function versionId(payload: Readonly<Record<string, unknown>>): string {
   const value = payload['versionId'];
@@ -194,6 +198,7 @@ export function createHandler(dependencies: SourceValidationDependencies) {
         bytes,
         programs: dependencies.processorPrograms,
         signal: context.signal,
+        ...(dependencies.isolation === undefined ? {} : { isolation: dependencies.isolation }),
       });
     } catch (error) {
       if (deterministic(error))

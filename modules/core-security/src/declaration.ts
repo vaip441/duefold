@@ -228,6 +228,15 @@ export const moduleDeclaration: ModuleDeclaration = {
       description: 'Explicit operator guard for destructive local database reset.',
     },
     {
+      key: 'DUEFOLD_PORT',
+      kind: 'number',
+      required: false,
+      service: 'web',
+      default: 8080,
+      description:
+        'TCP port the web service listens on. Platforms that assign a port (Railway, Heroku) supply it; keep the default behind a reverse proxy.',
+    },
+    {
       key: 'DUEFOLD_SESSION_IDLE_MINUTES',
       kind: 'number',
       required: false,

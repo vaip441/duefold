@@ -5,16 +5,10 @@
  * harness, over loopback TLS with a self-signed certificate, so the `Secure`
  * session and CSRF cookies behave exactly as they do in production.
  *
- * ENGINE COVERAGE IS TWO ENGINES, NOT THREE. Chromium and Gecko are exercised;
- * `mobile-chromium` is a third PROJECT but the same engine as `chromium`. WebKit is
- * deliberately absent rather than configured-and-skipped: the browser is cached, but
- * launching it needs about twenty-five system libraries this host does not have
- * (libgtk-4, libgraphene, the GStreamer set, libflite, and others) and installing
- * them requires root. A project that cannot start would report success by running
- * nothing, which is worse than an accurate gap.
- *
- * So Safari and iOS behaviour is UNVERIFIED. The release evidence has to say so, and
- * adding the WebKit project is a one-line change once the host can run it.
+ * ENGINE COVERAGE IS THREE ENGINES. Chromium, Gecko, and WebKit are exercised in
+ * CI; mobile Chromium separately covers the 320 CSS-pixel responsive boundary.
+ * `playwright install --with-deps` is required because WebKit needs GTK and
+ * GStreamer libraries that are not part of a minimal Node development host.
  */
 
 import { defineConfig, devices } from '@playwright/test';
@@ -39,6 +33,10 @@ export default defineConfig({
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
     },
     {
       // Responsive member and viewer states from 320 CSS pixels.

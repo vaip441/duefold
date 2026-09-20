@@ -1,8 +1,25 @@
 import { readFile } from 'node:fs/promises';
 import { invokeSandboxed, sandboxProgram } from './sandbox.ts';
+import {
+  assertPrivilegeSeparationAvailable,
+  ConverterIdentityPool,
+} from './privilege-separation.ts';
+
+/** Chosen above the service UIDs (10001 web, 10002 worker) and the Debian system
+ * range, so converter identities cannot collide with a real account. */
+export const DEFAULT_CONVERTER_BASE_UID = 10_200;
+
+/** The resolved isolation decision. Degraded carries the identity pool that
+ * `invokeSandboxed` requires, so the mode and its prerequisite travel together
+ * and neither can be supplied without the other. */
+export type SandboxIsolation =
+  | { readonly mode: 'namespaced' }
+  | { readonly mode: 'degraded'; readonly identities: ConverterIdentityPool };
 
 export const SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT =
   'I_ACKNOWLEDGE_DUEFOLD_SANDBOX_IS_NOT_PRODUCTION_SAFE';
+export const SANDBOX_DEGRADED_ACKNOWLEDGEMENT =
+  'I_ACCEPT_UNISOLATED_DOCUMENT_PARSING_ON_THIS_HOST';
 export interface IsolationFeature {
   readonly name:
     | 'namespaces'
@@ -129,4 +146,47 @@ export function enforceSandboxPreflight(
   if (report.supported) return;
   if (mode === 'development' && acknowledgement === SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT) return;
   throw new Error('SANDBOX_PREFLIGHT_UNSUPPORTED');
+}
+
+/**
+ * Resolves the launch mode from configuration, and refuses to guess.
+ *
+ * Degraded isolation requires two independent statements: the mode itself and a
+ * separate typed acknowledgement. One variable would be too easy to set while
+ * skimming a deployment guide, and the consequence — untrusted converters
+ * running without filesystem or network isolation — is not recoverable by
+ * noticing later.
+ *
+ * Returning the identity pool rather than a bare string is what makes the
+ * acknowledgement load-bearing: `invokeSandboxed` cannot launch a degraded child
+ * without a pool, and a pool only exists on this path. An earlier version
+ * returned a plain union, so any caller could pass `mode: 'degraded'` and skip
+ * the gate entirely.
+ *
+ * There is deliberately no automatic fallback. Choosing degraded because the
+ * namespaced probe failed would mean the boundary disappears exactly when the
+ * host turns out to be weaker than expected, which is when it matters most.
+ */
+export function resolveSandboxIsolation(input: {
+  readonly isolation: string;
+  readonly acknowledgement?: string;
+  readonly converterBaseUid?: number;
+}): SandboxIsolation {
+  // Trimmed because a trailing space in a dashboard variable is invisible, and
+  // failing closed on it would be a confusing outage. Casing is NOT normalized:
+  // the acknowledgement must be typed exactly as documented.
+  const isolation = input.isolation.trim();
+  if (isolation === '' || isolation === 'namespaced') return { mode: 'namespaced' };
+  if (isolation !== 'degraded') throw new Error('SANDBOX_ISOLATION_INVALID');
+  if (input.acknowledgement?.trim() !== SANDBOX_DEGRADED_ACKNOWLEDGEMENT)
+    throw new Error('SANDBOX_DEGRADED_ACKNOWLEDGEMENT_REQUIRED');
+  // Proven here rather than when the first document arrives: without the ability
+  // to change UID, converters would run as the service user and could read its
+  // credentials out of /proc.
+  const converterBaseUid = input.converterBaseUid ?? DEFAULT_CONVERTER_BASE_UID;
+  assertPrivilegeSeparationAvailable(converterBaseUid);
+  return {
+    mode: 'degraded',
+    identities: new ConverterIdentityPool(converterBaseUid),
+  };
 }

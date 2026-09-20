@@ -16,6 +16,8 @@
 ARG NODE_IMAGE=node:26.5.0-trixie@sha256:0473e7dc433a1310f436edee02aa79737ec78a4b345433ab0963d4a256f9ad85
 FROM ${NODE_IMAGE} AS base
 
+COPY deploy/debian-snapshot.sources /etc/apt/sources.list.d/debian.sources
+
 # Third-party binaries the processing pipeline spawns. Each is credential-free: the
 # sandbox passes bytes on stdin and reads stdout, and no environment variable
 # carrying a secret crosses the boundary (see sandboxEnvironmentKeys).
@@ -47,8 +49,9 @@ COPY . .
 RUN npm ci --omit=dev
 
 # The composed registry is a build-time artifact: an omitted module must be absent
-# from the image, not merely disabled at runtime.
-RUN npm run compose
+# from the image, not merely disabled at runtime. `prune` verifies the registries
+# and removes omitted module source from the runtime filesystem.
+RUN node packages/composition/src/cli.ts prune
 
 # Unprivileged. The sandbox drops further privileges per invocation, but the worker
 # process itself must never run as root.

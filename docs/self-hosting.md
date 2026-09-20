@@ -2,6 +2,8 @@
 
 Duefold serves one organization per installation. The reference deployment needs a Linux host with Docker Compose, HTTPS through a reverse proxy, a private S3-compatible bucket, generic OIDC for members, and either SMTP or Resend. Compose supplies PostgreSQL and ClamAV.
 
+[Host requirements](host-requirements.md) states these requirements without reference to Compose, for evaluating a different host. For managed hosting, see [Railway + Cloudflare R2 + Resend](railway-deployment.md), which documents the isolation trade-off that platform requires.
+
 ## Start
 
 1. Clone the repository and copy `.env.example` to `.env`.
@@ -49,6 +51,7 @@ docker compose run --rm migrate <command>
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `db migrate`                                          | Applies pending database migrations. `docker compose up` runs it too.                              |
 | `support-bundle`                                      | Prints redacted diagnostics: migration state, job queue, and recovery status.                      |
+| `preflight sandbox`                                   | Reports the seven sandbox isolation features. Run it in `web` or `worker`, never `migrate`.         |
 | `recover-owner <email>`                               | After a confirmation prompt, makes that invited member the Owner and disables every current Owner. |
 | `backup-status`                                       | Shows the recorded backup and restore-drill status.                                                |
 | `backup-status acknowledge <retention> <expectation>` | Records the backup retention and recovery expectation you verified with your provider.             |
@@ -86,5 +89,13 @@ Duefold nests a credential-free Bubblewrap sandbox inside the web and worker con
 printf 'kernel.apparmor_restrict_unprivileged_userns=0\n' | sudo tee /etc/sysctl.d/90-duefold-userns.conf
 sudo sysctl --system
 ```
+
+Confirm the result from inside the running service, which reports the real boundary rather than the presence of a package:
+
+```sh
+docker compose exec worker node apps/cli/src/main.ts preflight sandbox
+```
+
+Every feature must read `present`. The command exits non-zero when any is absent, so a deployment check can gate on it.
 
 This host setting permits creation of user namespaces; it does not grant application credentials or network access to processing children. Compose drops every capability and adds back `SYS_ADMIN` only so Bubblewrap can construct its inner mount namespace. Docker's outer AppArmor profile is disabled for web and worker because it blocks that construction, while `no-new-privileges`, the versioned deny-by-default seccomp profile, read-only filesystems, bounded tmpfs mounts, and Bubblewrap's inner namespace remain enforced. Do not replace the supplied seccomp profile with `seccomp=unconfined`.

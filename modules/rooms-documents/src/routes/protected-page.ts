@@ -92,6 +92,9 @@ export function createWatermarkHandler(runtime: WebRuntime, identity: ViewerIden
       roomId: String(body['roomId']),
       documentId: String(body['documentId']),
       pageNumber: Number(body['pageNumber']),
+      ...(runtime.sandboxIsolation === undefined
+        ? {}
+        : { isolation: runtime.sandboxIsolation }),
     });
     reply.code(201);
     return { cacheId: result.cacheId, expiresAt: result.expiresAt.toISOString() };

@@ -35,10 +35,10 @@
 
 DO $$
 BEGIN
-  IF current_setting('server_version_num')::int < 180000 THEN
-    -- Migrations use PostgreSQL 18 behaviour; an older server would apply them
-    -- differently rather than failing cleanly.
-    RAISE EXCEPTION 'Duefold requires PostgreSQL 18 or newer, found %',
+  IF current_setting('server_version_num')::int < 160000 THEN
+    -- Secure core uses the canonical PostgreSQL 16+ contract. Refuse an older
+    -- server before creating roles or applying migrations.
+    RAISE EXCEPTION 'Duefold requires PostgreSQL 16 or newer, found %',
       current_setting('server_version');
   END IF;
 END

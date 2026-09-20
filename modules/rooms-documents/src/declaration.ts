@@ -421,11 +421,29 @@ export const moduleDeclaration: ModuleDeclaration = {
       description: 'Production requires every sandbox isolation feature.',
     },
     {
+      key: 'DUEFOLD_SANDBOX_ISOLATION',
+      kind: 'enum',
+      required: false,
+      default: 'namespaced',
+      service: 'shared',
+      values: ['namespaced', 'degraded'],
+      description:
+        'How untrusted document parsing is launched. Degraded drops filesystem, network, and PID isolation for hosts whose runtime denies namespace creation; it keeps the credential-free environment and no-new-privileges. Never selected automatically.',
+    },
+    {
       key: 'DUEFOLD_SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT',
       kind: 'string',
       required: false,
       service: 'worker',
       description: 'Explicit non-production sandbox acknowledgement.',
+    },
+    {
+      key: 'DUEFOLD_SANDBOX_DEGRADED_ACKNOWLEDGEMENT',
+      kind: 'string',
+      required: false,
+      service: 'shared',
+      description:
+        'Required verbatim when DUEFOLD_SANDBOX_ISOLATION=degraded. A second independent statement, so degraded isolation cannot be enabled by setting one variable while skimming a guide.',
     },
     {
       key: 'DUEFOLD_PII_HMAC_KEY',

@@ -13,6 +13,7 @@ import { JobRunner } from './runner.ts';
 import { createClamAvClient } from '../../../modules/rooms-documents/src/scanning/clamav.ts';
 import {
   enforceSandboxPreflight,
+  resolveSandboxIsolation,
   sandboxPreflight,
 } from '../../../modules/rooms-documents/src/processing/preflight.ts';
 import { assertReleasePolicyIntegrity } from '../../../modules/rooms-documents/src/release-policy.ts';
@@ -46,15 +47,39 @@ function numberConfig(
 try {
   const config = loadConfig(workerConfigSchema, process.env);
   assertReleasePolicyIntegrity();
-  const sandboxReport = await sandboxPreflight();
-  const sandboxMode = stringConfig(config, 'DUEFOLD_SANDBOX_MODE');
-  enforceSandboxPreflight(
-    sandboxReport,
-    sandboxMode === 'development' ? 'development' : 'production',
-    typeof config['DUEFOLD_SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT'] === 'string'
-      ? config['DUEFOLD_SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT']
-      : undefined,
-  );
+  // Resolved before the preflight so a malformed isolation setting fails on its
+  // own terms rather than as a confusing sandbox-unsupported error.
+  const isolation = resolveSandboxIsolation({
+    isolation: stringConfig(config, 'DUEFOLD_SANDBOX_ISOLATION'),
+    ...(typeof config['DUEFOLD_SANDBOX_DEGRADED_ACKNOWLEDGEMENT'] === 'string'
+      ? { acknowledgement: config['DUEFOLD_SANDBOX_DEGRADED_ACKNOWLEDGEMENT'] }
+      : {}),
+  }); // Degraded isolation cannot satisfy the namespaced preflight by construction,
+  // so the probe is skipped rather than run and discarded: launching a real
+  // sandbox child on every start to ignore its answer wastes a boot cycle and
+  // invites the reader to think the boundary was checked. The acknowledgement is
+  // what gates this mode, and the startup record states it plainly.
+  if (isolation.mode === 'namespaced') {
+    const sandboxReport = await sandboxPreflight();
+    const sandboxMode = stringConfig(config, 'DUEFOLD_SANDBOX_MODE');
+    enforceSandboxPreflight(
+      sandboxReport,
+      sandboxMode === 'development' ? 'development' : 'production',
+      typeof config['DUEFOLD_SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT'] === 'string'
+        ? config['DUEFOLD_SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT']
+        : undefined,
+    );
+  } else
+    process.stderr.write(
+      `${JSON.stringify({
+        event: 'sandbox.degraded',
+        level: 'warn',
+        code: 'SANDBOX_ISOLATION_DEGRADED',
+        service: 'worker',
+        detail:
+          'untrusted document parsing runs as a separate unprivileged uid without filesystem or network isolation',
+      })}\n`,
+    );
   const pool = new Pool({
     connectionString: stringConfig(config, 'DUEFOLD_WORKER_DATABASE_URL'),
     application_name: 'duefold-worker',
@@ -107,6 +132,7 @@ try {
         image: stringConfig(config, 'DUEFOLD_PROCESSOR_IMAGE_PROGRAM'),
         text: stringConfig(config, 'DUEFOLD_PROCESSOR_TEXT_PROGRAM'),
       }),
+      ...(isolation.mode === 'namespaced' ? {} : { isolation }),
     },
   });
   closeResources = async () => {
