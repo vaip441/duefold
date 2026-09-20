@@ -71,10 +71,17 @@ jobs:
             sudo useradd --system --uid "$uid" --gid "$uid" --no-create-home \
               --shell /usr/sbin/nologin "duefold-conv$offset"
           done
-      - name: Sandbox tests as root
+      # Only the degraded assertions, selected by name. The namespaced tests must
+      # NOT run here: as real root, bubblewrap enters the new user namespace before
+      # resolving bind sources, and CAP_DAC_OVERRIDE is not effective against the
+      # initial namespace's filesystem, so binding the checkout under /home/runner
+      # (mode 0700, owned by the runner uid) fails with EACCES. That is an artifact
+      # of running as root, which no service ever does — web and worker run as
+      # unprivileged users — and the verify job covers the namespaced boundary.
+      - name: Degraded-isolation tests as root
         run: |
           sudo --preserve-env=PATH env npx vitest run --project unit \
-            modules/rooms-documents/src/processing.unit.test.ts \
+            modules/rooms-documents/src/processing.unit.test.ts -t degraded \
             --reporter=default --reporter=json --outputFile=/tmp/privileged.json
           sudo chown "$(id -u)" /tmp/privileged.json
       - name: Assert the privileged assertions actually ran
