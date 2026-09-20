@@ -127,7 +127,6 @@ jobs:
           DUEFOLD_OIDC_CLIENT_ID=synthetic-client
           DUEFOLD_OIDC_CLIENT_SECRET=synthetic-secret
           DUEFOLD_AUTH_MAIL_FROM=Duefold CI <no-reply@duefold.invalid>
-          DUEFOLD_SMTP_URL=smtp://mail.invalid:25
           DUEFOLD_STORAGE_ENDPOINT=https://storage.invalid
           DUEFOLD_STORAGE_BUCKET=synthetic
           DUEFOLD_STORAGE_WEB_ACCESS_KEY_ID=synthetic-web
@@ -141,6 +140,18 @@ jobs:
           DUEFOLD_PII_HMAC_KEY=j5m6dMOYqfb1L_q_2zjM6caQLhJo5G8Zz7zXOMVpwqQ
           COMPOSE_FILE=compose.yaml:compose.ci.yaml
           EOF
+          # Exactly one mail credential may be present and it must match the
+          # adapter selected in composition.manifest.json; startup rejects both or
+          # neither. Derive it from the manifest so this fixture cannot drift out of
+          # step with a composition change.
+          node -e '
+            const manifest = require("./composition.manifest.json");
+            const line = manifest.adapters.mail === "resend"
+              ? "DUEFOLD_RESEND_API_KEY=re_synthetic_ci_key"
+              : "DUEFOLD_SMTP_URL=smtp://mail.invalid:25";
+            require("node:fs").appendFileSync(".env", line + "\n");
+            process.stdout.write(`composed mail adapter: ${manifest.adapters.mail}\n`);
+          '
           mkdir -p .ci-oidc
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
             -keyout .ci-oidc/key.pem -out .ci-oidc/cert.pem -subj '/CN=oidc' \
