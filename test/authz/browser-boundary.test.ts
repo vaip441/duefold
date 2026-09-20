@@ -357,6 +357,53 @@ describe('double-submit CSRF cookie', () => {
 });
 
 describe('OIDC callback failure is one neutral state', () => {
+  it('accepts the parameters real providers actually append', async () => {
+    /*
+     * A redirect target is not an API this server defines, and providers add their
+     * own parameters to it. Google appends scope, authuser, prompt, and hd; Entra
+     * adds session_state and client_info. This schema rejected unknown properties
+     * while the app configures Ajv with removeAdditional: false, so every genuine
+     * Google callback was answered 400 by validation before the handler ran and
+     * member sign-in could not complete at all. It reached a live deployment
+     * because every other test here sends only the parameters the schema names.
+     *
+     * The expected outcome is the neutral failure redirect, not success: the state
+     * was never persisted. What matters is that it is 302 from the handler rather
+     * than 400 from validation.
+     */
+    const instance = await app();
+    const google = new URLSearchParams({
+      state: 'a'.repeat(32),
+      code: '4/0AVMBsJj-authorization-code',
+      scope: 'email profile openid https://www.googleapis.com/auth/userinfo.email',
+      authuser: '0',
+      prompt: 'consent',
+      hd: 'example.com',
+    });
+    const response = await instance.inject({
+      method: 'GET',
+      url: `/api/auth/oidc/callback?${google.toString()}`,
+    });
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toBe('/sign-in?state=failed');
+    // An unexpected parameter must not be echoed anywhere, having been accepted.
+    expect(response.body).not.toContain('example.com');
+    expect(String(response.headers['location'])).not.toContain('authuser');
+    const entra = new URLSearchParams({
+      state: 'b'.repeat(32),
+      code: 'entra-authorization-code',
+      session_state: '9f8c7b6a-5d4e-3f2a-1b0c-9d8e7f6a5b4c',
+      client_info: 'eyJ1aWQiOiJzeW50aGV0aWMifQ',
+    });
+    const entraResponse = await instance.inject({
+      method: 'GET',
+      url: `/api/auth/oidc/callback?${entra.toString()}`,
+    });
+    expect(entraResponse.statusCode).toBe(302);
+    expect(entraResponse.headers['location']).toBe('/sign-in?state=failed');
+    await instance.close();
+  });
+
   it('redirects an identity-provider denial instead of failing validation', async () => {
     const instance = await app();
     const response = await instance.inject({

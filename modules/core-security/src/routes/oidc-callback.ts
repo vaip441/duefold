@@ -16,6 +16,21 @@ import { requireCorrelationId } from '@duefold/shared/ids';
  * instead of failing schema validation with a 400. `error_description` is
  * accepted only so it does not break validation; it is attacker-influenced text
  * from an external system and is never read, redirected, logged, or rendered.
+ *
+ * `additionalProperties` is permissive here, unlike every other schema in this
+ * codebase, because a redirect target is not an API this server defines. Real
+ * providers append parameters of their own: Google returns `scope`, `authuser`,
+ * `prompt`, and `hd`; Entra adds `session_state` and `client_info`. The app
+ * configures Ajv with `removeAdditional: false`, so rejecting unknown properties
+ * here answered 400 to every genuine Google callback before the handler ran, which
+ * made member sign-in impossible. No test caught it because all of them sent only
+ * the parameters this schema names.
+ *
+ * Nothing beyond the named properties is read. `callbackQuery` picks exactly
+ * `code`, `state`, and the presence of `error`, and the token exchange rebuilds the
+ * callback URL from `runtime.oidcRedirectUri` with only `code` and `state`
+ * reattached, so an extra parameter cannot reach the provider request, the session,
+ * the log, or the response.
  */
 export const schema = {
   querystring: Type.Object(
@@ -26,7 +41,7 @@ export const schema = {
       error_description: Type.Optional(Type.String({ maxLength: 2048 })),
       iss: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
     },
-    { additionalProperties: false },
+    { additionalProperties: true },
   ),
   response: {
     302: Type.Null(),
