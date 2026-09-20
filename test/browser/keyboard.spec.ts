@@ -241,15 +241,22 @@ test.describe('reduced motion', () => {
     const page = await context.newPage();
     await page.goto(server.baseUrl);
     await tabUntil(page, /Continue to identity provider/iu);
-    // Movement is reduced to effectively instant rather than removed entirely,
-    // so state changes stay comprehensible. The reduced-motion rule collapses
-    // every transition on the element to one duration.
-    const buttonDuration = await page.evaluate(() => {
+    // Spatial movement collapses while colour/opacity feedback remains available.
+    const buttonStyle = await page.evaluate(() => {
       const element = document.querySelector('.df-button');
-      return element === null ? '' : window.getComputedStyle(element).transitionDuration;
+      if (element === null) return null;
+      const style = window.getComputedStyle(element);
+      return {
+        properties: style.transitionProperty,
+        durations: style.transitionDuration,
+        transform: style.transform,
+      };
     });
-    expect(buttonDuration).not.toBe('');
-    for (const value of buttonDuration.split(',')) expect(value.trim()).toBe('0.001s');
+    expect(buttonStyle).not.toBeNull();
+    expect(buttonStyle?.properties).not.toContain('transform');
+    expect(buttonStyle?.properties).toContain('color');
+    expect(buttonStyle?.durations).toContain('0.16s');
+    expect(buttonStyle?.transform).toBe('none');
     await context.close();
   });
 });

@@ -13,6 +13,7 @@
  * internal code, reason, or identifier appears.
  */
 
+import type { Ref } from 'react';
 import { useState } from 'react';
 import { translate } from '../i18n/translate.ts';
 import { AuthSheet } from '../components/AuthSheet.tsx';
@@ -28,6 +29,7 @@ export interface MemberSignInProps {
   readonly theme: ThemeChoice;
   readonly onThemeChange: (choice: ThemeChoice) => void;
   readonly onChooseViewer: () => void;
+  readonly contentRef?: Ref<HTMLDivElement> | undefined;
   /** Injected so the flow is testable without navigating the harness away. */
   readonly onBegin?: () => void;
 }
@@ -37,6 +39,7 @@ export function MemberSignIn({
   theme,
   onThemeChange,
   onChooseViewer,
+  contentRef,
   onBegin,
 }: MemberSignInProps): React.ReactElement {
   const [pending, setPending] = useState(false);
@@ -46,6 +49,7 @@ export function MemberSignIn({
       lead={translate('signIn.member.lead')}
       theme={theme}
       onThemeChange={onThemeChange}
+      contentRef={contentRef}
       aside={
         <button type="button" className="df-textlink" onClick={onChooseViewer}>
           {translate('signIn.viewer.link')}

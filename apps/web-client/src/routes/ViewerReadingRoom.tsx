@@ -116,6 +116,7 @@ export function ViewerReadingRoom({
   const [currentMatch, setCurrentMatch] = useState<number | null>(null);
 
   const [interstitial, setInterstitial] = useState<{
+    readonly open: boolean;
     readonly target: InterstitialTarget | null;
     readonly loading: boolean;
     readonly failure: string | null;
@@ -228,13 +229,14 @@ export function ViewerReadingRoom({
 
   const openLink = (item: TextLayerItem): void => {
     if (item.link === undefined) return;
-    setInterstitial({ target: null, loading: true, failure: null });
+    setInterstitial({ open: true, target: null, loading: true, failure: null });
     resolveInterstitial(item.link.interstitialPath).then(
       (target) => {
-        setInterstitial({ target, loading: false, failure: null });
+        setInterstitial({ open: true, target, loading: false, failure: null });
       },
       () => {
         setInterstitial({
+          open: true,
           target: null,
           loading: false,
           failure: translate('viewer.link.failed'),
@@ -686,16 +688,15 @@ export function ViewerReadingRoom({
         </>
       )}
 
-      {interstitial === null ? null : (
-        <LinkInterstitial
-          target={interstitial.target}
-          loading={interstitial.loading}
-          failure={interstitial.failure}
-          onCancel={() => {
-            setInterstitial(null);
-          }}
-        />
-      )}
+      <LinkInterstitial
+        open={interstitial?.open ?? false}
+        target={interstitial?.target ?? null}
+        loading={interstitial?.loading ?? false}
+        failure={interstitial?.failure ?? null}
+        onCancel={() => {
+          setInterstitial((current) => (current === null ? null : { ...current, open: false }));
+        }}
+      />
     </AppShell>
   );
 }

@@ -14,7 +14,7 @@
  * `auth/otp-machine.ts` for why, and for why the server always wins.
  */
 
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState, type Ref } from 'react';
 import { ApiError, requestOtp, verifyOtp } from '../api/client.ts';
 import { AuthSheet } from '../components/AuthSheet.tsx';
 import { Notice, type NoticeTone } from '../components/Notice.tsx';
@@ -68,6 +68,7 @@ export interface ViewerSignInProps {
   readonly theme: ThemeChoice;
   readonly onThemeChange: (choice: ThemeChoice) => void;
   readonly onChooseMember: () => void;
+  readonly contentRef?: Ref<HTMLDivElement> | undefined;
   readonly onAuthenticated: () => void;
 }
 
@@ -75,6 +76,7 @@ export function ViewerSignIn({
   theme,
   onThemeChange,
   onChooseMember,
+  contentRef,
   onAuthenticated,
 }: ViewerSignInProps): React.ReactElement {
   const [state, dispatch] = useReducer(otpReducer, initialOtpState);
@@ -157,6 +159,8 @@ export function ViewerSignIn({
         lead={translate('otp.sent.body')}
         theme={theme}
         onThemeChange={onThemeChange}
+        motionKey="viewer-code"
+        contentRef={contentRef}
         aside={
           <button
             type="button"
@@ -257,6 +261,8 @@ export function ViewerSignIn({
       lead={translate('signIn.viewer.lead')}
       theme={theme}
       onThemeChange={onThemeChange}
+      motionKey="viewer-email"
+      contentRef={contentRef}
       aside={
         <button type="button" className="df-textlink" onClick={onChooseMember}>
           {translate('signIn.member.link')}

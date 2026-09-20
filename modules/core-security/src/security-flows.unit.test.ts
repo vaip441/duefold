@@ -8,6 +8,7 @@ import {
   finishOidc,
   OIDC_FRESH_MAX_AGE_SECONDS,
   type StoredOidcTransaction,
+  type VerifiedOidcIdentity,
   verifiedOidcIdentityFromClaims,
 } from './auth/oidc.ts';
 import { constantTimeDigestMatch, digestSecret } from './sessions.ts';
@@ -28,11 +29,18 @@ async function finishWithIssuer(input: {
   readonly nonce?: string;
   readonly audience?: string;
   readonly verifier?: string;
-  readonly signedByWrongKey?: boolean;
-}): Promise<void> {
+  /** Omits `auth_time`, reproducing Google, which never issues the claim. */
+  readonly withoutAuthTime?: boolean;
+  readonly expiredToken?: boolean;
+}): Promise<VerifiedOidcIdentity> {
   const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const wrongKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const now = new Date('2026-03-01T12:00:00Z');
+  /*
+   * The real clock, not a pinned instant. oauth4webapi validates `exp` against
+   * Date.now() inside the grant, so a fixed date makes every token expired and the
+   * only reachable assertions are failures. That is why no test here had ever
+   * exercised a successful exchange.
+   */
+  const now = new Date();
   const expectedVerifier = 'v'.repeat(43);
   const configuration = new oidc.Configuration(
     {
@@ -54,20 +62,17 @@ async function finishWithIssuer(input: {
             headers: { 'content-type': 'application/json' },
           }),
         );
-      const token = signedJwt(
-        input.signedByWrongKey === true ? wrongKeys.privateKey : keys.privateKey,
-        {
-          iss: 'https://issuer.example',
-          sub: 'subject',
-          aud: input.audience ?? 'client',
-          exp: now.getTime() / 1_000 + 60,
-          iat: now.getTime() / 1_000,
-          auth_time: now.getTime() / 1_000,
-          nonce: input.nonce ?? 'expected-nonce',
-          email: 'owner@example.com',
-          email_verified: true,
-        },
-      );
+      const token = signedJwt(keys.privateKey, {
+        iss: 'https://issuer.example',
+        sub: 'subject',
+        aud: input.audience ?? 'client',
+        exp: now.getTime() / 1_000 + (input.expiredToken === true ? -120 : 60),
+        iat: now.getTime() / 1_000,
+        ...(input.withoutAuthTime === true ? {} : { auth_time: now.getTime() / 1_000 }),
+        nonce: input.nonce ?? 'expected-nonce',
+        email: 'owner@example.com',
+        email_verified: true,
+      });
       return Promise.resolve(
         new Response(
           JSON.stringify({ access_token: 'access', token_type: 'Bearer', id_token: token }),
@@ -91,7 +96,7 @@ async function finishWithIssuer(input: {
     nonce: 'expected-nonce',
     codeVerifier: input.verifier ?? expectedVerifier,
   };
-  await finishOidc({
+  return await finishOidc({
     config: configuration,
     callbackUrl: new URL(
       `https://duefold.example/callback?code=code&state=${input.state ?? 'expected-state'}`,
@@ -272,12 +277,62 @@ describe('OIDC freshness and protocol parameters', () => {
     ).toThrow('OIDC_AUTH_TIME_STALE');
   });
 
-  it('rejects signature, audience, state, nonce and PKCE failures', async () => {
-    await expect(finishWithIssuer({ signedByWrongKey: true })).rejects.toThrow();
+  it('completes the grant for a provider that never issues auth_time', async () => {
+    /*
+     * The end-to-end regression test for Google. Passing maxAge to
+     * authorizationCodeGrant makes oauth4webapi add auth_time to the ID token's
+     * REQUIRED claims and reject the token inside the library, before any Duefold
+     * code runs. Google never issues auth_time even though Duefold requests
+     * max_age, so every sign-in died there as a library error, and an earlier
+     * attempt to tolerate the missing claim in verifiedOidcIdentityFromClaims was
+     * unreachable.
+     *
+     * This drives the real grant path with a Google-shaped token, which is what
+     * every existing test here failed to do: the harness always minted auth_time.
+     */
+    const identity = await finishWithIssuer({ withoutAuthTime: true });
+    expect(identity.emailKey).toBe('owner@example.com');
+    expect(identity.authenticationTimeAsserted).toBe(false);
+    // Freshness is still decided, from iat, by Duefold rather than the library.
+    expect(hasFreshOidc(identity.authenticatedAt, new Date())).toBe(true);
+
+    // A provider that does issue it is still preferred and marked as asserted.
+    const asserted = await finishWithIssuer({});
+    expect(asserted.authenticationTimeAsserted).toBe(true);
+  });
+
+  it('rejects audience, state, nonce and PKCE failures', async () => {
+    /*
+     * These four are the checks that actually run on this path, and each is
+     * asserted against a token that is valid in every other respect.
+     *
+     * This test used to also claim to reject a token signed by the wrong key, and
+     * it passed -- but vacuously. The harness pinned `now` to a fixed 2026-03-01
+     * while oauth4webapi validates `exp` against the real clock, so every token
+     * here was already expired and all five cases rejected on expiry before
+     * reaching the check they named. Once the clock was made honest, the
+     * wrong-signature case resolved, and the JWKS endpoint was never fetched at
+     * all.
+     *
+     * That is correct library behaviour, not a defect: OIDC Core 3.1.3.7 permits a
+     * client to rely on TLS server validation instead of the ID token signature
+     * for tokens obtained directly from the token endpoint, and oauth4webapi
+     * documents application-level signature validation as needed only for
+     * non-repudiation. Duefold reaches the token endpoint over HTTPS with default
+     * certificate verification, so the issuer is authenticated by TLS. The
+     * assertion was removed rather than kept passing for the wrong reason; adding
+     * signature validation would be a real change in behaviour, not a test fix.
+     */
     await expect(finishWithIssuer({ audience: 'other-client' })).rejects.toThrow();
     await expect(finishWithIssuer({ state: 'wrong-state' })).rejects.toThrow();
     await expect(finishWithIssuer({ nonce: 'wrong-nonce' })).rejects.toThrow();
     await expect(finishWithIssuer({ verifier: 'x'.repeat(43) })).rejects.toThrow();
+  });
+
+  it('rejects an expired ID token against the real clock', async () => {
+    // Retained separately because expiry is what the previous fixture was
+    // accidentally testing; now it is deliberate and isolated.
+    await expect(finishWithIssuer({ expiredToken: true })).rejects.toThrow();
   });
 
   it('rejects missing required claims and unverified email', () => {

@@ -152,16 +152,15 @@ export function PageReader({
     };
   }, [roomId, documentId, pageNumber, activityId, attempt]);
 
-  // Bring the current find match into view. Scroll behaviour follows the user's
-  // motion preference rather than always smooth-scrolling.
+  // Bring the current find match into view without animating a potentially
+  // keyboard-repeated focus jump.
   useEffect(() => {
     const node = currentMatchRef.current;
     if (node === null) return;
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     node.scrollIntoView({
       block: 'center',
       inline: 'nearest',
-      behavior: reduced ? 'auto' : 'smooth',
+      behavior: 'auto',
     });
   }, [currentMatch]);
 

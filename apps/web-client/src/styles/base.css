@@ -81,8 +81,10 @@ a {
   text-underline-offset: 0.18em;
 }
 
-a:hover {
-  color: var(--accent-strong);
+@media (hover: hover) and (pointer: fine) {
+  a:hover {
+    color: var(--accent-strong);
+  }
 }
 
 /* Numbers in aligned data read as columns, not words. */
@@ -125,14 +127,26 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Reduced motion means gentler, not none: opacity and colour still explain
-   * state, movement does not. */
+  /* Keep colour and opacity feedback legible; remove only spatial movement. */
   *,
   *::before,
   *::after {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .df-button,
+  .df-skip,
+  .df-account-menu__toggle::after,
+  .df-account-menu__panel,
+  .df-index__disclosure button::before,
+  .df-modal__panel {
+    transform: none !important;
+    transition-property: opacity, color, background-color, border-color !important;
+  }
+
+  .df-controls__panel {
+    transition-duration: 1ms !important;
   }
 }

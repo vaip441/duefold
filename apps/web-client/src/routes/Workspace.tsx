@@ -238,8 +238,7 @@ export function Workspace({
     if (section !== 'structure' || selectedEntryId === null) return;
     const target = document.getElementById(`entry-${selectedEntryId}`);
     if (target === null) return;
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest' });
+    target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     target.focus();
   }, [section, selectedEntryId]);
 
@@ -1064,18 +1063,17 @@ export function Workspace({
         </>
       )}
 
-      {publishOpen ? (
-        <PublicationDialog
-          impact={impact}
-          loading={impactLoading}
-          pending={publishPending}
-          failure={publishFailure}
-          onConfirm={confirmPublish}
-          onCancel={() => {
-            setPublishOpen(false);
-          }}
-        />
-      ) : null}
+      <PublicationDialog
+        open={publishOpen}
+        impact={impact}
+        loading={impactLoading}
+        pending={publishPending}
+        failure={publishFailure}
+        onConfirm={confirmPublish}
+        onCancel={() => {
+          setPublishOpen(false);
+        }}
+      />
     </AppShell>
   );
 }

@@ -367,6 +367,14 @@ marker, a rotated 0.5rem square border used at narrow widths.
 
 ## Components
 
+- **Accessible primitives:** `@base-ui/react` provides the publication and
+  safe-link dialogs plus the create-folder collapsible. It owns focus trapping and
+  return, Escape/outside dismissal, semantic relationships, and exit presence;
+  Duefold supplies all styling and motion tokens. The responsive account disclosure
+  stays local because its arbitrary form children must exist exactly once in the DOM;
+  it provides the same Escape, outside-dismissal, focus-return, and exit behavior
+  without cloning labelled controls.
+
 ### Buttons
 
 - **Shape:** near-square, 2px radius (`var(--radius-control)`), 1px border.
@@ -440,17 +448,25 @@ visible.
 Motion explains a state change or a spatial relationship, or it does not ship.
 
 - **Tokens:** `--duration-press` 120ms, `--duration-state` 160ms,
-  `--duration-region` 200ms; `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`.
+  `--duration-region` 200ms; `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` for
+  entry/exit and `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)` for on-screen
+  movement.
 - Every duration is under 300ms; a test asserts it.
 - Transitions **name their properties**. `transition: all` is asserted absent.
-- **Nothing animates on first paint.** There are no `@keyframes`, no
-  `animation-name`, and no `@starting-style` anywhere; tests assert all three.
-- The authored moments are: the skip link translating into view on focus, the
-  press scale on buttons, the disclosure marker rotating, and hover/state colour
-  changes. That is the entire motion vocabulary.
-- **Reduced motion:** `prefers-reduced-motion: reduce` collapses durations to 1ms
-  rather than removing transitions, so state changes stay comprehensible while
-  movement stops.
+- **Nothing animates on initial application paint.** There are no `@keyframes`,
+  no `animation-name`, and no `@starting-style` rules; tests assert all three.
+  Base UI's transition attributes are used only after an overlay or disclosure
+  changes state.
+- The authored moments are: the skip link translating into view on focus, button
+  press feedback, disclosure-marker rotation, a 100/160ms opacity handoff between
+  member and viewer authentication tasks, a 200ms FLIP translation when a
+  structure row changes position, and short Base UI transitions for the
+  publication/link dialogs, mobile account popover, and create-folder disclosure.
+  Routine section navigation, document paging, search results, and progress remain
+  instant.
+- **Reduced motion:** `prefers-reduced-motion: reduce` removes transforms, smooth
+  scrolling, FLIP movement, and accordion travel. Opacity and colour transitions
+  remain at the normal short state duration so feedback and hierarchy stay legible.
 
 ## Accessibility commitments
 

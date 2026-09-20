@@ -10,7 +10,7 @@
  * exists, and hiding a control is never treated as a permission.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiError, loadSession } from './api/client.ts';
 import { Notice } from './components/Notice.tsx';
 import { StatusRegion } from './components/StatusRegion.tsx';
@@ -44,6 +44,35 @@ export function App(): React.ReactElement {
   const [bootstrap, setBootstrap] = useState<Bootstrap>({ kind: 'loading' });
   const [choice, setChoice] = useState<AuthChoice>(initialChoice);
   const [signInFailed, setSignInFailed] = useState(initialFailed);
+  const authContent = useRef<HTMLDivElement | null>(null);
+  const pendingAuthEntry = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!pendingAuthEntry.current) return;
+    pendingAuthEntry.current = false;
+    authContent.current?.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: 160,
+      easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+    });
+  }, [choice]);
+
+  const chooseAuth = (next: AuthChoice): void => {
+    if (next === choice) return;
+    const node = authContent.current;
+    if (node === null || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setChoice(next);
+      return;
+    }
+    const exit = node.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: 100,
+      easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+      fill: 'forwards',
+    });
+    void exit.finished.then(() => {
+      pendingAuthEntry.current = true;
+      setChoice(next);
+    });
+  };
 
   const refresh = useCallback((signal?: AbortSignal): void => {
     loadSession(signal).then(
@@ -152,8 +181,9 @@ export function App(): React.ReactElement {
       <ViewerSignIn
         theme={theme}
         onThemeChange={setTheme}
+        contentRef={authContent}
         onChooseMember={() => {
-          setChoice('member');
+          chooseAuth('member');
         }}
         onAuthenticated={() => {
           setBootstrap({ kind: 'loading' });
@@ -168,9 +198,10 @@ export function App(): React.ReactElement {
       failed={signInFailed}
       theme={theme}
       onThemeChange={setTheme}
+      contentRef={authContent}
       onChooseViewer={() => {
         setSignInFailed(false);
-        setChoice('viewer');
+        chooseAuth('viewer');
       }}
     />
   );

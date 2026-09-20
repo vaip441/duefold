@@ -20,6 +20,7 @@ import type { InterstitialTarget } from '../api/client.ts';
 import { Notice } from './Notice.tsx';
 
 export interface LinkInterstitialProps {
+  readonly open: boolean;
   readonly target: InterstitialTarget | null;
   readonly loading: boolean;
   readonly failure: string | null;
@@ -27,6 +28,7 @@ export interface LinkInterstitialProps {
 }
 
 export function LinkInterstitial({
+  open,
   target,
   loading,
   failure,
@@ -37,7 +39,7 @@ export function LinkInterstitial({
 
   return (
     <Dialog.Root
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
@@ -50,42 +52,42 @@ export function LinkInterstitial({
               {translate('viewer.link.leaving')}
             </Dialog.Title>
 
-        {loading ? (
-          <p className="df-field__help">{translate('viewer.link.resolving')}</p>
-        ) : null}
+            {loading ? (
+              <p className="df-field__help">{translate('viewer.link.resolving')}</p>
+            ) : null}
 
-        {failure === null ? null : (
-          <Notice tone="problem" role="alert">
-            {failure}
-          </Notice>
-        )}
+            {failure === null ? null : (
+              <Notice tone="problem" role="alert">
+                {failure}
+              </Notice>
+            )}
 
-        {target === null || loading ? null : (
-          <>
-            <p className="df-modal__lead">{target.warning}</p>
-            <p className="df-field__label">{translate('viewer.link.destination')}</p>
-            {/* The normalized domain is the security-bearing fact, so it is the
+            {target === null || loading ? null : (
+              <>
+                <p className="df-modal__lead">{target.warning}</p>
+                <p className="df-field__label">{translate('viewer.link.destination')}</p>
+                {/* The normalized domain is the security-bearing fact, so it is the
                 most prominent thing in the dialog. */}
-            <p className="df-interstitial__domain">{target.normalizedDomain}</p>
-          </>
-        )}
+                <p className="df-interstitial__domain">{target.normalizedDomain}</p>
+              </>
+            )}
 
-        <div className="df-modal__actions">
-          <button type="button" className="df-button" ref={cancelButton} onClick={onCancel}>
-            {translate('viewer.link.cancel')}
-          </button>
-          {target === null || loading ? null : (
-            <a
-              className="df-button df-button--primary"
-              href={target.destination}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={onCancel}
-            >
-              {translate('viewer.link.continue')}
-            </a>
-          )}
-        </div>
+            <div className="df-modal__actions">
+              <Dialog.Close className="df-button" ref={cancelButton}>
+                {translate('viewer.link.cancel')}
+              </Dialog.Close>
+              {target === null || loading ? null : (
+                <a
+                  className="df-button df-button--primary"
+                  href={target.destination}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={onCancel}
+                >
+                  {translate('viewer.link.continue')}
+                </a>
+              )}
+            </div>
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>

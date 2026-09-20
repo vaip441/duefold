@@ -28,9 +28,26 @@
     transform var(--duration-press) var(--ease-out);
 }
 
-.df-button:hover:not(:disabled) {
-  border-color: var(--ink-faint);
-  background: var(--ground-raised);
+@media (hover: hover) and (pointer: fine) {
+  .df-button:hover:not(:disabled),
+  .df-button:hover:not([data-disabled]) {
+    border-color: var(--ink-faint);
+    background: var(--ground-raised);
+  }
+
+  .df-button--primary:hover:not(:disabled),
+  .df-button--primary:hover:not([data-disabled]) {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+    color: var(--accent-contrast);
+  }
+
+  .df-button--quiet:hover:not(:disabled),
+  .df-button--quiet:hover:not([data-disabled]) {
+    background: var(--ground-sunken);
+    color: var(--ink);
+    border-color: transparent;
+  }
 }
 
 /* Press feedback confirms the interface heard the press. */
@@ -53,12 +70,6 @@
   font-weight: var(--weight-semibold);
 }
 
-.df-button--primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
-  color: var(--accent-contrast);
-}
-
 .df-button--primary:disabled {
   background: var(--ground-sunken);
   border-color: var(--rule);
@@ -71,12 +82,6 @@
   color: var(--ink-muted);
   min-height: 2.25rem;
   padding-inline: var(--space-2);
-}
-
-.df-button--quiet:hover:not(:disabled) {
-  background: var(--ground-sunken);
-  color: var(--ink);
-  border-color: transparent;
 }
 
 /* A link that behaves like a link, styled as one, not as a button. It carries
@@ -95,8 +100,10 @@
   text-underline-offset: 0.18em;
 }
 
-.df-textlink:hover {
-  color: var(--accent-strong);
+@media (hover: hover) and (pointer: fine) {
+  .df-textlink:hover {
+    color: var(--accent-strong);
+  }
 }
 
 /* --- Fields -------------------------------------------------------------- */
@@ -135,8 +142,10 @@
   color: var(--ink-faint);
 }
 
-.df-field__input:hover:not(:disabled) {
-  border-color: var(--ink-faint);
+@media (hover: hover) and (pointer: fine) {
+  .df-field__input:hover:not(:disabled) {
+    border-color: var(--ink-faint);
+  }
 }
 
 .df-field__input:disabled {
@@ -479,13 +488,26 @@
  * wash rather than a shadow, and the panel is a bordered sheet on the same plane
  * -- no elevation, no radius above the control token.
  */
+.df-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  min-height: 100dvh;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  opacity: 1;
+  transition: opacity var(--duration-region) var(--ease-out);
+}
+.df-modal__backdrop[data-starting-style],
+.df-modal__backdrop[data-ending-style] {
+  opacity: 0;
+}
 .df-modal {
   position: fixed;
   inset: 0;
+  z-index: 20;
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--ink) 45%, transparent);
   overflow-y: auto;
 }
 .df-modal__panel {
@@ -497,6 +519,15 @@
   width: 100%;
   max-height: 100%;
   overflow-y: auto;
+  transform-origin: center;
+  transition:
+    opacity var(--duration-region) var(--ease-out),
+    transform var(--duration-region) var(--ease-out);
+}
+.df-modal__panel[data-starting-style],
+.df-modal__panel[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.97);
 }
 .df-modal__title {
   font-size: var(--size-section);
@@ -628,8 +659,10 @@
   /* A 1px underline in the accent marks a link without repainting the glyphs. */
   border-block-end: 1px solid var(--accent);
 }
-.df-page__run--link:hover {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .df-page__run--link:hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
 }
 
 /*
@@ -745,8 +778,10 @@
     color var(--duration-state) var(--ease-out),
     border-color var(--duration-state) var(--ease-out);
 }
-.df-sections__entry:hover {
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .df-sections__entry:hover {
+    color: var(--ink);
+  }
 }
 .df-sections__entry[aria-current='true'] {
   color: var(--ink);
@@ -847,6 +882,20 @@
 }
 .df-state[data-tone='ready'] {
   color: var(--accent);
+}
+
+.df-controls__panel {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    height var(--duration-region) var(--ease-out),
+    opacity var(--duration-state) var(--ease-out);
+}
+.df-controls__panel[data-starting-style],
+.df-controls__panel[data-ending-style] {
+  height: 0;
+  opacity: 0;
 }
 
 .df-controls {

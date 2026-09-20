@@ -159,8 +159,10 @@
   transition: color var(--duration-state) var(--ease-out);
 }
 
-.df-index__entry:hover {
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .df-index__entry:hover {
+    color: var(--ink);
+  }
 }
 
 .df-index__entry[aria-current='true'] {
@@ -339,10 +341,6 @@
     transform: translateY(0.125rem) rotate(225deg);
   }
 
-  .df-account-menu__panel .df-theme {
-    flex: 1 0 100%;
-  }
-
   .df-account-menu__panel {
     position: absolute;
     z-index: 4;
@@ -353,12 +351,29 @@
     align-items: center;
     gap: var(--space-2) var(--space-3);
     padding: var(--space-3) var(--space-4);
-    border-bottom: var(--hairline) solid var(--rule);
+    border-block-end: var(--hairline) solid var(--rule);
     background: var(--ground);
+    opacity: 1;
+    transform: translateY(0);
+    visibility: visible;
+    transition:
+      opacity var(--duration-state) var(--ease-out),
+      transform var(--duration-state) var(--ease-out),
+      visibility 0s linear;
   }
 
   .df-account-menu[data-open='false'] > .df-account-menu__panel {
-    display: none;
+    opacity: 0;
+    transform: translateY(-8%);
+    visibility: hidden;
+    transition:
+      opacity var(--duration-state) var(--ease-out),
+      transform var(--duration-state) var(--ease-out),
+      visibility 0s linear var(--duration-state);
+  }
+
+  .df-account-menu__panel .df-theme {
+    flex: 1 0 100%;
   }
 
   .df-brand-identity {

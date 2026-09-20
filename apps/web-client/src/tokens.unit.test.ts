@@ -205,10 +205,11 @@ describe('motion grammar', () => {
     }
   });
 
-  it('uses no entrance animation, so nothing animates on first paint', () => {
+  it('keeps first paint static and limits entrances to stateful Base UI surfaces', () => {
     expect(allStyles).not.toMatch(/@keyframes/u);
     expect(allStyles).not.toMatch(/animation-name/u);
     expect(allStyles).not.toMatch(/@starting-style/u);
+    expect(allStyles).toContain('[data-starting-style]');
   });
 
   it('keeps every duration under 300ms', () => {
@@ -219,11 +220,15 @@ describe('motion grammar', () => {
     for (const duration of durations) expect(duration).toBeLessThan(300);
   });
 
-  it('honours prefers-reduced-motion', () => {
+  it('honours prefers-reduced-motion without erasing colour feedback', () => {
     expect(base).toContain('@media (prefers-reduced-motion: reduce)');
     const block = base.slice(base.indexOf('@media (prefers-reduced-motion: reduce)'));
-    expect(block).toContain('transition-duration: 1ms !important');
-    expect(block).toContain('animation-duration: 1ms !important');
+    expect(block).toContain('transform: none !important');
+    expect(block).toContain(
+      'transition-property: opacity, color, background-color, border-color',
+    );
+    expect(block).toContain('.df-controls__panel');
+    expect(block).not.toContain('transition-duration: 1ms !important;\n    scroll-behavior');
   });
 });
 

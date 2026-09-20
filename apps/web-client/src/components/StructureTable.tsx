@@ -14,7 +14,7 @@
  * as soon as a staged-removed sibling is present.
  */
 
-import { useId, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { translate, type MessageKey } from '../i18n/translate.ts';
 import type { PublicationChangeKind, WorkingEntry } from '../api/client.ts';
 import {
@@ -72,7 +72,37 @@ export function StructureTable({
   const [editingMetadata, setEditingMetadata] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
   const renameFieldId = useId();
+  const rows = useRef(new Map<string, HTMLTableRowElement>());
+  const previousTops = useRef(new Map<string, number>());
   const selectable = selection !== undefined && onSelectionChange !== undefined;
+
+  useLayoutEffect(() => {
+    const currentTops = new Map<string, number>();
+    for (const [id, row] of rows.current) currentTops.set(id, row.getBoundingClientRect().top);
+
+    if (
+      previousTops.current.size > 0 &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      for (const [id, row] of rows.current) {
+        const before = previousTops.current.get(id);
+        const after = currentTops.get(id);
+        if (before === undefined || after === undefined || before === after) continue;
+        row.animate(
+          [
+            { transform: `translateY(${String(before - after)}px)` },
+            { transform: 'translateY(0)' },
+          ],
+          {
+            duration: 200,
+            easing: 'cubic-bezier(0.77, 0, 0.175, 1)',
+          },
+        );
+      }
+    }
+
+    previousTops.current = currentTops;
+  }, [entries]);
 
   if (entries.length === 0)
     return (
@@ -109,6 +139,10 @@ export function StructureTable({
             const busy = busyEntryId === entry.entryId;
             return (
               <tr
+                ref={(node) => {
+                  if (node === null) rows.current.delete(entry.entryId);
+                  else rows.current.set(entry.entryId, node);
+                }}
                 key={entry.entryId}
                 id={`entry-${entry.entryId}`}
                 tabIndex={-1}

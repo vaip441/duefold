@@ -184,7 +184,25 @@ export function verifiedOidcIdentityFromClaims(
   };
 }
 
-/** openid-client verifies signature, audience, expiry, state, nonce and PKCE. */
+/**
+ * Exchanges the authorization code and verifies the ID token.
+ *
+ * openid-client verifies the signature, audience, expiry, state, nonce, and PKCE
+ * binding; Duefold's own claim checks then run in `verifiedOidcIdentityFromClaims`.
+ *
+ * `maxAge` is deliberately NOT passed to the library. Doing so makes oauth4webapi
+ * add `auth_time` to the ID token's required claims and reject the token inside the
+ * grant call, before any Duefold code sees it. Google never issues `auth_time` even
+ * when `max_age` is requested, so every Google sign-in failed there with a library
+ * error, which also made the `iat` fallback in `verifiedOidcIdentityFromClaims`
+ * unreachable.
+ *
+ * Freshness is still enforced by that function, against `auth_time` when the
+ * provider asserts it and `iat` otherwise, using the same 15-minute window. The
+ * authorization request still sends `max_age`, so a provider honouring it continues
+ * to re-authenticate a stale session. What is given up is the library's hard
+ * requirement that the claim be present, which no Google deployment can satisfy.
+ */
 export async function finishOidc(input: {
   readonly config: oidc.Configuration;
   readonly callbackUrl: URL;
@@ -196,7 +214,6 @@ export async function finishOidc(input: {
     expectedNonce: input.transaction.nonce,
     pkceCodeVerifier: input.transaction.codeVerifier,
     idTokenExpected: true,
-    maxAge: OIDC_FRESH_MAX_AGE_SECONDS,
   });
   return verifiedOidcIdentityFromClaims(tokens.claims(), input.now ?? new Date());
 }
