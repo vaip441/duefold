@@ -49,7 +49,13 @@ services:
       context: .
       dockerfile: deploy/clamav.Dockerfile
     networks:
+      # The internal network reaches web and worker; the default network provides
+      # the egress freshclam needs to fetch signatures. Without egress, clamd can
+      # only ever serve the database baked into the image, which Duefold rejects as
+      # stale after 24 hours, so the scanner would never become ready. This is the
+      # only service here deliberately given egress.
       - internal
+      - default
     healthcheck:
       # --ping alone only proves the process answers. Duefold's own readiness check
       # is what enforces signature freshness; this keeps Compose from routing to a

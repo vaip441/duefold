@@ -213,13 +213,32 @@ jobs:
         run: |
           response="$(docker compose exec -T web node -e 'fetch("http://127.0.0.1:8080/api/health/ready").then(async r=>process.stdout.write(JSON.stringify({status:r.status,body:await r.json()})))')"
           echo "$response"
-          # scanner MUST be ok here. It was previously unasserted, which let a
-          # clamd VERSION parser that could not match any real reply reach a
-          # deployment: the scanner reported unavailable, so nothing could ever be
-          # published, and every test agreed because the socket double emitted the
-          # same wrong format. storage stays not-ok because the endpoint is
-          # deliberately invalid in this fixture.
-          node -e 'const response=JSON.parse(process.argv[1]);if(response.status!==503||response.body.status!=="unready"||response.body.checks.postgresql!=="ok"||response.body.checks.migrations!=="ok"||response.body.checks.jobs!=="ok"||response.body.checks.scanner!=="ok"||response.body.checks.storage==="ok")process.exit(1)' "$response"
+          node -e 'const response=JSON.parse(process.argv[1]);if(response.status!==503||response.body.status!=="unready"||response.body.checks.postgresql!=="ok"||response.body.checks.migrations!=="ok"||response.body.checks.jobs!=="ok"||response.body.checks.storage==="ok")process.exit(1)' "$response"
+      # Readiness above deliberately does not require scanner=ok: freshness depends
+      # on reaching database.clamav.net, and a mirror outage must not fail the build.
+      # Assert the protocol contract against a real clamd instead. This is what was
+      # missing when a parser requiring 'ClamAV/' - a form no clamd emits - reached a
+      # deployment and made publication impossible while every test passed, because
+      # the socket double echoed the same wrong shape.
+      - name: Assert the real clamd VERSION reply parses
+        run: |
+          docker compose exec -T web node -e '
+            const { parseVersionLineForTesting } = await import("./modules/rooms-documents/src/scanning/clamav.ts");
+            const net = await import("node:net");
+            const socket = net.createConnection({ host: "clamav", port: 3310 });
+            let reply = "";
+            socket.setTimeout(15000);
+            socket.on("connect", () => socket.end("zVERSION\0"));
+            socket.on("data", (chunk) => { reply += chunk.toString(); });
+            socket.on("timeout", () => { console.error("clamd VERSION timed out"); process.exit(1); });
+            socket.on("error", (error) => { console.error("clamd unreachable:", error.message); process.exit(1); });
+            socket.on("end", () => {
+              const line = reply.replace(/\0$/, "");
+              console.log("clamd VERSION reply:", JSON.stringify(line));
+              const parsed = parseVersionLineForTesting(line);
+              console.log("parsed signature version:", parsed.signatureVersion, "built", parsed.date.toISOString());
+            });
+          '
       - name: Run image smoke through Compose security boundaries
         run: |
           docker compose run --rm --no-deps --entrypoint node web deploy/image-smoke.ts web
