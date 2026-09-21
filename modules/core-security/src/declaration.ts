@@ -94,6 +94,22 @@ export const moduleDeclaration: ModuleDeclaration = {
       handler: 'routes/sign-out.ts',
       handlerFactoryExport: 'createHandler',
     },
+    {
+      id: 'organization.members.list',
+      method: 'GET',
+      path: '/api/members',
+      audience: 'member',
+      handler: 'routes/member-list.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
+      id: 'organization.members.actions',
+      method: 'POST',
+      path: '/api/members/actions',
+      audience: 'member',
+      handler: 'routes/member-actions.ts',
+      handlerFactoryExport: 'createHandler',
+    },
   ],
   migrations: [
     { id: '001_security_kernel', file: '001_security_kernel.sql' },

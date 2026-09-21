@@ -54,7 +54,23 @@ function changeKinds(values: readonly string[]): readonly PublicationChangeKind[
   return parsed;
 }
 
-export interface MemberRoom {
+/**
+ * WHY a room is reachable, as a discriminated union.
+ *
+ * `read_member_rooms` derives the source from the role —
+ * `CASE WHEN a.room_role IS NOT NULL THEN 'assignment' ELSE 'global_role' END`
+ * (`006_member_workspace_readers.sql:96`) — so the pair is one fact, not two. Typing them
+ * independently let a contradictory pair type-check and serialize: an `assignment` with no
+ * role claims a colleague staffed this member in no stated role, and a `global_role` with
+ * an explicit role advertises something NARROWER than the standing Room Manager authority
+ * that reach actually carries. The browser explains access from these fields, so either
+ * one is a false statement rather than untidy data.
+ */
+export type RoomAccess =
+  | { readonly accessSource: 'assignment'; readonly roomRole: 'manager' | 'contributor' }
+  | { readonly accessSource: 'global_role'; readonly roomRole: null };
+
+export type MemberRoom = {
   readonly roomId: string;
   readonly title: string;
   readonly description: string;
@@ -62,11 +78,9 @@ export interface MemberRoom {
   readonly revision: number;
   readonly workingRevision: number;
   readonly publishedRevision: number;
-  readonly roomRole: 'manager' | 'contributor' | null;
-  readonly accessSource: RoomAccessSource;
   /** Server's decision, not a client inference. Manager-only actions honour it. */
   readonly canPublish: boolean;
-}
+} & RoomAccess;
 
 interface MemberRoomRow {
   readonly room_id: string;
@@ -81,14 +95,87 @@ interface MemberRoomRow {
   readonly can_publish: boolean;
 }
 
+/**
+ * A keyset cursor over the room register.
+ *
+ * `read_member_rooms` orders by `(title, id)`, so that pair is the cursor. Both
+ * components travel together; a partial one is refused rather than guessed at, because
+ * resuming from half a key would skip or repeat rooms sharing a title.
+ */
+export interface MemberRoomCursor {
+  readonly title: string;
+  readonly roomId: string;
+}
+
+export interface MemberRoomPage {
+  readonly rooms: readonly MemberRoom[];
+  /** Absent when this page is provably the last one. */
+  readonly nextCursor?: MemberRoomCursor;
+}
+
+/**
+ * Reads one row's access provenance as the single fact it is.
+ *
+ * The reader derives both fields from `a.room_role IS NOT NULL`, so a row whose pair
+ * disagrees means PostgreSQL and this process disagree about the vocabulary. Passing it
+ * through would let the browser explain access with a statement the database never made,
+ * so it fails closed like every other unrecognized value in this layer.
+ *
+ * `access_source` is already narrowed by `MemberRoomRow`, so the switch is exhaustive and
+ * the ROLE is what each branch has to check: those are the pairings a flat shape admitted.
+ */
+function roomAccess(row: MemberRoomRow): RoomAccess {
+  switch (row.access_source) {
+    case 'assignment':
+      /* Staffed by a colleague, so the role they were staffed as must be present. */
+      if (row.room_role === null) throw new Error('ROOM_ACCESS_SOURCE_CONTRADICTORY');
+      return { accessSource: 'assignment', roomRole: row.room_role };
+    case 'global_role':
+      /* An organization role carries Room Manager authority everywhere, so an explicit
+         role here would advertise something narrower than the authority held. */
+      if (row.room_role !== null) throw new Error('ROOM_ACCESS_SOURCE_CONTRADICTORY');
+      return { accessSource: 'global_role', roomRole: null };
+  }
+}
+
+/** Rooms one page carries. An Owner or Admin sees every room, so this is bounded (§23). */
+export const ROOM_PAGE_LIMIT = 50;
+export const MAX_ROOM_PAGE_LIMIT = 100;
+
+/**
+ * One bounded page of the member's rooms.
+ *
+ * Rooms are a growing collection with no installation cap and an Owner or Admin reaches
+ * all of them, so an unbounded projection was a response and a render that grew without
+ * limit. It also left every consumer unable to tell a complete set from a truncated one,
+ * which matters most where the register is used to decide staffing: a room list that was
+ * silently short would make "Not staffed" read as an answer about rooms it never saw.
+ *
+ * The continuation probe reads ONE row beyond the page and returns at most `limit`. That
+ * extra row is the proof a further page exists and is never shown; offering a cursor
+ * whenever a page was merely full advertised another page for any collection whose size
+ * is an exact multiple of the limit.
+ */
 export async function readMemberRooms(input: {
   readonly pool: Pool;
   readonly identity: MemberIdentity;
-}): Promise<readonly MemberRoom[]> {
-  const result = await input.pool.query<MemberRoomRow>('SELECT * FROM read_member_rooms($1)', [
-    input.identity.id,
-  ]);
-  return result.rows.map((row) => ({
+  readonly after?: MemberRoomCursor | null;
+  readonly limit?: number;
+}): Promise<MemberRoomPage> {
+  const limit = input.limit ?? ROOM_PAGE_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ROOM_PAGE_LIMIT)
+    throw new Error('ROOM_PAGE_LIMIT_REJECTED');
+  const after = input.after ?? null;
+  const result = await input.pool.query<MemberRoomRow>(
+    `SELECT * FROM read_member_rooms($1) AS r
+      WHERE $2::text IS NULL OR (r.title, r.room_id) > ($2::text, $3::text)
+      ORDER BY r.title, r.room_id
+      LIMIT $4`,
+    [input.identity.id, after?.title ?? null, after?.roomId ?? null, limit + 1],
+  );
+  const continues = result.rows.length > limit;
+  const page = continues ? result.rows.slice(0, limit) : result.rows;
+  const rooms = page.map((row) => ({
     roomId: row.room_id,
     title: row.title,
     description: row.description,
@@ -96,10 +183,17 @@ export async function readMemberRooms(input: {
     revision: row.revision,
     workingRevision: row.working_revision,
     publishedRevision: row.published_revision,
-    roomRole: row.room_role,
-    accessSource: row.access_source,
+    /* One decision, so a contradictory pair cannot be assembled here. */
+    ...roomAccess(row),
     canPublish: row.can_publish,
   }));
+  const last = page.at(-1);
+  return {
+    rooms,
+    ...(continues && last !== undefined
+      ? { nextCursor: { title: last.title, roomId: last.room_id } }
+      : {}),
+  };
 }
 
 export interface WorkingStructureEntry {

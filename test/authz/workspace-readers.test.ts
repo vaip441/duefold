@@ -195,10 +195,9 @@ afterAll(async () => {
 
 describe('member workspace readers', () => {
   it('reports why each room is reachable and never presents a global-role room as an assignment', async () => {
-    const ownerRooms = await readMemberRooms({
-      pool: runtimePool,
-      identity: identity(ownerId),
-    });
+    const ownerRooms = (
+      await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) })
+    ).rooms;
     // An owner holds NO room_assignment, yet member_can_mutate_room admits every
     // room. That must be labelled as role-derived rather than looking like an
     // invitation from a colleague.
@@ -208,10 +207,9 @@ describe('member workspace readers', () => {
       expect(room.roomRole).toBeNull();
     }
 
-    const managerRooms = await readMemberRooms({
-      pool: runtimePool,
-      identity: identity(managerId),
-    });
+    const managerRooms = (
+      await readMemberRooms({ pool: runtimePool, identity: identity(managerId) })
+    ).rooms;
     expect(managerRooms).toHaveLength(1);
     expect(managerRooms[0]).toMatchObject({
       roomId: assignedRoomId,
@@ -222,10 +220,9 @@ describe('member workspace readers', () => {
   });
 
   it('confines a contributor to assigned rooms and withholds the manager-only publish decision', async () => {
-    const rooms = await readMemberRooms({
-      pool: runtimePool,
-      identity: identity(contributorId),
-    });
+    const rooms = (
+      await readMemberRooms({ pool: runtimePool, identity: identity(contributorId) })
+    ).rooms;
     // The negative arm is populated: two other rooms exist and one is archived.
     expect(rooms).toHaveLength(1);
     expect(rooms.map((room) => room.roomId)).not.toContain(otherRoomId);
@@ -241,15 +238,100 @@ describe('member workspace readers', () => {
   });
 
   it('includes archived rooms with their state so records stay reachable', async () => {
-    const rooms = await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) });
+    const rooms = (await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) }))
+      .rooms;
     const archived = rooms.find((room) => room.roomId === archivedRoomId);
     expect(archived).toMatchObject({ state: 'archived' });
   });
 
   it('returns no rooms at all to a member with neither assignment nor global role', async () => {
-    const rooms = await readMemberRooms({ pool: runtimePool, identity: identity(outsiderId) });
+    const rooms = (await readMemberRooms({ pool: runtimePool, identity: identity(outsiderId) }))
+      .rooms;
     // Three populated rooms exist; an outsider still sees none of them.
     expect(rooms).toHaveLength(0);
+  });
+
+  /**
+   * The register is a BOUNDED KEYSET PAGE, and completeness is stated rather than guessed.
+   *
+   * Rooms grow with no installation cap and an Owner reaches every one, so an unbounded
+   * projection was a response and a render that grew without limit. It also left every
+   * consumer unable to tell a complete set from a prefix, which matters most where the
+   * register decides staffing: a silently short room list makes "Not staffed" read as an
+   * answer about rooms the administrator never received.
+   */
+  describe('bounded keyset pagination', () => {
+    it('states completeness explicitly instead of letting a full page imply more', async () => {
+      /* Three rooms exist and the limit is exactly three, so a reader that offered a
+         cursor whenever a page was merely FULL would advertise a fourth page that does
+         not exist, and a client walking to the end would make a request returning
+         nothing. The continuation probe reads one row beyond the page instead. */
+      const exact = await readMemberRooms({
+        pool: runtimePool,
+        identity: identity(ownerId),
+        limit: 3,
+      });
+      expect(exact.rooms).toHaveLength(3);
+      expect(exact.nextCursor).toBeUndefined();
+    });
+
+    it('walks every room exactly once and never shows the continuation probe row', async () => {
+      const whole = (await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) }))
+        .rooms;
+      expect(whole.length).toBeGreaterThan(2);
+
+      const walked: string[] = [];
+      let after: { readonly title: string; readonly roomId: string } | undefined;
+      for (let page = 0; page < whole.length + 5; page += 1) {
+        const result = await readMemberRooms({
+          pool: runtimePool,
+          identity: identity(ownerId),
+          limit: 1,
+          after: after ?? null,
+        });
+        /* At most the requested limit: the extra row is proof of continuation and is
+           never returned. A page that leaked it would show a room twice. */
+        expect(result.rooms).toHaveLength(1);
+        walked.push(...result.rooms.map((room) => room.roomId));
+        if (result.nextCursor === undefined) break;
+        after = result.nextCursor;
+      }
+      // Every room once, in the same order as the single unpaged read.
+      expect(walked).toEqual(whole.map((room) => room.roomId));
+      expect(new Set(walked).size).toBe(walked.length);
+    });
+
+    it('orders by title and identity, so a shared title cannot skip or repeat a room', async () => {
+      /*
+         The cursor is `(title, roomId)`. Ordering by title alone would make the key
+         ambiguous for rooms that share one, and resuming from an ambiguous key either
+         skips a room -- understating access -- or repeats it.
+       */
+      const rooms = (await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) }))
+        .rooms;
+      const titles = rooms.map((room) => room.title);
+      expect(titles).toStrictEqual([...titles].sort((left, right) => (left < right ? -1 : 1)));
+    });
+
+    it('refuses a page limit outside the bound rather than silently clamping it', async () => {
+      /* Clamping would answer a request for 5000 rooms with 100 and call it complete.
+         The bound is refused so the caller learns the limit was not honoured. */
+      for (const limit of [0, -1, 101, 1.5])
+        await expect(
+          readMemberRooms({ pool: runtimePool, identity: identity(ownerId), limit }),
+        ).rejects.toThrow('ROOM_PAGE_LIMIT_REJECTED');
+    });
+
+    it('confines a paged read to the reader\u2019s own rooms', async () => {
+      // Pagination is not an authorization bypass: the reader is still the gate.
+      const page = await readMemberRooms({
+        pool: runtimePool,
+        identity: identity(contributorId),
+        limit: 1,
+      });
+      expect(page.rooms.map((room) => room.roomId)).toStrictEqual([assignedRoomId]);
+      expect(page.nextCursor).toBeUndefined();
+    });
   });
 
   it('projects the working tree with dense positions and never the fractional order key', async () => {
