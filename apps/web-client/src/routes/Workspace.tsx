@@ -110,7 +110,7 @@ const ROOMS_VIEW = {
 const ADMINISTRATION_VIEW = {
   id: 'administration',
   scope: 'top',
-  label: () => translate('workspace.tab.members'),
+  label: () => translate('workspace.tab.administration'),
   order: 20,
 } as const satisfies SectionTab;
 type ViewId = (typeof ROOMS_VIEW | typeof ADMINISTRATION_VIEW)['id'];

@@ -171,3 +171,37 @@ export function requireInteger(value: Readonly<Record<string, unknown>>, key: st
   if (typeof found !== 'number' || !Number.isInteger(found)) throw new ApiError('unavailable');
   return found;
 }
+
+export function oneOf<T>(values: readonly T[], value: unknown): T {
+  if (!(values as readonly unknown[]).includes(value)) throw new ApiError('unavailable');
+  return value as T;
+}
+
+export function instantOrNull(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value)))
+    throw new ApiError('unavailable');
+  return value;
+}
+
+export function requireRecord(
+  value: Readonly<Record<string, unknown>>,
+  key: string,
+): Readonly<Record<string, unknown>> {
+  const nested = value[key];
+  if (!isRecord(nested)) throw new ApiError('unavailable');
+  return nested;
+}
+
+export function requireBoolean(value: Readonly<Record<string, unknown>>, key: string): boolean {
+  const flag = value[key];
+  if (typeof flag !== 'boolean') throw new ApiError('unavailable');
+  return flag;
+}
+
+/** A non-empty string, or null. */
+export function textOrNull(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || value === '') throw new ApiError('unavailable');
+  return value;
+}

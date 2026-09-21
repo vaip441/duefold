@@ -31,6 +31,7 @@ PostgreSQL functions are authoritative for role/state transitions, room-assignme
 - [Status route](src/routes/deployment-status.ts), described in the [installation status HTTP contract](../../docs/installation-status-http-contract.md)
 - [Status database functions](migrations/024_deployment_status.sql)
 - [Status authorization suites](../../test/authz/installation-status.test.ts) and [routes](../../test/authz/installation-status-routes.test.ts)
+- [Browser status API](../../apps/web-client/src/api/status.ts) and [status panel](../../apps/web-client/src/components/StatusPanel.tsx)
 
 ## Does not own
 

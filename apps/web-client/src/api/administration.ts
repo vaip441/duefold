@@ -3,6 +3,7 @@ import {
   failureForStatus,
   isRecord,
   json,
+  oneOf,
   request,
   requireNumber,
   requireString,
@@ -92,12 +93,6 @@ const GLOBAL_ROLES: readonly GlobalRole[] = ['owner', 'admin', 'member'];
 const MEMBER_STATES: readonly MemberState[] = ['active', 'disabled'];
 const ASSIGNABLE_ROLES: readonly AssignableGlobalRole[] = ['admin', 'member'];
 const ROOM_ROLES: readonly RoomRole[] = ['manager', 'contributor'];
-
-function oneOf<T extends string>(allowed: readonly T[], value: unknown): T {
-  if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value))
-    throw new ApiError('unavailable');
-  return value as T;
-}
 
 function parseAssignment(value: unknown): RoomAssignment {
   if (!isRecord(value)) throw new ApiError('unavailable');

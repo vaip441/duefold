@@ -8,13 +8,14 @@
 
 import {
   ApiError,
+  instantOrNull,
   isRecord,
   json,
+  oneOf,
   requireArray,
   requireInteger,
   requireString,
 } from './transport.ts';
-import { instantOrNull, oneOf } from './room-settings.ts';
 
 export type GrantSource = 'direct' | 'counterparty';
 export type GrantTargetKind = 'room' | 'folder' | 'document';

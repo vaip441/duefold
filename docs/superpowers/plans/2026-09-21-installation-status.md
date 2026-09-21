@@ -3669,7 +3669,7 @@ The Administration view gains an inner strip once it holds more than Members, so
 
 `transport.ts` reads `document.cookie`, which the Node-only root compiler settings cannot type, so the browser's code list lives in import-free `status-codes.ts` and the contract test imports that.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/unit/status-codes.test.ts`:
 
@@ -4102,7 +4102,7 @@ describe('StatusPanel', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 status test/unit/status-codes.test.ts
@@ -4110,7 +4110,7 @@ npx vitest run --project unit --maxWorkers=2 status test/unit/status-codes.test.
 
 Expected: FAIL — `status-codes.ts`, `status.ts`, `status-rows.ts` and `StatusPanel.tsx` do not exist.
 
-- [ ] **Step 3: Give the shared parsers one home**
+- [x] **Step 3: Give the shared parsers one home**
 
 Move `oneOf`, `instantOrNull`, `requireRecord` and `requireBoolean` from `apps/web-client/src/api/room-settings.ts` into `apps/web-client/src/api/transport.ts` unchanged, and add beside them:
 
@@ -4125,7 +4125,7 @@ export function textOrNull(value: unknown): string | null {
 
 `room-settings.ts` and `participants.ts` import the four from `./transport.ts`. `administration.ts` deletes its private `oneOf` and imports the shared one. `git grep -n "function oneOf\|function instantOrNull" apps/web-client/src` must list only `transport.ts` afterwards.
 
-- [ ] **Step 4: Write the status client**
+- [x] **Step 4: Write the status client**
 
 Create `apps/web-client/src/api/status-codes.ts`:
 
@@ -4376,7 +4376,7 @@ export {
 } from './status.ts';
 ```
 
-- [ ] **Step 5: Write the section's read and its rows**
+- [x] **Step 5: Write the section's read and its rows**
 
 Create `apps/web-client/src/workspace/useLoad.ts`:
 
@@ -4701,7 +4701,7 @@ export function statusRows(status: InstallationStatus): readonly StatusRow[] {
 }
 ```
 
-- [ ] **Step 6: Write the panel and offer the section**
+- [x] **Step 6: Write the panel and offer the section**
 
 Create `apps/web-client/src/components/StatusPanel.tsx`:
 
@@ -4877,7 +4877,7 @@ In `apps/web-client/src/workspace/views/views.unit.test.tsx`, use `messages['wor
 
 In `test/browser/members.spec.ts`, `openMembers` clicks `{ name: 'Administration', exact: true }` instead of `'Members'` (the Members section is the default), and the plain-member case asserts no `'Administration'` button.
 
-- [ ] **Step 7: Add the copy**
+- [x] **Step 7: Add the copy**
 
 In `apps/web-client/src/i18n/en.ts`:
 
@@ -4976,11 +4976,11 @@ In `apps/web-client/src/i18n/en.ts`:
   'status.restore.failed': 'The last restore drill did not pass.',
 ```
 
-- [ ] **Step 8: Point the maps at the browser side**
+- [x] **Step 8: Point the maps at the browser side**
 
 In the `CODEBASE_MAP.md` installation row, replace the browser cell with `[status API](apps/web-client/src/api/status.ts), [status rows](apps/web-client/src/workspace/status-rows.ts), [status panel](apps/web-client/src/components/StatusPanel.tsx), [installation status HTTP contract](docs/installation-status-http-contract.md)`. In `modules/core-security/README.md`'s Installation status list, add `- [Browser status API](../../apps/web-client/src/api/status.ts) and [status panel](../../apps/web-client/src/components/StatusPanel.tsx)`.
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2

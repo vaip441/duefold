@@ -26,7 +26,7 @@ async function openMembers(
     })),
   );
   await page.goto(server.baseUrl);
-  await page.getByRole('button', { name: 'Members', exact: true }).click();
+  await page.getByRole('button', { name: 'Administration', exact: true }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Members' })).toBeVisible();
   return seeded;
 }
@@ -196,7 +196,7 @@ test.describe('an Admin', () => {
 });
 
 test.describe('a plain Member', () => {
-  test('is offered no Members destination at all', async ({ page }) => {
+  test('is offered no Administration destination at all', async ({ page }) => {
     const seeded = await server.signInMember({ globalRole: 'member', roomTitle: 'Series A' });
     await page.context().addCookies(
       seeded.cookies.map((cookie) => ({
@@ -207,7 +207,9 @@ test.describe('a plain Member', () => {
     );
     await page.goto(server.baseUrl);
     await expect(page.getByRole('heading', { level: 1, name: 'Rooms' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Members', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Administration', exact: true })).toHaveCount(
+      0,
+    );
     await expect(page.getByRole('navigation', { name: /views/iu })).toHaveCount(0);
   });
 });

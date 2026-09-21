@@ -164,7 +164,7 @@ describe('view navigation', () => {
     {
       id: 'administration',
       scope: 'top' as const,
-      label: () => messages['workspace.tab.members'],
+      label: () => messages['workspace.tab.administration'],
       order: 20,
     },
   ];
@@ -180,7 +180,9 @@ describe('view navigation', () => {
     );
     expect([...markup.matchAll(/aria-current="true"/gu)]).toHaveLength(1);
     const current = markup.indexOf('aria-current="true"');
-    expect(markup.slice(current, current + 120)).toContain(messages['workspace.tab.members']);
+    expect(markup.slice(current, current + 120)).toContain(
+      messages['workspace.tab.administration'],
+    );
   });
 
   it('names the navigation region so a landmark list is usable', () => {
@@ -193,23 +195,6 @@ describe('view navigation', () => {
       />,
     );
     expect(markup).toMatch(/<nav class="df-sections" aria-label="[^"]+"/u);
-  });
-
-  it('offers the administration view to every member, because visibility is not authorization', () => {
-    /*
-     * The reader behind the workbench refuses anyone who is not an Owner or Admin, and
-     * the surface renders that refusal. Hiding the tab would put an access decision in
-     * the browser, where a change of role could not be reflected without a reload.
-     */
-    const markup = renderToStaticMarkup(
-      <SectionNav
-        label={messages['workspace.views.label']}
-        sections={VIEWS}
-        currentId="rooms"
-        onSelect={() => undefined}
-      />,
-    );
-    expect(markup).toContain(messages['workspace.tab.members']);
   });
 
   it('renders no strip for a single section, which would be a tab stop saying nothing', () => {

@@ -8,10 +8,14 @@
 import type { RoomState } from './rooms.ts';
 import {
   ApiError,
+  instantOrNull,
   isRecord,
   json,
+  oneOf,
   requireArray,
+  requireBoolean,
   requireInteger,
+  requireRecord,
   requireString,
 } from './transport.ts';
 
@@ -79,33 +83,6 @@ const PURGE_STATES: readonly PurgeState[] = [
   'failed',
 ];
 const REVIEWED: readonly ReviewedVisibility[] = ['published', 'archived'];
-
-export function oneOf<T>(values: readonly T[], value: unknown): T {
-  if (!(values as readonly unknown[]).includes(value)) throw new ApiError('unavailable');
-  return value as T;
-}
-
-export function instantOrNull(value: unknown): string | null {
-  if (value === null) return null;
-  if (typeof value !== 'string' || Number.isNaN(Date.parse(value)))
-    throw new ApiError('unavailable');
-  return value;
-}
-
-export function requireRecord(
-  value: Readonly<Record<string, unknown>>,
-  key: string,
-): Readonly<Record<string, unknown>> {
-  const nested = value[key];
-  if (!isRecord(nested)) throw new ApiError('unavailable');
-  return nested;
-}
-
-export function requireBoolean(value: Readonly<Record<string, unknown>>, key: string): boolean {
-  const flag = value[key];
-  if (typeof flag !== 'boolean') throw new ApiError('unavailable');
-  return flag;
-}
 
 function parseSettings(value: Readonly<Record<string, unknown>>): RoomSettings {
   const capabilities = requireRecord(value, 'capabilities');

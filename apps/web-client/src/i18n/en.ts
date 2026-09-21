@@ -392,6 +392,9 @@ export const messages = {
   'workspace.tabs.label': 'Room sections',
   'workspace.tab.rooms': 'Rooms',
   'workspace.tab.members': 'Members',
+  'workspace.tab.administration': 'Administration',
+  'workspace.tab.status': 'Status',
+  'administration.sections.label': 'Administration sections',
   'settings.heading': 'Room settings',
   'settings.loading': 'Loading room settings',
   'settings.denied': 'Room settings are not available to your role.',
@@ -862,6 +865,97 @@ export const messages = {
   'structure.metadata.description': 'Description of this document',
   'structure.metadata.submit': 'Save details',
   'structure.metadata.pending': 'Saving\u2026',
+
+  'status.heading': 'Security and deployment status',
+  'status.intro':
+    'Read-only. Status reports what this installation can observe; it does not configure infrastructure, components, providers or secrets.',
+  'status.loading': 'Loading status',
+  'status.denied': 'Status is not available to your role.',
+  'status.refresh': 'Check again',
+  'status.caption': 'Security and deployment checks',
+  'status.column.check': 'Check',
+  'status.column.state': 'State',
+  'status.column.details': 'Details',
+  'status.column.time': 'As of',
+  'status.now': 'Now',
+  'status.never': 'Never recorded',
+  'status.summary.failing': 'Checks failing: {count}.',
+  'status.state.pass': 'Passing',
+  'status.state.attention': 'Needs attention',
+  'status.state.fail': 'Failing',
+  'status.state.unchecked': 'Not yet checked',
+  'status.state.stale': 'Out of date',
+  'status.row.application': 'Application',
+  'status.row.migrations': 'Database migrations',
+  'status.row.storagePrivacy': 'Storage privacy',
+  'status.row.storageVersioning': 'Storage versioning',
+  'status.row.scanner': 'Malware signatures',
+  'status.row.queue': 'Worker queue',
+  'status.row.processing': 'Document processing',
+  'status.row.oidc': 'Member sign-in (OIDC)',
+  'status.row.mail': 'Required mail',
+  'status.row.backups': 'Backups',
+  'status.row.restore': 'Restore drill',
+  'status.row.updates': 'Updates and advisories',
+  'status.application.version': 'Version {version}',
+  'status.application.modules': 'Installed: {installed}',
+  'status.application.adapters': 'Storage {storage}, mail {mail}, identity {identity}',
+  'status.migrations.current': 'All {expected} migrations applied.',
+  'status.migrations.pending': '{applied} of {expected} migrations applied. Run db migrate.',
+  'status.migrations.unrecognized':
+    'The database records {applied} migrations this release did not produce; it expects {expected}.',
+  'status.migrations.latest': 'Latest: {id}',
+  'status.unchecked.worker': 'The worker checks this every hour.',
+  'status.unchecked.updates': 'Run updates check-file with the latest release package.',
+  'status.code.ANONYMOUS_ACCESS_REFUSED':
+    'The storage API refuses unauthenticated requests. A public address the provider serves outside that API is not visible to this check.',
+  'status.code.ANONYMOUS_READ_ALLOWED':
+    'The storage API answers unauthenticated requests about objects. Turn public access off.',
+  'status.code.ANONYMOUS_LIST_ALLOWED':
+    'The storage API lists contents to unauthenticated requests. Turn public access off.',
+  'status.code.STORAGE_PROBE_INCONCLUSIVE':
+    'The storage API gave an answer this check cannot read.',
+  'status.code.STORAGE_UNREACHABLE': 'The worker could not reach object storage.',
+  'status.code.VERSIONING_ENABLED': 'Object versioning is enabled.',
+  'status.code.VERSIONING_SUSPENDED':
+    'Object versioning is suspended, so deleted or overwritten objects cannot be restored.',
+  'status.code.VERSIONING_NEVER_ENABLED': 'Object versioning has never been enabled.',
+  'status.code.VERSIONING_NOT_DETECTABLE':
+    'Versioning cannot be read with the worker credential or this provider. Confirm it with your provider.',
+  'status.code.SIGNATURES_CURRENT': 'Signatures are less than a day old.',
+  'status.code.SIGNATURES_STALE':
+    'Signatures are more than a day old. New uploads cannot be scanned until they update.',
+  'status.code.SCANNER_UNAVAILABLE':
+    'The worker could not reach the scanner. New uploads cannot be scanned until it answers.',
+  'status.code.UPDATE_CURRENT': 'No newer release is known.',
+  'status.code.UPDATE_AVAILABLE': 'A newer release is available.',
+  'status.code.SECURITY_ADVISORY': 'A newer release fixes a security advisory. Upgrade.',
+  'status.code.UPDATE_MANIFEST_UNVERIFIED':
+    'The last release package checked did not verify. Do not use it.',
+  'status.code.UPDATE_VERSION_UNRECOGNIZED':
+    'The last release package named a version this release cannot compare.',
+  'status.scanner.builtAt': 'Built {date}, {days} days before this check.',
+  'status.updates.offered': 'Offered release: {version}',
+  'status.queue.counts': '{due} jobs waiting, {running} running.',
+  'status.queue.failed': '{count} jobs failed after every retry in the last seven days.',
+  'status.queue.backlog': 'The oldest waiting job has waited {minutes} minutes.',
+  'status.processing.none': 'No document versions have failed processing.',
+  'status.processing.failed':
+    '{count} document versions failed processing. Members can retry them from Processing.',
+  'status.oidc.conformed':
+    'Discovery and client authentication conformed when this web process started.',
+  'status.mail.delivering': 'Sign-in and invitation mail is being delivered.',
+  'status.mail.failing':
+    '{count} sign-in or invitation messages could not be delivered after every retry in the last seven days.',
+  'status.mail.untested': 'No sign-in or invitation mail has been sent yet.',
+  'status.backups.acknowledged': 'Backups are acknowledged by the operator.',
+  'status.backups.retention': 'Retention: {retention}',
+  'status.backups.expectation': 'Recovery expectation: {expectation}',
+  'status.backups.undetermined':
+    'Backup status has not been recorded. Run backup-status acknowledge after checking with your provider.',
+  'status.restore.untested': 'No restore drill has been recorded.',
+  'status.restore.passed': 'The last restore drill passed.',
+  'status.restore.failed': 'The last restore drill did not pass.',
 } as const;
 
 export type MessageKey = keyof typeof messages;

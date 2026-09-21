@@ -187,3 +187,14 @@ export {
   type ProcessingVersion,
   type UploadIntentResponse,
 } from './member-operations.ts';
+
+export {
+  loadInstallationStatus,
+  type CheckObservation,
+  type ContentStatus,
+  type DeploymentStatus,
+  type InstallationStatus,
+  type ObservationCode,
+  type StatusCheck,
+  type StatusCheckRow,
+} from './status.ts';

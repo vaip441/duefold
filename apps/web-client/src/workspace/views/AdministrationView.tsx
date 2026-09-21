@@ -12,7 +12,13 @@ import {
   isContributed,
 } from '../sections.ts';
 import { useAdministrationSection } from '../useAdministrationSection.ts';
+import { StatusSection } from './InstallationSections.tsx';
 import { classifyLoad } from './load-state.ts';
+
+const ADMINISTRATION_SECTIONS = [
+  { id: 'members', scope: 'top', label: () => translate('workspace.tab.members'), order: 10 },
+  { id: 'status', scope: 'top', label: () => translate('workspace.tab.status'), order: 30 },
+] as const satisfies readonly SectionTab[];
 
 export interface AdministrationViewProps {
   readonly rooms: readonly MemberRoom[];
@@ -66,17 +72,7 @@ export function AdministrationView({
     if (sessionEnded) onStatus(translate('members.transfer.sessionEnded'));
   }, [sessionEnded, onStatus]);
 
-  const sections = composeSections(
-    [
-      {
-        id: 'members',
-        scope: 'top',
-        label: () => translate('workspace.tab.members'),
-        order: 10,
-      },
-    ] as const satisfies readonly SectionTab[],
-    contributedSections('top'),
-  );
+  const sections = composeSections(ADMINISTRATION_SECTIONS, contributedSections('top'));
   const section = currentSection(sections, sectionId);
   const currentId = section?.id ?? '';
 
@@ -107,7 +103,7 @@ export function AdministrationView({
   return (
     <>
       <SectionNav
-        label={translate('workspace.views.label')}
+        label={translate('administration.sections.label')}
         sections={sections}
         currentId={currentId}
         onSelect={onSectionChange}
@@ -161,6 +157,8 @@ export function AdministrationView({
           onSessionEnded={onSessionEnded}
         />
       ) : null}
+
+      {currentId === 'status' ? <StatusSection /> : null}
 
       {section !== null && isContributed(section)
         ? section.render({ scope: 'top', onStatus })
