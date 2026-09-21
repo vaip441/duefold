@@ -59,4 +59,5 @@ Runtime composition is declared by modules and generated at build time. PostgreS
 - [Shipped interface system](DESIGN.md)
 - [Threat model](docs/security/threat-model.md)
 - [Trust boundaries](docs/security/data-flow.md)
+- [Room administration HTTP contract](docs/room-administration-http-contract.md)
 - [Development setup](docs/development.md)

@@ -642,7 +642,7 @@ export function RoomView({
                     documentId: input.entry.resourceId,
                     title: input.title,
                     description: input.description,
-                    expectedDocumentRevision: input.entry.revision,
+                    expectedDocumentRevision: input.entry.documentRevision,
                     expectedWorkingRevision: room?.workingRevision ?? 0,
                   },
                   input.entry.entryId,

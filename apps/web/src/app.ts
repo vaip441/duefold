@@ -123,6 +123,7 @@ const ROUTE_FACTORIES = {
   'export.download': memberFactory('export.download'),
   'upload.intent.create': memberFactory('upload.intent.create'),
   'room.list': memberFactory('room.list'),
+  'room.create': memberFactory('room.create'),
   'room.workspace.read': memberFactory('room.workspace.read'),
   'room.structure.mutate': memberFactory('room.structure.mutate'),
   'room.action': memberFactory('room.action'),
@@ -175,6 +176,7 @@ function memberFactory(
     | 'document.processing.retry'
     | 'document.failed-source.delete'
     | 'room.list'
+    | 'room.create'
     | 'room.workspace.read'
     | 'room.structure.mutate'
     | 'room.action'

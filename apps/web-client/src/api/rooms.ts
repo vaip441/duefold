@@ -11,6 +11,7 @@ import {
   isRecord,
   json,
   requireArray,
+  requireInteger,
   requireNumber,
   requireString,
 } from './transport.ts';
@@ -53,13 +54,13 @@ export type MemberRoom = {
 export type PublicationChangeKind =
   'add' | 'remove' | 'rename' | 'move' | 'reorder' | 'description' | 'version' | 'replace';
 
-export interface WorkingEntry {
+interface EntryFacts {
   readonly entryId: string;
-  readonly resourceKind: 'folder' | 'document';
   readonly resourceId: string;
   readonly parentFolderId: string | null;
   readonly displayName: string;
   readonly description: string;
+  /** The structure entry's revision, which structure mutations compare. */
   readonly revision: number;
   readonly stagedRemoved: boolean;
   readonly depth: number;
@@ -69,6 +70,72 @@ export interface WorkingEntry {
   readonly changeKinds: readonly PublicationChangeKind[];
   readonly hasPublishableVersion: boolean;
   readonly isPublished: boolean;
+}
+export type FolderEntry = EntryFacts & {
+  readonly resourceKind: 'folder';
+  readonly documentRevision: null;
+};
+/** `documentRevision` is what document metadata and download policy writers compare. */
+export type DocumentEntry = EntryFacts & {
+  readonly resourceKind: 'document';
+  readonly documentRevision: number;
+};
+export type WorkingEntry = FolderEntry | DocumentEntry;
+
+const CHANGE_KINDS: readonly PublicationChangeKind[] = [
+  'add',
+  'remove',
+  'rename',
+  'move',
+  'reorder',
+  'description',
+  'version',
+  'replace',
+];
+
+function parseEntry(value: unknown): WorkingEntry {
+  if (!isRecord(value)) throw new ApiError('unavailable');
+  const changeKinds = requireArray(value, 'changeKinds');
+  if (!changeKinds.every((kind) => (CHANGE_KINDS as readonly unknown[]).includes(kind)))
+    throw new ApiError('unavailable');
+  const parent = value['parentFolderId'];
+  if (parent !== null && typeof parent !== 'string') throw new ApiError('unavailable');
+  for (const key of [
+    'stagedRemoved',
+    'canMoveUp',
+    'canMoveDown',
+    'hasPublishableVersion',
+    'isPublished',
+  ])
+    if (typeof value[key] !== 'boolean') throw new ApiError('unavailable');
+  if (typeof value['description'] !== 'string') throw new ApiError('unavailable');
+  const facts: EntryFacts = {
+    entryId: requireString(value, 'entryId'),
+    resourceId: requireString(value, 'resourceId'),
+    parentFolderId: parent,
+    displayName: requireString(value, 'displayName'),
+    description: value['description'],
+    revision: requireInteger(value, 'revision'),
+    stagedRemoved: value['stagedRemoved'] as boolean,
+    depth: requireInteger(value, 'depth'),
+    position: requireInteger(value, 'position'),
+    canMoveUp: value['canMoveUp'] as boolean,
+    canMoveDown: value['canMoveDown'] as boolean,
+    changeKinds: changeKinds as readonly PublicationChangeKind[],
+    hasPublishableVersion: value['hasPublishableVersion'] as boolean,
+    isPublished: value['isPublished'] as boolean,
+  };
+  /* A document carries its own revision and a folder has none, so the pair is the kind's
+     discriminant rather than a nullable field beside it. */
+  if (value['resourceKind'] === 'document')
+    return {
+      ...facts,
+      resourceKind: 'document',
+      documentRevision: requireInteger(value, 'documentRevision'),
+    };
+  if (value['resourceKind'] === 'folder' && value['documentRevision'] === null)
+    return { ...facts, resourceKind: 'folder', documentRevision: null };
+  throw new ApiError('unavailable');
 }
 
 export interface TrashEntry {
@@ -236,7 +303,7 @@ export async function loadRoomWorkspace(
   if (!isRecord(payload) || typeof payload['retentionDays'] !== 'number')
     throw new ApiError('unavailable');
   return {
-    entries: requireArray(payload, 'entries') as readonly WorkingEntry[],
+    entries: requireArray(payload, 'entries').map(parseEntry),
     trash: requireArray(payload, 'trash') as readonly TrashEntry[],
     retentionDays: payload['retentionDays'],
   };

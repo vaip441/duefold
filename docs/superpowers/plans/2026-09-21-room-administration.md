@@ -97,7 +97,7 @@
 
 `read_member_room` exists because the frame found the open room's row by searching the loaded register page. A room on an unloaded page — including one just created whose title sorts late — had no row, so every revision-dependent control inside it was disabled.
 
-- [ ] **Step 1: Write the room fixture**
+- [x] **Step 1: Write the room fixture**
 
 The pools, `app()`, `memberSession()` and `headers()` already exist in `test/authz/support/route-fixture.ts`, which the milestone 1 route suites use. The room suites reuse them rather than opening a second set of pools, and add only room seeding.
 
@@ -227,7 +227,7 @@ export async function seedViewerWithRoomGrant(
 
 Each suite ends with `afterAll(closeRoutePools)`, which ends the shared pools.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `test/authz/room-administration.test.ts`:
 
@@ -414,7 +414,7 @@ describe('GET /api/rooms?roomId=', () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 ```bash
 free -h
@@ -424,7 +424,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — the whitespace/multi-line titles are accepted, `POST /api/rooms` is 404, and `?roomId=` is 400.
 
-- [ ] **Step 4: Write migration 022, part 1**
+- [x] **Step 4: Write migration 022, part 1**
 
 Create `modules/rooms-documents/migrations/022_room_administration.sql`:
 
@@ -484,7 +484,7 @@ Register it in `modules/rooms-documents/src/declaration.ts`, after the `020_room
     { id: '022_room_administration', file: '022_room_administration.sql' },
 ```
 
-- [ ] **Step 5: Let `createRoom` defer to SQL**
+- [x] **Step 5: Let `createRoom` defer to SQL**
 
 In `modules/rooms-documents/src/structure.ts`, delete the two validation calls from `createRoom` (the `validateStructureName` / `validateStructureDescription` functions stay; other writers still use them):
 
@@ -506,7 +506,7 @@ export async function createRoom(input: {
 }
 ```
 
-- [ ] **Step 6: Add the route**
+- [x] **Step 6: Add the route**
 
 Create `modules/rooms-documents/src/routes/room-create.ts`:
 
@@ -565,7 +565,7 @@ Declare it in `modules/rooms-documents/src/declaration.ts`, after the `room.list
     },
 ```
 
-- [ ] **Step 7: Read one room by id**
+- [x] **Step 7: Read one room by id**
 
 In `modules/rooms-documents/src/workspace-reads.ts`, lift the row mapping out of `readMemberRooms` into a function both readers use, and add the one-room reader:
 
@@ -644,7 +644,7 @@ At the top of the handler body, after `const query = request.query as Query;`:
 
 and add `readMemberRoom` to the import from `../workspace-reads.ts`.
 
-- [ ] **Step 8: Start the HTTP contract**
+- [x] **Step 8: Start the HTTP contract**
 
 Create `docs/room-administration-http-contract.md`:
 
@@ -683,7 +683,7 @@ One register row, in the same shape as a page of `GET /api/rooms`. An unreachabl
 and an unknown id both answer `{rooms: []}`. `roomId` cannot be combined with a cursor.
 ````
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -694,7 +694,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add modules/rooms-documents test/authz/support/room-fixture.ts test/authz/room-administration.test.ts docs/room-administration-http-contract.md
@@ -720,7 +720,7 @@ Three defects become reachable the moment room state and purge have routes:
 2. `room_purge.room_id` is `UNIQUE`, so a cancelled purge blocks every later schedule. The collision surfaces as an unmapped `23505`, i.e. HTTP 500.
 3. The phrase `SCHEDULE PURGE FOR ROOM <32-character id>` is untypeable, which invites pasting and defeats the friction.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/authz/room-administration.test.ts`:
 
@@ -804,7 +804,7 @@ describe('purge safety', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxWorkers=2 test/authz/room-administration.test.ts -t "purge safety"
@@ -812,7 +812,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — the phrase is the id-bearing one, the state change succeeds, and rescheduling raises `23505`.
 
-- [ ] **Step 3: Append the purge rules to migration 022**
+- [x] **Step 3: Append the purge rules to migration 022**
 
 ```sql
 -- A live purge pins its room to archived. Returning the room to service requires
@@ -863,7 +863,7 @@ END $$;
 
 `dry_run_room_purge` reads `viewer_room_membership`, a participants-access table, in its 011 form already; this keeps that body and changes only the phrase and the uncancelled-purge refusal. Do not widen it further.
 
-- [ ] **Step 4: Append to the contract**
+- [x] **Step 4: Append to the contract**
 
 ````markdown
 ## Purge and room state
@@ -874,7 +874,7 @@ longer holds its room, so the room can be scheduled again. The purge confirmatio
 constant `SCHEDULE ROOM PURGE`; the room is bound by id and expected revision.
 ````
 
-- [ ] **Step 5: Run the tests to verify they pass, and that retention still does**
+- [x] **Step 5: Run the tests to verify they pass, and that retention still does**
 
 ```bash
 npm run compose
@@ -884,7 +884,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project integration 
 
 Expected: PASS. The retention suite reads the phrase from the dry run, so it needs no edit; if a case hard-codes the old phrase, update it to `SCHEDULE ROOM PURGE`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add modules/rooms-documents/migrations/022_room_administration.sql test/authz/room-administration.test.ts docs/room-administration-http-contract.md
@@ -911,7 +911,7 @@ git commit -m "Pin a room to archived while its purge is live"
 
 `update_document_metadata` compares `document.revision`, but the client sends the **entry** revision (`RoomView.tsx:645`). They agree today only because every writer bumps both. `set_document_download_policy` bumps the document alone, so after one download override every metadata edit of that document fails as stale, permanently. This task must land before Task 12 exposes overrides.
 
-- [ ] **Step 1: Write the failing server test**
+- [x] **Step 1: Write the failing server test**
 
 Append to `test/authz/room-administration.test.ts`:
 
@@ -955,7 +955,7 @@ describe('document revision in the working structure', () => {
 });
 ```
 
-- [ ] **Step 2: Write the failing client test**
+- [x] **Step 2: Write the failing client test**
 
 In `apps/web-client/src/api/rooms.unit.test.ts`, add (reuse the file's existing `fetch` stub helper; if it has none, stub `globalThis.fetch` with `vi.fn().mockResolvedValue(new Response(JSON.stringify(body)))` as the file's other cases do):
 
@@ -984,7 +984,7 @@ describe('loadRoomWorkspace', () => {
 });
 ```
 
-- [ ] **Step 3: Run both to verify they fail**
+- [x] **Step 3: Run both to verify they fail**
 
 ```bash
 node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxWorkers=2 test/authz/room-administration.test.ts -t "document revision"
@@ -993,7 +993,7 @@ npx vitest run --project unit --maxWorkers=2 rooms.unit
 
 Expected: FAIL — `column "document_revision" does not exist`; the client casts entries and accepts contradictions.
 
-- [ ] **Step 4: Append the reader change to migration 022**
+- [x] **Step 4: Append the reader change to migration 022**
 
 The return type changes, so the function is dropped and recreated. The body is `006_member_workspace_readers.sql:115-165` with one output column and one select item added:
 
@@ -1053,7 +1053,7 @@ ALTER FUNCTION read_member_working_structure(text,text) OWNER TO duefold_migrati
 
 Before writing it, diff the body against the current definition (`git grep -n "read_member_working_structure" modules/*/migrations`) — if any migration after 006 replaced it, copy that body instead.
 
-- [ ] **Step 5: Carry the field through the server**
+- [x] **Step 5: Carry the field through the server**
 
 In `modules/rooms-documents/src/workspace-reads.ts`, add `readonly documentRevision: number | null;` to `WorkingStructureEntry` after `revision`, `readonly document_revision: number | null;` to its row type, and `documentRevision: row.document_revision,` to the mapping after `revision`. In `modules/rooms-documents/src/routes/room-workspace.ts`, add to the entry object after `revision`:
 
@@ -1061,7 +1061,7 @@ In `modules/rooms-documents/src/workspace-reads.ts`, add `readonly documentRevis
               documentRevision: Type.Union([Type.Integer(), Type.Null()]),
 ```
 
-- [ ] **Step 6: Make the client entry a union and parse it**
+- [x] **Step 6: Make the client entry a union and parse it**
 
 In `apps/web-client/src/api/rooms.ts`, replace `export interface WorkingEntry {...}` with:
 
@@ -1135,7 +1135,7 @@ function parseEntry(value: unknown): WorkingEntry {
 
 Check the `PublicationChangeKind` union at the top of the file and make `CHANGE_KINDS` list exactly its members. In `loadRoomWorkspace`, replace the cast with `entries: requireArray(payload, 'entries').map(parseEntry),`.
 
-- [ ] **Step 7: Send the document revision**
+- [x] **Step 7: Send the document revision**
 
 In `apps/web-client/src/components/StructureControls.tsx`, change `MetadataInput.entry` and `MetadataFormProps.entry` to `DocumentEntry` (import it from `../api/client.ts`; add `DocumentEntry`, `FolderEntry` to the `rooms.ts` re-export in `client.ts`). In `StructureTable.tsx:335`, narrow before rendering the form:
 
@@ -1157,7 +1157,7 @@ Then add `documentRevision` to every `WorkingEntry` fixture the compiler now rej
 npm run typecheck 2>&1 | grep -E "documentRevision|WorkingEntry" | cut -d'(' -f1 | sort -u
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -1169,7 +1169,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add modules/rooms-documents apps/web-client/src test/authz/room-administration.test.ts

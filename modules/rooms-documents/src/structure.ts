@@ -60,8 +60,6 @@ export async function createRoom(input: {
   readonly title: string;
   readonly description: string;
 }): Promise<{ readonly roomId: string }> {
-  validateStructureName(input.title);
-  validateStructureDescription(input.description);
   const roomId = createOpaqueId();
   await input.pool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
     roomId,

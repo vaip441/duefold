@@ -18,7 +18,7 @@
 
 import { Collapsible } from '@base-ui/react/collapsible';
 import { useId, useState } from 'react';
-import type { WorkingEntry } from '../api/client.ts';
+import type { DocumentEntry, WorkingEntry } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
 import { Notice } from './Notice.tsx';
 
@@ -35,7 +35,7 @@ export interface MoveInput {
 }
 
 export interface MetadataInput {
-  readonly entry: WorkingEntry;
+  readonly entry: DocumentEntry;
   readonly title: string;
   readonly description: string;
 }
@@ -324,7 +324,7 @@ export function MoveForm({
 }
 
 export interface MetadataFormProps {
-  readonly entry: WorkingEntry;
+  readonly entry: DocumentEntry;
   readonly pending: boolean;
   readonly onSave: (input: MetadataInput) => void;
   readonly onCancel: () => void;

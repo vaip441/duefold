@@ -332,7 +332,9 @@ export function StructureTable({
                         }}
                       />
                     ) : null}
-                    {editingMetadata === entry.entryId && onMetadata !== undefined ? (
+                    {editingMetadata === entry.entryId &&
+                    onMetadata !== undefined &&
+                    entry.resourceKind === 'document' ? (
                       <MetadataForm
                         entry={entry}
                         pending={busy}

@@ -17,6 +17,14 @@ export const moduleDeclaration: ModuleDeclaration = {
       handlerFactoryExport: 'createHandler',
     },
     {
+      id: 'room.create',
+      method: 'POST',
+      path: '/api/rooms',
+      audience: 'member',
+      handler: 'routes/room-create.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
       id: 'room.workspace.read',
       method: 'GET',
       path: '/api/rooms/workspace',
@@ -229,6 +237,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '011_retention_lifecycle', file: '011_retention_lifecycle.sql' },
     { id: '014_member_state_readers', file: '014_member_state_readers.sql' },
     { id: '020_room_register_paging', file: '020_room_register_paging.sql' },
+    { id: '022_room_administration', file: '022_room_administration.sql' },
   ],
   jobs: [
     {

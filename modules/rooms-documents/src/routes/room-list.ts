@@ -3,6 +3,7 @@ import type { FastifyRequest } from 'fastify';
 import type { WebRuntime } from '../../../../apps/web/src/runtime.ts';
 import type { MemberIdentity } from '../../../core-security/src/authorization.ts';
 import {
+  readMemberRoom,
   readMemberRooms,
   MAX_ROOM_PAGE_LIMIT,
   ROOM_PAGE_LIMIT,
@@ -88,6 +89,7 @@ const ROOM = Type.Union([ASSIGNED_ROOM, ROLE_DERIVED_ROOM]);
 /* A numeric string, because a querystring carries text and `coerceTypes` is
    deliberately off for every route in this application. */
 const LIMIT = Type.Optional(Type.String({ pattern: '^(?:[1-9]|[1-9][0-9]|100)$' }));
+const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
 
 export const schema = {
   /*
@@ -111,6 +113,8 @@ export const schema = {
       },
       { additionalProperties: false },
     ),
+    /* One room by id. Closed, so it cannot be combined with a cursor. */
+    Type.Object({ roomId: ID }, { additionalProperties: false }),
   ]),
   response: {
     200: Type.Object(
@@ -129,6 +133,7 @@ interface Query {
   readonly limit?: string;
   readonly afterTitle?: string;
   readonly afterRoomId?: string;
+  readonly roomId?: string;
 }
 
 export interface RoomListResponse {
@@ -139,6 +144,10 @@ export interface RoomListResponse {
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return async (request: FastifyRequest): Promise<RoomListResponse> => {
     const query = request.query as Query;
+    if (query.roomId !== undefined) {
+      const room = await readMemberRoom({ pool: runtime.pool, identity, roomId: query.roomId });
+      return { rooms: room === null ? [] : [room] };
+    }
     /* Both components or neither, already guaranteed by the querystring union above:
        half a key would resume at a position that exists in neither ordering and would
        skip or repeat rooms sharing a title. The narrowing here is the type-level

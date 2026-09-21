@@ -158,3 +158,16 @@ export function requireNumber(value: Readonly<Record<string, unknown>>, key: str
   if (typeof found !== 'number' || !Number.isFinite(found)) throw new ApiError('unavailable');
   return found;
 }
+
+/**
+ * For a field the server declares as an integer: a revision, a count, a position.
+ *
+ * Separate from `requireNumber` because a fractional revision is a malformed response, not a
+ * stale one, and sending it back as an expected revision would compare against something no
+ * writer can hold.
+ */
+export function requireInteger(value: Readonly<Record<string, unknown>>, key: string): number {
+  const found = value[key];
+  if (typeof found !== 'number' || !Number.isInteger(found)) throw new ApiError('unavailable');
+  return found;
+}

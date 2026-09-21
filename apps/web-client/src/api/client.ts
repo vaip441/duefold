@@ -59,6 +59,8 @@ export {
   type SearchHit,
   type TrashEntry,
   type WorkingEntry,
+  type DocumentEntry,
+  type FolderEntry,
 } from './rooms.ts';
 
 export {

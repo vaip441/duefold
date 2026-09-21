@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadRooms, ApiError } from './client.ts';
+import { loadRooms, loadRoomWorkspace, ApiError } from './client.ts';
 
 interface Call {
   readonly path: string;
@@ -222,5 +222,73 @@ describe('pagination', () => {
   it('refuses a malformed cursor rather than resuming from a guess', async () => {
     stub(() => respond(200, { rooms: [ROOM], nextCursor: { title: 'Series A' } }));
     await expect(loadRooms()).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('loadRoomWorkspace', () => {
+  const stubJson = (body: unknown): void => {
+    stub(() => respond(200, body));
+  };
+  const base = {
+    entryId: 'e'.repeat(32),
+    resourceId: 'r'.repeat(32),
+    parentFolderId: null,
+    displayName: 'Teaser',
+    description: '',
+    revision: 1,
+    stagedRemoved: false,
+    depth: 0,
+    position: 1,
+    canMoveUp: false,
+    canMoveDown: false,
+    changeKinds: [],
+    hasPublishableVersion: true,
+    isPublished: false,
+  };
+
+  it('keeps a document revision that differs from the entry revision', async () => {
+    stubJson({
+      entries: [{ ...base, resourceKind: 'document', documentRevision: 4 }],
+      trash: [],
+      retentionDays: 30,
+    });
+    const { entries } = await loadRoomWorkspace('x'.repeat(32));
+    expect(entries[0]).toMatchObject({
+      resourceKind: 'document',
+      revision: 1,
+      documentRevision: 4,
+    });
+  });
+
+  it.each([
+    [{ ...base, resourceKind: 'document', documentRevision: null }],
+    [{ ...base, resourceKind: 'folder', documentRevision: 2 }],
+  ])('fails closed on a revision that contradicts the kind', async (entry) => {
+    stubJson({ entries: [entry], trash: [], retentionDays: 30 });
+    await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
+      failure: 'unavailable',
+    });
+  });
+
+  it('fails closed on a fractional revision', async () => {
+    stubJson({
+      entries: [{ ...base, revision: 1.5, resourceKind: 'document', documentRevision: 4 }],
+      trash: [],
+      retentionDays: 30,
+    });
+    await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
+      failure: 'unavailable',
+    });
+  });
+
+  it('fails closed on a fractional documentRevision', async () => {
+    stubJson({
+      entries: [{ ...base, resourceKind: 'document', documentRevision: 4.5 }],
+      trash: [],
+      retentionDays: 30,
+    });
+    await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
+      failure: 'unavailable',
+    });
   });
 });

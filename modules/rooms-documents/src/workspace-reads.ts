@@ -126,7 +126,7 @@ export interface MemberRoomPage {
  * `access_source` is already narrowed by `MemberRoomRow`, so the switch is exhaustive and
  * the ROLE is what each branch has to check: those are the pairings a flat shape admitted.
  */
-function roomAccess(row: MemberRoomRow): RoomAccess {
+function roomAccess(row: Omit<MemberRoomRow, 'continues'>): RoomAccess {
   switch (row.access_source) {
     case 'assignment':
       /* Staffed by a colleague, so the role they were staffed as must be present. */
@@ -138,6 +138,35 @@ function roomAccess(row: MemberRoomRow): RoomAccess {
       if (row.room_role !== null) throw new Error('ROOM_ACCESS_SOURCE_CONTRADICTORY');
       return { accessSource: 'global_role', roomRole: null };
   }
+}
+
+function toMemberRoom(row: Omit<MemberRoomRow, 'continues'>): MemberRoom {
+  return {
+    roomId: row.room_id,
+    title: row.title,
+    description: row.description,
+    state: row.state,
+    revision: row.revision,
+    workingRevision: row.working_revision,
+    publishedRevision: row.published_revision,
+    /* One decision, so a contradictory pair cannot be assembled here. */
+    ...roomAccess(row),
+    canPublish: row.can_publish,
+  };
+}
+
+/** One register row, or null when the room is unreachable or unknown — the two are not told apart. */
+export async function readMemberRoom(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+}): Promise<MemberRoom | null> {
+  const result = await input.pool.query<Omit<MemberRoomRow, 'continues'>>(
+    'SELECT * FROM read_member_room($1,$2)',
+    [input.identity.id, input.roomId],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : toMemberRoom(row);
 }
 
 /** Rooms one page carries. An Owner or Admin sees every room, so this is bounded (§23). */
@@ -177,18 +206,7 @@ export async function readMemberRooms(input: {
     'SELECT * FROM read_member_rooms($1,$2,$3,$4)',
     [input.identity.id, after?.title ?? null, after?.roomId ?? null, limit],
   );
-  const rooms = result.rows.map((row) => ({
-    roomId: row.room_id,
-    title: row.title,
-    description: row.description,
-    state: row.state,
-    revision: row.revision,
-    workingRevision: row.working_revision,
-    publishedRevision: row.published_revision,
-    /* One decision, so a contradictory pair cannot be assembled here. */
-    ...roomAccess(row),
-    canPublish: row.can_publish,
-  }));
+  const rooms = result.rows.map(toMemberRoom);
   const last = result.rows.at(-1);
   return {
     rooms,
@@ -206,6 +224,7 @@ export interface WorkingStructureEntry {
   readonly displayName: string;
   readonly description: string;
   readonly revision: number;
+  readonly documentRevision: number | null;
   readonly stagedRemoved: boolean;
   readonly depth: number;
   readonly position: number;
@@ -225,6 +244,7 @@ interface WorkingStructureRow {
   readonly display_name: string;
   readonly description: string | null;
   readonly revision: number;
+  readonly document_revision: number | null;
   readonly staged_removed: boolean;
   readonly depth: number;
   readonly sibling_position: number;
@@ -252,6 +272,7 @@ export async function readWorkingStructure(input: {
     displayName: row.display_name,
     description: row.description ?? '',
     revision: row.revision,
+    documentRevision: row.document_revision,
     stagedRemoved: row.staged_removed,
     depth: row.depth,
     position: row.sibling_position,

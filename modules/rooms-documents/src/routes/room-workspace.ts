@@ -43,6 +43,7 @@ export const schema = {
               displayName: Type.String(),
               description: Type.String(),
               revision: Type.Integer(),
+              documentRevision: Type.Union([Type.Integer(), Type.Null()]),
               stagedRemoved: Type.Boolean(),
               depth: Type.Integer(),
               position: Type.Integer(),
