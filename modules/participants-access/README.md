@@ -14,6 +14,7 @@ Owns external participants, viewer invitations, allow-only grants, expiry and re
 - [Browser state](../../apps/web-client/src/workspace/useParticipantsSection.ts) and [room settings state](../../apps/web-client/src/workspace/useRoomSettings.ts)
 - [Access section](../../apps/web-client/src/workspace/views/AccessSection.tsx) composing [participant panel](../../apps/web-client/src/components/ParticipantsPanel.tsx) and [counterparty controls](../../apps/web-client/src/components/CounterpartyControls.tsx); [room settings panel](../../apps/web-client/src/components/RoomSettingsPanel.tsx)
 - Authorization suites: [participant grants](../../test/authz/participant-grants.test.ts), [room settings](../../test/authz/room-settings.test.ts), [download policy](../../test/authz/room-download-policy.test.ts), [default grant expiry](../../test/authz/room-default-expiry.test.ts), and [counterparties](../../test/authz/room-counterparties.test.ts), sharing [seeding](../../test/authz/support/policy-fixture.ts)
+- [Room administration journeys](../../test/browser/room-administration.spec.ts), seeded by [room seeding](../../test/support/room-seeding.ts)
 
 ## Does not own
 

@@ -7035,7 +7035,7 @@ git commit -m "Manage counterparties and grant a counterparty access"
 
 Each journey starts from seeded facts and makes every change it asserts through the product. Each role that reaches a surface is signed in once, and a role that must not see it is checked as well.
 
-- [ ] **Step 1: Write the seeding helpers**
+- [x] **Step 1: Write the seeding helpers**
 
 Create `test/support/room-seeding.ts`:
 
@@ -7070,7 +7070,7 @@ export async function addDocument(pool: Pool, roomId: string, actorId: string, t
 }
 ```
 
-- [ ] **Step 2: Write the journeys**
+- [x] **Step 2: Write the journeys**
 
 Create `test/browser/room-administration.spec.ts`:
 
@@ -7294,7 +7294,7 @@ test.describe('accessibility', () => {
 
 The keyboard journey leaves the created room through the frame's `Rooms` context action, which is the button `Workspace.tsx` renders while a room is open; if its accessible name differs, use the name it has. The Access tab's label is `workspace.tab.participants`, currently "Access"; check `en.ts` before running. If `members.spec.ts` excludes specific axe rules or regions with a documented reason, apply the same exclusions here rather than widening them.
 
-- [ ] **Step 3: Run the journeys**
+- [x] **Step 3: Run the journeys**
 
 ```bash
 free -h
@@ -7304,7 +7304,7 @@ node --env-file=.env ./node_modules/@playwright/test/cli.js test test/browser/ro
 
 Expected: PASS on Chromium, Firefox and WebKit.
 
-- [ ] **Step 4: Record the shipped components**
+- [x] **Step 4: Record the shipped components**
 
 In `DESIGN.md` → **Components**, extend the accessible-primitives entry: Base UI also provides `ConfirmationDialog` — one dialog for every reviewed, typed or single-press confirmation in room administration, with the consequence stated before the field that unlocks the action and Cancel taking initial focus — and `NewRoomDialog`, which focuses its title field because nothing destructive sits behind its primary action.
 
@@ -7332,7 +7332,7 @@ No detail field carries an email, a title, a token or an object key.
 
 Spec §8 requires a manual screen-reader pass over the new confirmation dialogs; automation cannot stand in for it. With VoiceOver (Safari) or NVDA (Firefox), open **Publish room** and **Schedule purge** and confirm: the dialog is announced by its title; the consequence is read before the confirmation field; the field's label names the exact phrase; a refusal is announced as an alert; Escape and Cancel return focus to the control that opened the dialog. Record reviewer, date, browser and screen reader, and any finding, under "Automated evidence completed" → a new "Manual accessibility" line in `docs/release-evidence.md`. A finding blocks the commit until fixed.
 
-- [ ] **Step 6: Full verification, one step at a time**
+- [x] **Step 6: Full verification, one step at a time**
 
 ```bash
 free -h
@@ -7348,7 +7348,7 @@ wc -l apps/web-client/src/routes/Workspace.tsx apps/web-client/src/workspace/vie
 
 Expected: every step passes; `Workspace.tsx` ≤ 524, `RoomView.tsx` ≤ 806, `ParticipantsPanel.tsx` < 714, `browser-server.ts` = 1055.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add test DESIGN.md docs/room-administration-http-contract.md docs/release-evidence.md

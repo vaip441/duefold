@@ -140,5 +140,22 @@ viewerCount}]`, including counterparties with no viewers yet.
 
 `23505` (a database uniqueness rule) is `409 CONFLICT`, alongside `40001` and `55000`.
 
+## Audit events
 
+What the surfaces in this document write. Two event types are shared with work outside it, and
+both rows say so, because a reader checking evidence needs to know which reason codes they may
+legitimately find under the same event type.
 
+| Event | Reason codes | Written by |
+|---|---|---|
+| `room.create` | `ROOM_CREATED` | `create_room` |
+| `room.state` | `ROOM_PUBLISHED`, `ROOM_ARCHIVED`, `ROOM_UNPUBLISHED` | `change_room_state`, reachable only through `apply_room_visibility` |
+| `download.policy` | `ROOM_DOWNLOAD_POLICY_CHANGED`, `DOCUMENT_DOWNLOAD_POLICY_CHANGED` | the two policy setters; the same event type also carries `INSTALLATION_DOWNLOAD_POLICY_CHANGED` from `set_installation_download_policy`, which milestone 3 surfaces |
+| `grant.default_expiry` | `DEFAULT_EXPIRY_CHANGED` | `apply_room_default_expiry` |
+| `audit.retention` | `RETENTION_CHANGED` | `apply_audit_retention` |
+| `room.purge` | `PURGE_SCHEDULED`, `PURGE_CANCELLED` | `schedule_room_purge`, `cancel_room_purge`; the worker later writes `ROOM_PURGED` under the same event type from `finalize_room_purge`, with `actor_kind='system'` |
+| `participant.counterparty.create` | `COUNTERPARTY_CREATED` | `create_counterparty` |
+| `participant.counterparty.assign` | `COUNTERPARTY_ASSIGNED` | `assign_viewer_counterparty` |
+| `participant.counterparty.remove` | `COUNTERPARTY_REMOVED` | `remove_viewer_counterparty` |
+
+No detail field carries an email, a title, a token or an object key (§20.3).

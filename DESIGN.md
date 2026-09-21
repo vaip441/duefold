@@ -370,10 +370,14 @@ marker, a rotated 0.5rem square border used at narrow widths.
 - **Accessible primitives:** `@base-ui/react` provides the publication and
   safe-link dialogs plus the create-folder collapsible. It owns focus trapping and
   return, Escape/outside dismissal, semantic relationships, and exit presence;
-  Duefold supplies all styling and motion tokens. The responsive account disclosure
-  stays local because its arbitrary form children must exist exactly once in the DOM;
-  it provides the same Escape, outside-dismissal, focus-return, and exit behavior
-  without cloning labelled controls.
+  Duefold supplies all styling and motion tokens. Base UI also provides
+  `ConfirmationDialog` — one dialog for every reviewed, typed or single-press
+  confirmation in room administration, with the consequence stated before the field
+  that unlocks the action and Cancel taking initial focus — and `NewRoomDialog`,
+  which focuses its title field because nothing destructive sits behind its primary
+  action. The responsive account disclosure stays local because its arbitrary form
+  children must exist exactly once in the DOM; it provides the same Escape,
+  outside-dismissal, focus-return, and exit behavior without cloning labelled controls.
 
 ### Buttons
 

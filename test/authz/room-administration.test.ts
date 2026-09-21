@@ -464,3 +464,32 @@ describe('document revision in the working structure', () => {
     ).resolves.toBeDefined();
   });
 });
+
+/**
+ * §20.3 ACROSS EVERY EVENT THIS MILESTONE WRITES, not one suite's subset.
+ *
+ * `docs/room-administration-http-contract.md` states that no detail field carries an email, a
+ * title, a token or an object key. That is a compliance claim, so it is asserted over whatever
+ * the whole suite produced rather than trusted per function: a new event type added later is
+ * covered the moment any case exercises it.
+ */
+describe('audit detail carries no personal data', () => {
+  it('holds for every event room administration writes', async () => {
+    const rows = (
+      await migrationPool.query<{ event_type: string; detail: string | null }>(
+        `SELECT event_type, detail::text AS detail FROM audit_event
+          WHERE event_type IN ('room.create','room.state','download.policy','grant.default_expiry',
+                               'audit.retention','room.purge','participant.counterparty.create',
+                               'participant.counterparty.assign','participant.counterparty.remove')`,
+      )
+    ).rows;
+    /* Something must have been produced, or the sweep below proves nothing. */
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const detail = row.detail ?? '{}';
+      expect(detail, row.event_type).not.toMatch(/@/);
+      expect(detail, row.event_type).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+      expect(detail, row.event_type).not.toMatch(/s3:\/\/|deletion-markers|\/var\//);
+    }
+  });
+});
