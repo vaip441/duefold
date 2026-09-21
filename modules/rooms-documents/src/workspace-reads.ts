@@ -93,6 +93,8 @@ interface MemberRoomRow {
   readonly room_role: 'manager' | 'contributor' | null;
   readonly access_source: RoomAccessSource;
   readonly can_publish: boolean;
+  /** Whether further rooms remain, stated by the reader rather than inferred. */
+  readonly continues: boolean;
 }
 
 /**
@@ -151,10 +153,15 @@ export const MAX_ROOM_PAGE_LIMIT = 100;
  * which matters most where the register is used to decide staffing: a room list that was
  * silently short would make "Not staffed" read as an answer about rooms it never saw.
  *
- * The continuation probe reads ONE row beyond the page and returns at most `limit`. That
- * extra row is the proof a further page exists and is never shown; offering a cursor
- * whenever a page was merely full advertised another page for any collection whose size
- * is an exact multiple of the limit.
+ * The cursor and the limit are passed INTO `read_member_rooms` rather than wrapped
+ * around it. PostgreSQL does not inline a SECURITY DEFINER function, so an outer
+ * WHERE/LIMIT could not be pushed down: every page materialized the whole register and
+ * evaluated `member_can_mutate_room` twice per room, making a full walk quadratic. The
+ * reader now stops after at most `limit + 1` rows.
+ *
+ * That extra probe row is the reader's own business -- it proves a further page exists
+ * and is never returned -- because offering a cursor whenever a page was merely full
+ * advertised another page for any register whose size is an exact multiple of the limit.
  */
 export async function readMemberRooms(input: {
   readonly pool: Pool;
@@ -167,15 +174,10 @@ export async function readMemberRooms(input: {
     throw new Error('ROOM_PAGE_LIMIT_REJECTED');
   const after = input.after ?? null;
   const result = await input.pool.query<MemberRoomRow>(
-    `SELECT * FROM read_member_rooms($1) AS r
-      WHERE $2::text IS NULL OR (r.title, r.room_id) > ($2::text, $3::text)
-      ORDER BY r.title, r.room_id
-      LIMIT $4`,
-    [input.identity.id, after?.title ?? null, after?.roomId ?? null, limit + 1],
+    'SELECT * FROM read_member_rooms($1,$2,$3,$4)',
+    [input.identity.id, after?.title ?? null, after?.roomId ?? null, limit],
   );
-  const continues = result.rows.length > limit;
-  const page = continues ? result.rows.slice(0, limit) : result.rows;
-  const rooms = page.map((row) => ({
+  const rooms = result.rows.map((row) => ({
     roomId: row.room_id,
     title: row.title,
     description: row.description,
@@ -187,10 +189,10 @@ export async function readMemberRooms(input: {
     ...roomAccess(row),
     canPublish: row.can_publish,
   }));
-  const last = page.at(-1);
+  const last = result.rows.at(-1);
   return {
     rooms,
-    ...(continues && last !== undefined
+    ...(last?.continues === true
       ? { nextCursor: { title: last.title, roomId: last.room_id } }
       : {}),
   };

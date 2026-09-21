@@ -19,56 +19,13 @@ import {
 } from '../administration.ts';
 import { protectedErrorResponses } from './error-envelope.ts';
 
-/**
- * Organization administration actions.
- *
- * The route is `audience: 'member'` and contains no role branch: every function
- * it calls authorizes the actor in PostgreSQL and audits itself in the same
- * transaction (§15.1, invariant 4). A check here would be advisory and could drift
- * from the authoritative one, and a denial assembled here could not stay uniform.
- *
- * Ownership transfer is the high-consequence action (§9.4): `transfer-dry-run`
- * issues a server-recorded preview, and `transfer-apply` must present that
- * preview's id. The function consumes it once and refuses without it, so a client
- * that skipped the preview is refused by evidence rather than by a guess about a
- * constant phrase. Freshness is judged from the session-bound authentication
- * instant inside the same function.
- *
- * The preview also NAMES the successor's assignments the promotion will revoke, and
- * apply is bound to that exact set: the preview records a digest of it and
- * `transfer_ownership` re-checks the digest under the target's row lock. A privilege
- * revocation the Owner was never shown is not something a confirmation phrase can
- * consent to.
- *
- * `transfer-apply` succeeds on a session the same transaction revoked, because
- * `member_privilege_session_revoke` ends the outgoing Owner's sessions. The
- * response says so explicitly, so the client can present a completed transfer
- * rather than reading the next request's 401 as a failure.
- *
- * Room assignment takes a batch for one member rather than a room, because
- * `room_assignment_privilege_session_revoke` revokes all of that member's sessions
- * on every row change; one transaction is one sign-out. The response carries the
- * member's complete resulting assignment set, so the surface never has to infer
- * access from a count.
- */
 const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
 const ROLE = Type.Union([Type.Literal('admin'), Type.Literal('member')]);
 const ROOM_ROLE = Type.Union([Type.Literal('manager'), Type.Literal('contributor')]);
 const REVISION = Type.Integer({ minimum: 1 });
 const CONFIRMATION = Type.String({ minLength: 1, maxLength: 200 });
 const NO_EXTRAS = { additionalProperties: false } as const;
-/** One batch per member; the same bound `apply_room_assignments` enforces. */
 const MAX_BATCH_ENTRIES = 100;
-/**
- * Rooms the ownership preview NAMES, as opposed to counts.
- *
- * The count is exact and unbounded-in-value but bounded by
- * `MAX_MEMBER_ASSIGNMENTS`; the named list also carries titles, so it is capped
- * lower and `revokedAssignmentsTruncated` states when the cap applied. A list that
- * ran short without saying so would understate a privilege revocation the Owner is
- * being asked to approve. The member list carries any one member's complete set, so
- * the remainder is reachable there.
- */
 const MAX_PREVIEW_ROOMS = 100;
 
 const ASSIGNMENT = Type.Object({ roomId: ID, roomRole: ROOM_ROLE }, NO_EXTRAS);
@@ -107,8 +64,6 @@ export const schema = {
       {
         action: Type.Literal('transfer-apply'),
         memberId: ID,
-        /* The preview the dry run issued. Required, so apply cannot proceed on the
-         * publicly documented phrase alone. */
         previewId: ID,
         expectedRevision: REVISION,
         confirmation: CONFIRMATION,
@@ -119,6 +74,18 @@ export const schema = {
       {
         action: Type.Literal('assign-rooms'),
         memberId: ID,
+        /*
+         * `maxItems` bounds EACH array, but `apply_room_assignments` bounds their SUM, so
+         * these two numbers cannot both be the batch limit. With both at 100, a 60-assign
+         * and 60-revoke batch passed the schema and was then refused by SQL as too large:
+         * a 400 the client could have been told about before sending, and a bound the
+         * route appeared to enforce while enforcing something else.
+         *
+         * Each array is bounded by the whole batch limit, because either may legitimately
+         * use all of it. The sum stays the authoritative rule and stays in SQL, where the
+         * function that acts on the batch can enforce it; this schema only refuses the
+         * arrays that could not satisfy it under any split.
+         */
         assign: Type.Array(ASSIGNMENT, { maxItems: MAX_BATCH_ENTRIES }),
         revoke: Type.Array(ID, { maxItems: MAX_BATCH_ENTRIES }),
       },
@@ -127,12 +94,6 @@ export const schema = {
   ]),
   response: {
     200: Type.Union([
-      /*
-       * Each outcome is its own exact shape rather than one object of optional
-       * fields, so a client cannot read a response that omitted the part it
-       * depends on as though the server had answered it. Every field a caller
-       * acts on is REQUIRED here.
-       */
       Type.Object({ memberId: ID, revision: REVISION }, NO_EXTRAS),
       Type.Object(
         {
@@ -143,13 +104,6 @@ export const schema = {
               confirmation: Type.String({ minLength: 1, maxLength: 200 }),
               message: Type.String({ minLength: 1 }),
               expectedRevision: REVISION,
-              /* The privilege loss the promotion causes. §4.2 gives the Owner
-               * standing Room Manager authority everywhere, so the successor's
-               * explicit assignments are superseded; a preview that described only
-               * the role change asked the Owner to approve a revocation it never
-               * mentioned. REQUIRED, all three: an absent count would read as "no
-               * rooms affected", and an omitted truncation flag would let a short
-               * list read as the whole impact. */
               revokedAssignmentCount: Type.Integer({
                 minimum: 0,
                 maximum: MAX_MEMBER_ASSIGNMENTS,
@@ -158,9 +112,6 @@ export const schema = {
                 Type.Object(
                   {
                     roomId: ID,
-                    /* Disclosed because this preview is Owner-only and the Owner
-                     * already holds Room Manager authority in every room, so no room
-                     * named here is one they could not open. */
                     roomTitle: Type.String({ minLength: 1, maxLength: 200 }),
                     roomRole: ROOM_ROLE,
                   },
@@ -183,11 +134,6 @@ export const schema = {
         {
           memberId: ID,
           changed: Type.Integer({ minimum: 0 }),
-          /* The member's complete resulting active set. Bounded, because
-           * "complete" is only honest if it cannot grow without limit: rooms have no
-           * installation cap, so apply_room_assignments refuses a batch that would
-           * take one member past MAX_MEMBER_ASSIGNMENTS rather than returning a
-           * truncated set the surface would read as complete. */
           assignments: Type.Array(ASSIGNMENT, { maxItems: MAX_MEMBER_ASSIGNMENTS }),
         },
         NO_EXTRAS,
@@ -319,9 +265,6 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
           previewId: body.previewId,
           confirmation: body.confirmation,
         });
-        /* The transfer revoked this session inside its own transaction. Saying so
-         * here is the difference between a completed high-consequence change and
-         * an unexplained sign-out on the next request. */
         return { transferred: true, sessionEnded: true };
       }
       case 'assign-rooms':
@@ -333,7 +276,6 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
           revoke: body.revoke,
         });
       default: {
-        /* Exhaustive: a new action cannot fall through to a permissive default. */
         const exhaustive: never = body;
         return exhaustive;
       }

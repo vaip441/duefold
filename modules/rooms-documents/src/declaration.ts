@@ -228,6 +228,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '010_exports', file: '010_exports.sql' },
     { id: '011_retention_lifecycle', file: '011_retention_lifecycle.sql' },
     { id: '014_member_state_readers', file: '014_member_state_readers.sql' },
+    { id: '020_room_register_paging', file: '020_room_register_paging.sql' },
   ],
   jobs: [
     {

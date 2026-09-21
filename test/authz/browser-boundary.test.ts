@@ -127,10 +127,17 @@ describe('session bootstrap', () => {
       headers: { cookie: `${SESSION_COOKIE}=${issued.secret}` },
     });
     expect(response.statusCode).toBe(200);
-    // Exactly two fields: nothing that identifies the person or their access.
+    /*
+     * Exactly three fields, and still nothing that identifies the person: the kind of
+     * principal, and whether THIS caller may administer members, which the frame needs
+     * to decide whether to offer that destination at all. Not the global role, not an
+     * identifier, not anyone else's access. The seeded member is the Owner, so the
+     * capability is true.
+     */
     expect(JSON.parse(response.body)).toStrictEqual({
       authenticated: true,
       principal: 'member',
+      mayAdministerOrganization: true,
     });
     await instance.close();
   });
@@ -148,9 +155,12 @@ describe('session bootstrap', () => {
       url: '/api/auth/session',
       headers: { cookie: `${SESSION_COOKIE}=${issued.secret}` },
     });
+    /* A viewer is never a member, so the member capability is false without the
+       question ever being asked of the member table. */
     expect(JSON.parse(response.body)).toStrictEqual({
       authenticated: true,
       principal: 'viewer',
+      mayAdministerOrganization: false,
     });
     await instance.close();
   });

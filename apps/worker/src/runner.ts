@@ -5,6 +5,7 @@ import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { RequiredMailDeliveryDependencies } from '../../../modules/core-security/src/jobs/required-mail-delivery.ts';
 import type { MemberInvitationMailDependencies } from '../../../modules/core-security/src/jobs/member-invitation-mail.ts';
 import type { OtpDeliveryDependencies } from '../../../modules/core-security/src/jobs/otp-delivery.ts';
+import type { OwnershipPreviewPurgeDependencies } from '../../../modules/core-security/src/jobs/ownership-preview-purge.ts';
 import type { SourceValidationDependencies } from '../../../modules/rooms-documents/src/jobs/source-validation.ts';
 import type { RetentionSweepDependencies } from '../../../modules/rooms-documents/src/jobs/retention-sweep.ts';
 import type { DerivativeCleanupDependencies } from '../../../modules/rooms-documents/src/jobs/derivative-cleanup.ts';
@@ -41,7 +42,8 @@ export type JobHandler = (job: LeasedJob, context: JobContext) => Promise<void>;
 export interface JobHandlerDependencies {
   readonly coreSecurity: OtpDeliveryDependencies &
     RequiredMailDeliveryDependencies &
-    MemberInvitationMailDependencies;
+    MemberInvitationMailDependencies &
+    OwnershipPreviewPurgeDependencies;
   readonly roomsDocuments: SourceValidationDependencies &
     MultipartReapDependencies &
     RetentionSweepDependencies &
@@ -58,7 +60,8 @@ type JobHandlerFactory = (
   dependencies:
     | (OtpDeliveryDependencies &
         RequiredMailDeliveryDependencies &
-        MemberInvitationMailDependencies)
+        MemberInvitationMailDependencies &
+        OwnershipPreviewPurgeDependencies)
     | (SourceValidationDependencies &
         MultipartReapDependencies &
         RetentionSweepDependencies &

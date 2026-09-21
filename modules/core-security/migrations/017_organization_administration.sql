@@ -1,8 +1,31 @@
 -- Duefold organization administration. This migration is immutable after application.
 --
--- Member invitations carry the role granted at acceptance. Invitation creation,
--- revocation, and the mail projection remain behind narrow SECURITY DEFINER
--- boundaries so the web and worker roles do not gain direct identity access.
+-- The operating organization's own people: invitations that carry the role granted at
+-- acceptance, role and state administration, room assignments, and ownership transfer.
+--
+-- Every mutation here is a SECURITY DEFINER function that authorizes the actor itself
+-- and writes its audit row in the SAME transaction (invariant 14, §15.1). The
+-- application roles keep SELECT at most on the tables involved, so there is no path
+-- from the web or worker process to a role, a state, a room privilege, or an
+-- invitation's intended role except through these functions. A check in TypeScript
+-- would be advisory and could drift from the authoritative one.
+--
+-- Read the three cross-cutting rules once here rather than at each function:
+--
+-- 1. REFUSALS ARE SQLSTATEs. 42501 forbidden, 22023 invalid argument, 23505 duplicate,
+--    40001 stale revision. `failure-mapping.ts` turns each into its designed status and
+--    forwards NONE of the database's wording, so a refusal cannot be used to discover
+--    whether a member, address, or room exists. Only the 'fresh OIDC required' marker
+--    survives, because a re-authentication prompt is a different instruction from a
+--    denial and the client must not guess which it received.
+-- 2. A NO-OP IS REFUSED, NOT SILENTLY ACCEPTED. An audit row is evidence that something
+--    changed, so a request that changes nothing raises 22023 rather than writing one.
+-- 3. SESSIONS ARE REVOKED BY 001'S TRIGGERS, NOT HERE.
+--    `member_privilege_session_revoke` already revokes every active session of a member
+--    whose global_role or state changed, and `room_assignment_privilege_session_revoke`
+--    fires on every room_assignment row change. A second revocation written here would
+--    be a parallel rule free to drift from the kernel's.
+
 ALTER TABLE invitation
   ADD COLUMN intended_global_role text,
   ADD COLUMN invited_by text REFERENCES member(id);
@@ -20,13 +43,6 @@ ALTER TABLE invitation
     (kind = 'viewer' AND intended_global_role IS NULL)
   );
 
--- 001 declared UNIQUE (kind, email_key, state), which also limits an address to a
--- single terminal row. That made the invitation lifecycle a one-shot: after one
--- invite/revoke cycle a second revocation of the same address failed on the
--- unique constraint, leaving an invitation that could be created but never
--- withdrawn. The live-state halves of that constraint are restated as partial
--- unique indexes so terminal history accumulates while at most one pending and
--- one accepted invitation per kind and address remain enforced, unchanged.
 ALTER TABLE invitation DROP CONSTRAINT invitation_kind_email_key_state_key;
 CREATE UNIQUE INDEX one_pending_invitation
   ON invitation (kind, email_key)
@@ -35,46 +51,15 @@ CREATE UNIQUE INDEX one_accepted_invitation
   ON invitation (kind, email_key)
   WHERE state = 'accepted';
 
--- An address must not be re-invitable while a member already holds it, and a
--- revoked room assignment must remain on record. 001's UNIQUE (room_id, member_id)
--- spanned every state, so the only way to re-staff a member was to delete the
--- revoked row -- destroying the terminal history the design requires to stay
--- reconstructable. The uniqueness that actually matters is "at most one ACTIVE
--- assignment per room and member", so it is restated as a partial unique index and
--- revoked rows accumulate beside it.
 ALTER TABLE room_assignment DROP CONSTRAINT room_assignment_room_id_member_id_key;
 CREATE UNIQUE INDEX one_active_room_assignment
   ON room_assignment (room_id, member_id)
   WHERE state = 'active';
--- Every reader added here answers "what does THIS member hold", which 001's
--- (room_id, member_id) order cannot serve without scanning the table.
 CREATE INDEX active_room_assignment_member
   ON room_assignment (member_id)
   WHERE state = 'active';
--- Every reader that resolves a room role must now say which state it means.
--- read_member_rooms joined room_assignment without filtering state, so a member
--- whose assignment had been revoked was still listed with that role and
--- access_source='assignment'. That was already wrong before this migration -- a
--- revoked Manager kept a Manager badge -- and with terminal rows now accumulating
--- it would compound. member_can_mutate_room decides reachability; this reader only
--- explains it, so the join is corrected to the active row.
-CREATE OR REPLACE FUNCTION read_member_rooms(p_actor_id text)
-RETURNS TABLE(room_id text,title text,description text,state text,revision integer,
-  working_revision integer,published_revision integer,room_role text,access_source text,
-  can_publish boolean)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
-  SELECT r.id,r.title,r.description,r.state,r.revision,r.working_revision,r.published_revision,
-    a.room_role,
-    CASE WHEN a.room_role IS NOT NULL THEN 'assignment' ELSE 'global_role' END,
-    member_can_mutate_room(p_actor_id,r.id,true)
-  FROM room r
-  LEFT JOIN room_assignment a
-    ON a.room_id=r.id AND a.member_id=p_actor_id AND a.state='active'
-  WHERE member_can_mutate_room(p_actor_id,r.id,false)
-  ORDER BY r.title,r.id
-$$;
-ALTER FUNCTION read_member_rooms(text) OWNER TO duefold_migration;
 
+-- The Owner/Admin gate every mutation below calls first.
 CREATE FUNCTION assert_organization_administrator(p_actor_id text) RETURNS void
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
 BEGIN
@@ -89,15 +74,8 @@ BEGIN
   END IF;
 END $$;
 
--- Terminalizing an invitation makes its queued onboarding mail obsolete. Without
--- this the job stays pending, the lease-gated projection correctly returns no
--- row, and the handler would retry to a terminal failed job -- reporting a
--- required-mail failure for mail that must deliberately never be sent.
---
--- Only a still-pending job is withdrawn. A job already leased to a worker is
--- left alone because deleting a running row would strip the fencing evidence the
--- worker re-checks; that worker instead observes the terminal invitation through
--- the projection and completes as an intentional no-op.
+-- Withdrawing a pending invitation must also stop its mail, or a revoked invitation
+-- still delivers a working link.
 CREATE FUNCTION cancel_member_invitation_mail(p_invitation_id text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 BEGIN
@@ -107,6 +85,11 @@ BEGIN
     AND state = 'pending';
 END $$;
 
+-- Inviting an internal member.
+--
+-- The invitation carries the role granted at acceptance, so the decision is audited when
+-- it is MADE rather than inferred at first sign-in. Set-based: every validation runs
+-- before any write.
 CREATE FUNCTION invite_member(
   p_id text,
   p_email_key text,
@@ -126,28 +109,15 @@ BEGIN
   IF p_intended_role IS NULL OR p_intended_role NOT IN ('admin', 'member') THEN
     RAISE EXCEPTION 'invalid intended role' USING ERRCODE = '22023';
   END IF;
-  -- The key authorizes acceptance and the display value receives the required
-  -- onboarding mail, so they must name the same address. Validating only the
-  -- display length would let an invitation admit one address while its mail is
-  -- delivered to another. Derived with the same expression canonical_email_key
-  -- asserts, so there is one normalization contract rather than two.
   IF p_email_key IS NULL OR NOT canonical_email_key(p_email_key)
      OR p_email_display IS NULL OR length(p_email_display) NOT BETWEEN 3 AND 320
      OR normalize(lower(btrim(p_email_display)), NFC) <> p_email_key
      OR p_email_display <> normalize(btrim(p_email_display), NFC) THEN
     RAISE EXCEPTION 'invalid invitation email' USING ERRCODE = '22023';
   END IF;
-  -- A disabled identity is re-enabled through member administration; accepting a
-  -- second identity with the same email would fail the member uniqueness boundary.
   IF EXISTS (SELECT 1 FROM member WHERE email_key = p_email_key) THEN
     RAISE EXCEPTION 'member already exists' USING ERRCODE = '23505';
   END IF;
-  -- A pending invitation past its expiry is already invisible to read_members and
-  -- so cannot be withdrawn from the surface. Left pending it would block the
-  -- address permanently, so it is closed here before a fresh invitation is issued.
-  -- Expiry is a terminal invitation lifecycle state, so it carries its own audit
-  -- event naming the affected invitation; the replacement's invitation.created
-  -- row identifies only the new invitation and cannot stand in for it (§15.1).
   UPDATE invitation
   SET state = 'expired'
   WHERE kind = 'member'
@@ -157,25 +127,25 @@ BEGIN
   RETURNING id INTO lapsed_id;
   IF lapsed_id IS NOT NULL THEN
     INSERT INTO audit_event (
-      id, event_type, actor_kind, actor_id, resource_type, resource_id,
+      id, event_type, actor_kind, resource_type, resource_id,
       result, reason_code, correlation_id, detail
     ) VALUES (
-      replace(gen_random_uuid()::text, '-', ''), 'invitation.expired', 'member', p_actor_id,
+      replace(gen_random_uuid()::text, '-', ''), 'invitation.expired', 'system',
       'invitation', lapsed_id, 'success', 'MEMBER_INVITATION_EXPIRED', p_correlation_id,
-      jsonb_build_object('supersededBy', p_id)
+      jsonb_build_object(
+        'supersededBy', p_id,
+        'noticedBy', p_actor_id,
+        'occurredBefore', statement_timestamp()
+      )
     );
     PERFORM cancel_member_invitation_mail(lapsed_id);
   END IF;
-  -- Stated explicitly rather than left to one_pending_invitation so an Admin
-  -- inviting an already-invited address is refused by this boundary; the index
-  -- remains the backstop for two concurrent invitations of the same address.
   IF EXISTS (
     SELECT 1 FROM invitation
     WHERE kind = 'member' AND email_key = p_email_key AND state = 'pending'
   ) THEN
     RAISE EXCEPTION 'member invitation already pending' USING ERRCODE = '23505';
   END IF;
-
   INSERT INTO invitation (
     id, kind, email_key, email_display, state, expires_at,
     intended_global_role, invited_by
@@ -199,6 +169,7 @@ BEGIN
   );
   RETURN expiry;
 END $$;
+
 
 CREATE FUNCTION revoke_member_invitation(
   p_invitation_id text,
@@ -227,52 +198,172 @@ BEGIN
   );
 END $$;
 
--- Invited people have no member row until OIDC acceptance, so this projection
--- explicitly distinguishes pending invitations from provisioned members.
+-- Provisioning: the two paths that create a member row.
 --
--- Members and pending invitations are both growing collections, so the reader is
--- keyset-paged rather than a full projection (§23: no unbounded query, keyset
--- pagination for growing collections). The cursor is (created_at, subject_id)
--- descending, which is total: created_at alone is not unique, and paging on it
--- alone would skip or repeat rows sharing an instant.
+-- Both live in SQL because `duefold_authenticator` holds SELECT alone on `member` (see
+-- the grants at the end of this file). An authenticator credential able to INSERT a
+-- member could write global_role='admin' directly and bypass the invitation's audited
+-- intended role entirely -- an escalation available to the one credential an
+-- unauthenticated OIDC callback uses.
+CREATE FUNCTION accept_member_invitation(
+  p_member_id text,
+  p_email_key text,
+  p_email_display text,
+  p_oidc_issuer text,
+  p_oidc_subject text,
+  p_correlation_id text,
+  p_accept_audit_id text,
+  p_member_audit_id text
+) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE
+  invitation_id text;
+  intended_role text;
+BEGIN
+  IF NOT canonical_email_key(p_email_key) THEN
+    RAISE EXCEPTION 'invalid acceptance email' USING ERRCODE = '22023';
+  END IF;
+  SELECT id, intended_global_role INTO invitation_id, intended_role
+  FROM invitation
+  WHERE kind = 'member' AND email_key = p_email_key AND state = 'pending'
+    AND expires_at > transaction_timestamp()
+  FOR UPDATE;
+  IF invitation_id IS NULL THEN RETURN NULL; END IF;
+  IF intended_role NOT IN ('admin', 'member') THEN
+    RAISE EXCEPTION 'invitation names an unassignable role' USING ERRCODE = '22023';
+  END IF;
+  INSERT INTO member (
+    id, email_key, email_display, oidc_issuer, oidc_subject, global_role, state
+  ) VALUES (
+    p_member_id, p_email_key, p_email_display, p_oidc_issuer, p_oidc_subject,
+    intended_role, 'active'
+  );
+  UPDATE invitation SET state = 'accepted' WHERE id = invitation_id;
+  INSERT INTO audit_event (
+    id, event_type, actor_kind, actor_id, subject_id, resource_type, resource_id,
+    result, reason_code, correlation_id, detail
+  ) VALUES (
+    p_accept_audit_id, 'invitation.accepted', 'member', p_member_id, p_member_id,
+    'invitation', invitation_id, 'success', 'MEMBER_INVITATION_ACCEPTED',
+    p_correlation_id, jsonb_build_object('intendedRole', intended_role)
+  );
+  INSERT INTO audit_event (
+    id, event_type, actor_kind, actor_id, subject_id, resource_type, resource_id,
+    result, reason_code, correlation_id, detail
+  ) VALUES (
+    p_member_audit_id, 'member.created', 'member', p_member_id, p_member_id,
+    'member', p_member_id, 'success', 'MEMBER_INVITATION_ACCEPTED', p_correlation_id,
+    jsonb_build_object('invitationId', invitation_id, 'globalRole', intended_role)
+  );
+  RETURN p_member_id;
+END $$;
+
+
+CREATE FUNCTION claim_first_owner(
+  p_organization_id text,
+  p_organization_name text,
+  p_member_id text,
+  p_email_key text,
+  p_email_display text,
+  p_oidc_issuer text,
+  p_oidc_subject text,
+  p_correlation_id text,
+  p_audit_id text
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+BEGIN
+  IF NOT canonical_email_key(p_email_key) THEN
+    RAISE EXCEPTION 'invalid bootstrap email' USING ERRCODE = '22023';
+  END IF;
+  LOCK TABLE organization, member IN EXCLUSIVE MODE;
+  IF EXISTS (SELECT 1 FROM member WHERE global_role = 'owner' AND state = 'active') THEN
+    RAISE EXCEPTION 'owner already exists' USING ERRCODE = '23505';
+  END IF;
+  INSERT INTO organization (id, name) VALUES (p_organization_id, p_organization_name);
+  INSERT INTO member (
+    id, email_key, email_display, oidc_issuer, oidc_subject, global_role, state
+  ) VALUES (
+    p_member_id, p_email_key, p_email_display, p_oidc_issuer, p_oidc_subject,
+    'owner', 'active'
+  );
+  INSERT INTO audit_event (
+    id, event_type, actor_kind, actor_id, subject_id, result, reason_code, correlation_id
+  ) VALUES (
+    p_audit_id, 'auth.oidc', 'member', p_member_id, p_member_id, 'success',
+    'FIRST_OWNER_BOOTSTRAP', p_correlation_id
+  );
+END $$;
+
+-- What THIS actor may do to ONE subject, decided in SQL.
 --
--- `cursor_created_at` is the exact textual timestamp and is what a caller must echo.
--- timestamptz holds microseconds while several client languages -- including this
--- project's -- carry only milliseconds, so a caller that round-tripped the display
--- value would send back a truncated instant. Truncation moves the cursor EARLIER
--- than the row it came from, and in descending order that silently skips every row
--- tied at that microsecond. Emitting the exact text keeps paging lossless without
--- asking the client to hold a precision it does not have.
+-- The surface renders controls from this rather than inferring them from the subject's
+-- role, because the rule is not "is a plain Member": each mutation also refuses
+-- self-administration, the Owner, and a disabled target, and only PostgreSQL holds all
+-- of those conditions at once. A surface that inferred them offered controls the server
+-- then refused with a uniform 403 that could explain nothing.
 --
--- EVERY SUBJECT THIS RETURNS CARRIES ITS COMPLETE ACTIVE ASSIGNMENT SET.
+-- This is NOT the authorization. Every mutation authorizes itself again; these flags only
+-- keep the surface from offering an action that cannot succeed.
+CREATE FUNCTION member_subject_capabilities(p_actor_id text, p_subject_id text)
+RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+  SELECT jsonb_build_object(
+    'setRole', actor.is_administrator
+      AND NOT actor.is_self AND subject.exists AND NOT subject.is_owner,
+    'setState', actor.is_administrator
+      AND NOT actor.is_self AND subject.exists AND NOT subject.is_owner,
+    'assignRooms', actor.is_administrator
+      AND NOT actor.is_self AND subject.is_assignable_member,
+    'transfer', actor.is_owner
+      AND NOT actor.is_self AND subject.exists AND NOT subject.is_owner
+      AND subject.is_active
+  )
+  FROM (
+    SELECT
+      EXISTS (
+        SELECT 1 FROM member
+        WHERE id = p_actor_id AND state = 'active' AND global_role IN ('owner', 'admin')
+      ) AS is_administrator,
+      EXISTS (
+        SELECT 1 FROM member
+        WHERE id = p_actor_id AND state = 'active' AND global_role = 'owner'
+      ) AS is_owner,
+      p_actor_id = p_subject_id AS is_self
+  ) actor,
+  (
+    SELECT
+      count(*) > 0 AS exists,
+      coalesce(bool_or(m.global_role = 'owner'), false) AS is_owner,
+      coalesce(bool_or(m.state = 'active'), false) AS is_active,
+      coalesce(
+        bool_or(m.global_role = 'member' AND m.state = 'active'), false
+      ) AS is_assignable_member
+    FROM member m WHERE m.id = p_subject_id
+  ) subject
+$$;
+
+-- Whether this actor may administer members at all, for the frame deciding whether to
+-- offer the Members view. Offering the tab to everyone and rendering a denied state gave
+-- a plain Member a destination that could only ever refuse them.
+CREATE FUNCTION may_administer_organization(p_actor_id text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM member
+    WHERE id = p_actor_id AND state = 'active' AND global_role IN ('owner', 'admin')
+  )
+$$;
+
+-- The member list: one bounded keyset page of members and pending invitations.
 --
--- Assignments used to be a second, separately paged projection, and a page that hit
--- the assignment bound reported one truthful-but-useless flag: "something on this
--- page is incomplete". A surface could not tell WHICH member's room list was short,
--- and a short room list reads as the member's whole access -- a false access claim --
--- with no bounded route to recover the rest. So the bound moved off the assignment
--- set and onto the SUBJECT PAGE: rooms are a growing collection with no installation
--- cap (§23), so this returns the longest PREFIX of the page whose members' complete
--- assignment sets fit the row budget, and the ordinary keyset cursor reaches the
--- remainder. A page may therefore be shorter than p_limit and still continue, which
--- is why `continues` is reported rather than inferred from the row count.
+-- Members, invitations and assignments all grow, so §23 requires a bounded reader rather
+-- than a full projection, and the bound is enforced HERE because the route is not the
+-- authority.
 --
--- Both the work and the result stay bounded. The budget probe reads at most
--- budget + 1 assignment rows in total -- not per member -- and is used only to locate
--- the first subject the page cannot afford; the arrays themselves are then aggregated
--- for the admitted prefix alone.
---
--- The first subject is always admitted, so a page is never empty while subjects
--- remain and the walk always progresses. That stays bounded because
--- apply_room_assignments caps ONE member at 500 active assignments, which is the
--- budget, so one subject's complete set always fits. A member somehow holding more is
--- still returned complete rather than truncated, and the route's own per-subject
--- bound then rejects the response as a fault instead of rendering a partial set as
--- whole.
---
--- One statement, so the subjects and their assignments come from ONE snapshot. Two
--- readers could not promise that: a batch committing between them produced a page
--- whose room lists belonged to a different instant than its members.
+-- EVERY SUBJECT CARRIES ITS COMPLETE ASSIGNMENT SET. The page is bounded by returning
+-- fewer SUBJECTS, never by shortening one subject's rooms: a short room list reads as
+-- that member's whole access, which would be a false statement about who can reach what.
+-- A page can therefore be shorter than the limit and still continue, so `continues` is
+-- the only completeness signal.
 CREATE FUNCTION read_members(
   p_actor_id text,
   p_after_created_at timestamptz,
@@ -289,21 +380,14 @@ RETURNS TABLE(
   created_at timestamptz,
   cursor_created_at text,
   assignments jsonb,
+  capabilities jsonb,
   continues boolean
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
 DECLARE
-  -- Assignment rows one page may carry across every subject on it. Equal to the
-  -- per-member cap apply_room_assignments enforces, which is what makes "always
-  -- admit the first subject" a bounded promise rather than an escape hatch.
   budget constant integer := 500;
 BEGIN
   PERFORM assert_organization_administrator(p_actor_id);
-  -- The client-visible bound, enforced here because the route is not the authority.
-  -- The extra CONTINUATION PROBE row is this function's own business: emitting a
-  -- cursor merely because a page was full advertised another page for a collection
-  -- whose size is an exact multiple of the limit, so the probe proves continuation
-  -- and is never returned.
   IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 100 THEN
     RAISE EXCEPTION 'invalid member page size' USING ERRCODE = '22023';
   END IF;
@@ -344,9 +428,6 @@ BEGIN
       ORDER BY s.created_at DESC, s.subject_id DESC
       LIMIT p_limit + 1
     ),
-    -- One row past the budget, in page order. An invitation contributes nothing
-    -- because an invited person has no member row until acceptance, so there is no
-    -- assignment that could belong to them.
     probe AS (
       SELECT c.ordinal
       FROM candidates c
@@ -356,11 +437,6 @@ BEGIN
       ORDER BY c.ordinal, a.room_id
       LIMIT budget + 1
     ),
-    -- The first subject the page cannot afford: the one owning the overflowing row.
-    -- Absent when the whole page fits, because HAVING drops the group. Never 1,
-    -- because the leading subject is always admitted so the walk cannot stall; that
-    -- clamp is reachable only for a member holding more than the per-member cap,
-    -- which the route then refuses as a fault rather than rendering short.
     cut AS (
       SELECT greatest(max(p.ordinal), 2) AS first_excluded
       FROM probe p
@@ -385,9 +461,13 @@ BEGIN
              FROM room_assignment held
              WHERE held.member_id = a.subject_id AND held.state = 'active'
            ) END,
-           -- Stated, not inferred: a page cut short by the assignment budget is
-           -- shorter than p_limit and still continues, so a client that guessed from
-           -- the row count would stop early and call a partial list complete.
+           CASE WHEN a.subject_kind <> 'member'
+             THEN jsonb_build_object(
+               'setRole', false, 'setState', false,
+               'assignRooms', false, 'transfer', false
+             )
+             ELSE member_subject_capabilities(p_actor_id, a.subject_id)
+           END,
            EXISTS (
              SELECT 1 FROM candidates rest
              WHERE rest.ordinal > (SELECT max(kept.ordinal) FROM admitted kept)
@@ -396,15 +476,7 @@ BEGIN
     ORDER BY a.ordinal;
 END $$;
 
--- A worker may learn an invitee address only while it holds the exact live job
--- lease. The address never appears in the job payload or telemetry.
---
--- The lease fence and the invitation's deliverability are reported separately so
--- the handler can tell two different situations apart: a worker without the live
--- lease gets no row at all and must fail, while a worker holding the lease for an
--- invitation that has since been revoked or expired gets a row with a null
--- address and completes as an intentional no-op instead of retrying to a
--- terminal failed job.
+
 CREATE FUNCTION read_member_invitation_mail(
   p_invitation_id text,
   p_job_id text,
@@ -428,42 +500,10 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
     AND j.lease_expires_at > statement_timestamp()
 $$;
 
--- Member administration. Neither function can reach the Owner: ownership moves
--- only through transfer_ownership, so one audited path owns the single-owner
--- invariant and no role or state edit can approach it from the side.
---
--- Neither function lets an actor administer themselves. A self-demotion or
--- self-disable destroys the acting session mid-request through
--- member_privilege_session_revoke and silently reduces the installation's
--- administration capacity; the Owner is always available to do it instead, so the
--- capability is not lost, only the accident.
---
--- Both take the target's expected revision and lock the row before deciding, so
--- two administrators acting at the same instant cannot both write. A request that
--- would change nothing is refused rather than recorded: an audit row reading
--- "admin to admin" is evidence of a change that never happened, and the revision
--- bump would invalidate every other client's view for no reason.
--- Promotion out of 'member' supersedes that member's explicit room assignments.
---
--- §4.2 gives Owners and Admins Room Manager authority in every room, and only
--- Members receive explicit assignments -- which is exactly what
--- apply_room_assignments enforces on its target. Leaving the rows behind broke that
--- rule from the other direction: the member list advertised a narrower
--- 'contributor' row on someone who actually held standing Manager rights, and a
--- later demotion made those stale rows authorization-effective again with no
--- room.assignment mutation and no audit row naming the change.
---
--- Revoking is chosen over refusing the promotion. Refusing would make routine
--- administration a two-step dance whose first step is unrelated to the
--- administrator's intent, and the rows carry no authority the promotion does not
--- already grant, so removing them takes nothing away. The effect is recorded as its
--- own room.assignment event because a privilege set changed and §15.1 requires the
--- spine to name it; the caller's member.role or ownership.transferred row shares the
--- correlation id, so the two read as one action.
---
--- The caller holds the target's member row lock, so the assignment set cannot move
--- under this. Revocation sets state and never deletes, matching
--- apply_room_assignments, so the terminal history stays reconstructable.
+-- Promotion out of 'member' supersedes explicit assignments, which an Admin or Owner no
+-- longer needs. Demotion does NOT restore them: that would grant room access as a side
+-- effect of a request naming no room (invariant 7, allow-only grants). The audit row
+-- names every revoked room, so the set is recoverable as an intentional batch.
 CREATE FUNCTION supersede_room_assignments_for_role(
   p_member_id text,
   p_actor_id text,
@@ -494,6 +534,7 @@ BEGIN
   );
 END $$;
 
+
 CREATE FUNCTION set_member_global_role(
   p_target_id text,
   p_role text,
@@ -517,8 +558,6 @@ BEGIN
   END IF;
   SELECT global_role, revision INTO previous_role, target_revision
   FROM member WHERE id = p_target_id FOR UPDATE;
-  -- An absent member and the Owner share one refusal so a denial cannot be used
-  -- to discover which member ids exist.
   IF previous_role IS NULL OR previous_role = 'owner' THEN
     RAISE EXCEPTION 'target is not role-assignable' USING ERRCODE = '42501';
   END IF;
@@ -529,23 +568,13 @@ BEGIN
     RAISE EXCEPTION 'member already holds that role' USING ERRCODE = '22023';
   END IF;
   UPDATE member SET global_role = p_role, revision = revision + 1
-  WHERE id = p_target_id AND revision = p_expected_revision
+  WHERE id = p_target_id
   RETURNING revision INTO next_revision;
-  IF next_revision IS NULL THEN
-    RAISE EXCEPTION 'stale member revision' USING ERRCODE = '40001';
-  END IF;
-  -- Promotion out of 'member' supersedes explicit assignments; see the helper. A
-  -- demotion to 'member' is the reverse direction and grants nothing, so it leaves
-  -- the (already empty) active set alone.
   IF p_role <> 'member' THEN
     PERFORM supersede_room_assignments_for_role(
       p_target_id, p_actor_id, p_role, p_correlation_id
     );
   END IF;
-  -- Sessions are not revoked here. member_privilege_session_revoke in 001 already
-  -- revokes every active session of a member whose global_role or state changed,
-  -- and it is the one place that decides it; a second revocation written here
-  -- would be a parallel rule that could drift from the kernel's.
   INSERT INTO audit_event (
     id, event_type, actor_kind, actor_id, subject_id, resource_type, resource_id,
     result, reason_code, correlation_id, detail
@@ -556,6 +585,7 @@ BEGIN
   );
   RETURN next_revision;
 END $$;
+
 
 CREATE FUNCTION set_member_state(
   p_target_id text,
@@ -584,9 +614,6 @@ BEGIN
   IF target_role IS NULL THEN
     RAISE EXCEPTION 'member not found' USING ERRCODE = '42501';
   END IF;
-  -- Disabling the Owner would leave the installation with no active Owner and
-  -- surface as a deferred constraint-trigger violation at COMMIT, which no
-  -- surface can explain. Refused here with a reason the UI can state.
   IF target_role = 'owner' THEN
     RAISE EXCEPTION 'the Owner cannot be disabled; transfer ownership first'
       USING ERRCODE = '42501';
@@ -598,11 +625,8 @@ BEGIN
     RAISE EXCEPTION 'member already in that state' USING ERRCODE = '22023';
   END IF;
   UPDATE member SET state = p_state, revision = revision + 1
-  WHERE id = p_target_id AND revision = p_expected_revision
+  WHERE id = p_target_id
   RETURNING revision INTO next_revision;
-  IF next_revision IS NULL THEN
-    RAISE EXCEPTION 'stale member revision' USING ERRCODE = '40001';
-  END IF;
   INSERT INTO audit_event (
     id, event_type, actor_kind, actor_id, subject_id, resource_type, resource_id,
     result, reason_code, correlation_id, detail
@@ -614,35 +638,27 @@ BEGIN
   RETURN next_revision;
 END $$;
 
--- Ownership transfer is gated on a server-issued preview, not on a string.
+-- Ownership transfer: a two-step, typed, audited change of the single Owner.
 --
--- The confirmation phrase is constant and publicly documented, so comparing a
--- caller's input against it proved only that the caller could read the docs: a
--- client could post 'TRANSFER OWNERSHIP' having never requested a preview, and
--- §9.4's dry-run requirement was decorative. The typed phrase remains -- it is the
--- deliberate human gate -- but apply now additionally consumes a one-time record
--- that only the dry run can create, bound to the actor, the target, and the
--- target's revision at preview time.
+-- The preview row is EVIDENCE, not a copy of what was shown. It holds no personal data:
+-- the rendered impact -- the successor's email display and the title of every room whose
+-- assignment would be revoked -- is returned to the caller and never stored. Keeping it
+-- here would have retained a named person's address and their room access indefinitely,
+-- for every preview an Owner ever opened, including the ones they abandoned.
 --
--- Rows are retained after consumption rather than deleted, so the evidence that a
--- preview preceded a transfer survives alongside the audit row.
+-- `target_assignment_digest` is what makes the approval binding without retaining the
+-- list. `member.revision` does not move when a `room_assignment` row changes, so the
+-- revision alone cannot notice that the successor was staffed into or out of a room
+-- between the preview and the apply: the Owner would approve one set and a different set
+-- would be revoked, with no refusal. The digest is recomputed under the target's row lock
+-- before the demotion, and a mismatch is 40001.
 CREATE TABLE ownership_transfer_preview (
   id text PRIMARY KEY CHECK (id ~ '^[A-Za-z0-9_-]{32}$'),
   actor_id text NOT NULL REFERENCES member(id),
   target_id text NOT NULL REFERENCES member(id),
   target_revision integer NOT NULL CHECK (target_revision > 0),
-  /*
-   * The successor's active assignment set at preview time, as a digest.
-   *
-   * member.revision does not move when a room_assignment row changes, so the
-   * revision alone could not notice that the successor was staffed into or out of a
-   * room between the preview and the apply. The Owner was shown "these rooms will be
-   * revoked" and the transfer then revoked a different set with no refusal.
-   * Recomputed under the target's row lock before the demotion; a mismatch is stale.
-   */
   target_assignment_digest char(64) NOT NULL
     CHECK (target_assignment_digest ~ '^[a-f0-9]{64}$'),
-  impact jsonb NOT NULL CHECK (jsonb_typeof(impact) = 'object'),
   created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
@@ -650,28 +666,17 @@ CREATE TABLE ownership_transfer_preview (
   CHECK (consumed_at IS NULL OR consumed_at >= created_at)
 );
 COMMENT ON TABLE ownership_transfer_preview IS
-  'One-time server-issued evidence that the required ownership dry run occurred, bound to actor, target, and target revision.';
+  'One-time server-issued evidence that the required ownership dry run occurred, bound to actor, target, and target revision. Holds no personal data: the rendered impact is returned to the caller and not stored.';
 CREATE INDEX ownership_transfer_preview_actor ON ownership_transfer_preview (actor_id, created_at);
 
--- The successor's active assignment set, as the ownership preview describes it and
--- as the apply re-checks it. One function so the two cannot compute it differently.
---
--- `digest` is over stable row identity and state -- assignment id, room, and role, in
--- room order -- so it changes when the set does and not otherwise. member.revision
--- does not move when a room_assignment row changes, so the revision the preview
--- already carried could not notice a successor being staffed into or out of a room
--- between preview and apply. Without this the Owner approved "these rooms will be
--- revoked" and the transfer silently revoked a different set.
---
--- `rooms` is bounded and `total` is exact. apply_room_assignments caps one member at
--- 500 active assignments, so the count cannot run away; the disclosed list is capped
--- lower because it also carries titles, and `truncated` says so rather than letting a
--- short list read as the whole impact. The member list returns any one subject's
--- COMPLETE set, so the remainder is reachable there rather than lost.
---
--- Titles are disclosed because this is Owner-only and §4.2 gives the Owner Room
--- Manager authority in every room, so no room here is one the caller could not
--- already open. Nothing beyond room identity and title is included.
+-- A constant, so the client can display the exact phrase the server will compare
+-- against instead of holding its own copy that could drift.
+CREATE FUNCTION ownership_transfer_confirmation() RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=public,pg_temp AS $$
+  SELECT 'TRANSFER OWNERSHIP'::text
+$$;
+
+
 CREATE FUNCTION member_assignment_impact(p_member_id text)
 RETURNS TABLE(digest text, total integer, rooms jsonb, truncated boolean)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
@@ -711,39 +716,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
     (SELECT count(*) FROM held) > (SELECT count(*) FROM disclosed)
 $$;
 
--- Issues the preview and records it, deriving everything it discloses and everything
--- apply will later re-check from ONE snapshot taken under the target's row lock.
---
--- THE LOCK AND THE SINGLE SNAPSHOT ARE THE POINT. This used to read the disclosed
--- assignment list in one statement, the target's revision in a second, and the stored
--- digest in a third, with no lock spanning them. Under READ COMMITTED each statement
--- takes its own snapshot, so apply_room_assignments could commit in between: the Owner
--- was shown set A while the preview stored a digest for set B. Apply then locked the
--- target, recomputed the digest, found B, matched the stored value, and proceeded to
--- revoke assignments that were never disclosed. The exact-set fence §9.4 requires was
--- defeated by the very evidence meant to enforce it, and no amount of checking at apply
--- time could detect it, because by then both halves of the preview looked consistent.
---
--- The target's member row is the serialization point every assignment mutation already
--- takes: apply_room_assignments locks it before validating or writing anything, and
--- supersede_room_assignments_for_role runs under the caller's lock on it. Holding it
--- here therefore means no assignment of this member can change while the preview is
--- derived. member_assignment_impact is then called ONCE, so the disclosed rooms, the
--- exact count, the truncation flag, and the digest all come from that single statement's
--- snapshot and cannot describe different states.
---
--- ONLY THE TARGET IS LOCKED. The actor's Owner check stays an unlocked read because
--- transfer_ownership locks actor-then-target, and a dry run that also locked the actor
--- after the target would invert that order and could deadlock. The actor check here is
--- advisory in any case -- apply re-decides Owner authority under its own lock -- so the
--- narrower lock is both safer and sufficient.
---
--- ownership_transfer_impact used to hold the formatting half of this and was STABLE,
--- which is exactly why it could not take the lock. Folding it in leaves one function
--- that cannot be split back apart into two snapshots; it had no other caller.
---
--- The window matches the fresh-OIDC window, so a preview cannot outlive the
--- authentication that would be required to apply it.
+
 CREATE FUNCTION dry_run_ownership_transfer(
   p_preview_id text,
   p_target_id text,
@@ -756,7 +729,6 @@ DECLARE
   target_state text;
   target_revision integer;
   assignments record;
-  impact jsonb;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM member
@@ -764,47 +736,35 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'ownership transfer is Owner-only' USING ERRCODE = '42501';
   END IF;
-  -- The lock first, then every fact the preview rests on, all under it.
+  IF p_target_id = p_actor_id THEN
+    RAISE EXCEPTION 'target cannot receive ownership' USING ERRCODE = '42501';
+  END IF;
   SELECT email_display, global_role, state, revision
     INTO target_display, target_role, target_state, target_revision
   FROM member WHERE id = p_target_id FOR UPDATE;
-  -- An absent member and an ineligible one share one refusal, so a denial cannot be
-  -- used to discover which member ids exist.
   IF target_display IS NULL OR target_state <> 'active' OR target_role = 'owner' THEN
     RAISE EXCEPTION 'target cannot receive ownership' USING ERRCODE = '42501';
   END IF;
-  -- Promotion to Owner supersedes the successor's explicit assignments (§4.2), so the
-  -- dry run must NAME that consequence. A preview that described only the role change
-  -- asked the Owner to approve a privilege revocation it never mentioned.
-  --
-  -- ONE call, ONE snapshot: the rooms the Owner reads and the digest apply re-checks
-  -- are the same assignment state by construction rather than by coincidence.
   SELECT * INTO assignments FROM member_assignment_impact(p_target_id);
-  impact := jsonb_build_object(
+  INSERT INTO ownership_transfer_preview (
+    id, actor_id, target_id, target_revision, target_assignment_digest, expires_at
+  ) VALUES (
+    p_preview_id, p_actor_id, p_target_id, target_revision, assignments.digest,
+    statement_timestamp() + interval '15 minutes'
+  );
+  RETURN jsonb_build_object(
+    'previewId', p_preview_id,
+    'expectedRevision', target_revision,
     'targetEmailDisplay', target_display,
-    'confirmation', 'TRANSFER OWNERSHIP',
+    'confirmation', ownership_transfer_confirmation(),
     'message', 'You become an Admin, the named member becomes Owner, and both of you are signed out of every device because privileges changed.',
     'revokedAssignmentCount', assignments.total,
     'revokedAssignments', assignments.rooms,
     'revokedAssignmentsTruncated', assignments.truncated
   );
-  INSERT INTO ownership_transfer_preview (
-    id, actor_id, target_id, target_revision, target_assignment_digest, impact, expires_at
-  ) VALUES (
-    p_preview_id, p_actor_id, p_target_id, target_revision, assignments.digest, impact,
-    statement_timestamp() + interval '15 minutes'
-  );
-  RETURN impact || jsonb_build_object(
-    'previewId', p_preview_id,
-    'expectedRevision', target_revision
-  );
 END $$;
 
--- Ownership is a high-consequence change (§9.4): fresh OIDC, a dry run naming the
--- impact, typed confirmation, the target's expected revision, and mutation plus
--- audit in one transaction. Freshness is decided here rather than in the route,
--- because a route-side check is advisory and this one is authoritative; the
--- authentication instant is session-bound evidence the caller cannot forge.
+
 CREATE FUNCTION transfer_ownership(
   p_target_id text,
   p_actor_id text,
@@ -824,17 +784,22 @@ DECLARE
   current_assignment_digest text;
   promoted integer;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM member
+    WHERE id = p_actor_id AND state = 'active' AND global_role = 'owner'
+  ) THEN
+    RAISE EXCEPTION 'ownership transfer is Owner-only' USING ERRCODE = '42501';
+  END IF;
   IF p_oidc_authenticated_at IS NULL
      OR p_oidc_authenticated_at > statement_timestamp()
      OR p_oidc_authenticated_at <= statement_timestamp() - interval '15 minutes' THEN
     RAISE EXCEPTION 'fresh OIDC required' USING ERRCODE = '42501';
   END IF;
-  -- The preview is consumed under its own lock, so two applies cannot both spend
-  -- one preview even if they arrive together.
+  IF p_confirmation IS DISTINCT FROM ownership_transfer_confirmation() THEN
+    RAISE EXCEPTION 'typed confirmation mismatch' USING ERRCODE = '22023';
+  END IF;
   SELECT * INTO preview FROM ownership_transfer_preview
   WHERE id = p_preview_id FOR UPDATE;
-  -- An absent, foreign, already-spent, or lapsed preview is one refusal: a caller
-  -- that never previewed learns nothing about which preview ids exist.
   IF preview.id IS NULL
      OR preview.actor_id <> p_actor_id
      OR preview.target_id <> p_target_id
@@ -842,21 +807,11 @@ BEGIN
      OR preview.expires_at <= statement_timestamp() THEN
     RAISE EXCEPTION 'ownership preview required' USING ERRCODE = '42501';
   END IF;
-  -- The preview named the revision it described. A target that changed since then
-  -- means the Owner agreed to an impact that no longer holds.
   IF preview.target_revision <> p_expected_revision THEN
     RAISE EXCEPTION 'stale member revision' USING ERRCODE = '40001';
   END IF;
-  -- Compared against the phrase the SERVER stored in this preview, not against a
-  -- literal recomputed here.
-  IF p_confirmation IS DISTINCT FROM preview.impact->>'confirmation' THEN
-    RAISE EXCEPTION 'typed confirmation mismatch' USING ERRCODE = '22023';
-  END IF;
   UPDATE ownership_transfer_preview SET consumed_at = statement_timestamp()
   WHERE id = p_preview_id;
-  -- Both rows are locked, outgoing Owner first and successor second, so every
-  -- caller takes them in one order and two transfers cannot deadlock. The dry run
-  -- read them unlocked, so each condition is re-decided under the lock.
   PERFORM 1 FROM member
   WHERE id = p_actor_id AND state = 'active' AND global_role = 'owner' FOR UPDATE;
   IF NOT FOUND THEN
@@ -870,78 +825,56 @@ BEGIN
   IF target_revision <> p_expected_revision THEN
     RAISE EXCEPTION 'stale member revision' USING ERRCODE = '40001';
   END IF;
-  -- The assignment set the Owner approved revoking, re-checked under the lock that
-  -- now holds it still. member.revision does not move when a room_assignment row
-  -- changes, so the revision check above cannot see this: without it, a concurrent
-  -- assign-rooms between preview and apply meant the transfer revoked a set the
-  -- Owner never saw. Reported as a conflict, so the Owner previews again and
-  -- approves the impact that actually holds.
   SELECT digest INTO current_assignment_digest FROM member_assignment_impact(p_target_id);
   IF current_assignment_digest <> preview.target_assignment_digest THEN
     RAISE EXCEPTION 'stale successor assignments' USING ERRCODE = '40001';
   END IF;
-  /* ORDER IS LOAD-BEARING. one_active_owner is a PARTIAL UNIQUE INDEX, which
-   * cannot be deferred and is checked immediately, so two active owners may not
-   * coexist even for a single statement. exactly_one_owner_after_member is
-   * DEFERRABLE INITIALLY DEFERRED and is checked at COMMIT, so zero owners in
-   * between is legal. Demote, then promote. The reverse order raises 23505. */
+  -- ORDER IS LOAD-BEARING. one_active_owner is a PARTIAL UNIQUE INDEX, which cannot be
+  -- deferred and is checked immediately, so two active owners may not coexist even for a
+  -- single statement. exactly_one_owner_after_member is DEFERRABLE INITIALLY DEFERRED and
+  -- is checked at COMMIT, so zero owners in between is legal. Demote, then promote; the
+  -- reverse order raises 23505.
+  --
+  -- Neither UPDATE carries a guard. The actor's row was locked and re-checked above, and
+  -- the target's row was locked and its revision compared, so no other transaction can
+  -- change either between those checks and here -- which is what the locks are for. A
+  -- guard that cannot fire is not defence in depth; it is a claim that the lock is
+  -- insufficient, and the next reader has to work out which is true.
   UPDATE member SET global_role = 'admin', revision = revision + 1
-  WHERE id = p_actor_id AND state = 'active' AND global_role = 'owner';
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'outgoing owner changed concurrently' USING ERRCODE = '40001';
-  END IF;
+  WHERE id = p_actor_id;
   UPDATE member SET global_role = 'owner', revision = revision + 1
-  WHERE id = p_target_id AND state = 'active' AND revision = p_expected_revision
+  WHERE id = p_target_id
   RETURNING revision INTO promoted;
-  IF promoted IS NULL THEN
-    RAISE EXCEPTION 'stale member revision' USING ERRCODE = '40001';
-  END IF;
-  -- The successor becomes Owner, so any explicit assignment they held is superseded
-  -- by the standing Room Manager authority ownership carries (§4.2). Same helper and
-  -- same reasoning as set_member_global_role; the outgoing Owner is demoted to admin,
-  -- which is still an administrator, so they gain no assignment either.
   PERFORM supersede_room_assignments_for_role(
     p_target_id, p_actor_id, 'owner', p_correlation_id
   );
-  -- The detail names roles and revisions only. The target's address is in the dry
-  -- run the Owner read, never in the spine (§20.3).
   INSERT INTO audit_event (
     id, event_type, actor_kind, actor_id, subject_id, resource_type, resource_id,
     result, reason_code, correlation_id, detail
   ) VALUES (
     p_audit_id, 'ownership.transferred', 'member', p_actor_id, p_target_id, 'member',
     p_target_id, 'success', 'OWNERSHIP_TRANSFERRED', p_correlation_id,
-    jsonb_build_object(
-      'previousTargetRole', target_role,
-      'outgoingOwnerRole', 'admin',
-      'revision', promoted
-    )
+    jsonb_build_object('previewId', p_preview_id, 'revision', promoted)
   );
 END $$;
 
--- One call per member carrying every assignment and revocation for that member,
--- not one call per room. room_assignment_privilege_session_revoke fires on every
--- insert, update and delete of a room_assignment row and revokes all of that
--- member's active sessions, so staffing someone across four rooms as four calls
--- signs them out four times. One transaction is one revocation.
---
--- The TARGET MEMBER ROW is the serialization point, taken before anything is
--- decided. Locking only each room_assignment row left two batches naming
--- different rooms with no common lock: both could commit, and each returned a
--- "complete resulting set" that omitted the other's rows, so the surface could
--- show access that was already stale. The same lock closes a second race -- a
--- concurrent disable or role change passing an unlocked eligibility check and
--- leaving assignments on a member who is no longer eligible for them.
---
--- Re-staffing INSERTS a new active row and never deletes the revoked one.
--- one_active_room_assignment (above) makes only the active pair unique, so
--- terminal history accumulates and remains reconstructable. enforce_state_transition
--- still permits only active -> revoked, so a revoked privilege is never resurrected
--- by an UPDATE either.
---
--- The whole batch is validated before anything is written, so a malformed entry
--- cannot leave a half-applied change or an audit row describing work that was
--- rolled back.
+-- Consumed and lapsed previews are removed rather than retained: a preview is one-time
+-- evidence, and a consumed row is spent. Worker-only, and scheduled by the
+-- `ownership.preview.purge` job seeded below.
+CREATE FUNCTION purge_ownership_transfer_previews() RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE removed integer;
+BEGIN
+  WITH gone AS (
+    DELETE FROM ownership_transfer_preview
+    WHERE consumed_at IS NOT NULL OR expires_at <= statement_timestamp()
+    RETURNING 1
+  )
+  SELECT count(*) INTO removed FROM gone;
+  RETURN removed;
+END $$;
+
+
 CREATE FUNCTION apply_room_assignments(
   p_member_id text,
   p_assign jsonb,
@@ -952,17 +885,12 @@ CREATE FUNCTION apply_room_assignments(
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 DECLARE
-  entry jsonb;
-  room_key text;
-  role_name text;
-  assign_rooms text[] := '{}';
-  assign_roles text[] := '{}';
-  revoke_rooms text[] := '{}';
   target_role text;
   target_state text;
-  existing_role text;
-  changed integer := 0;
-  slot integer;
+  inserted integer;
+  updated integer;
+  revoked integer;
+  changed integer;
   resulting jsonb;
   resulting_count integer;
 BEGIN
@@ -971,119 +899,114 @@ BEGIN
      OR jsonb_typeof(p_assign) <> 'array' OR jsonb_typeof(p_revoke) <> 'array' THEN
     RAISE EXCEPTION 'assignment batch must be two arrays' USING ERRCODE = '22023';
   END IF;
-  -- A bound on one call keeps both the work and the audit detail finite. An
-  -- installation with more rooms than this staffs in more than one batch.
   IF jsonb_array_length(p_assign) + jsonb_array_length(p_revoke) > 100 THEN
     RAISE EXCEPTION 'assignment batch too large' USING ERRCODE = '22023';
   END IF;
-  -- Self-administration would revoke the acting administrator's own sessions
-  -- through room_assignment_privilege_session_revoke, ending the request's own
-  -- authorization as a side effect the response does not report.
   IF p_member_id = p_actor_id THEN
     RAISE EXCEPTION 'self room assignment forbidden' USING ERRCODE = '42501';
   END IF;
-  -- The lock, then the eligibility decision under it. Every batch for one member
-  -- serializes here, and a concurrent set_member_state or set_member_global_role
-  -- either completes before this read or waits behind it.
+
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assign) AS elements(value)
+    WHERE jsonb_typeof(value) <> 'object'
+       OR (SELECT count(*) FROM jsonb_object_keys(value)) <> 2
+       OR NOT (value ? 'roomId' AND value ? 'roomRole')
+  ) THEN
+    RAISE EXCEPTION 'invalid assignment entry' USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_to_recordset(p_assign) AS entry("roomId" text, "roomRole" text)
+    WHERE entry."roomId" IS NULL OR entry."roomId" !~ '^[A-Za-z0-9_-]{32}$'
+       OR entry."roomRole" IS NULL OR entry."roomRole" NOT IN ('manager', 'contributor')
+  ) THEN
+    RAISE EXCEPTION 'invalid assignment entry' USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_revoke) AS elements(value)
+    WHERE jsonb_typeof(value) <> 'string' OR (value #>> '{}') !~ '^[A-Za-z0-9_-]{32}$'
+  ) THEN
+    RAISE EXCEPTION 'invalid revocation entry' USING ERRCODE = '22023';
+  END IF;
+
+  IF (SELECT count(DISTINCT entry."roomId")
+      FROM jsonb_to_recordset(p_assign) AS entry("roomId" text, "roomRole" text))
+     <> jsonb_array_length(p_assign) THEN
+    RAISE EXCEPTION 'duplicate room in assignment batch' USING ERRCODE = '22023';
+  END IF;
+  IF (SELECT count(DISTINCT value #>> '{}')
+      FROM jsonb_array_elements(p_revoke) AS elements(value))
+     <> jsonb_array_length(p_revoke) THEN
+    RAISE EXCEPTION 'duplicate room in revocation batch' USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_to_recordset(p_assign) AS entry("roomId" text, "roomRole" text)
+    JOIN jsonb_array_elements(p_revoke) AS elements(value)
+      ON entry."roomId" = value #>> '{}'
+  ) THEN
+    RAISE EXCEPTION 'room both assigned and revoked' USING ERRCODE = '22023';
+  END IF;
+
   SELECT global_role, state INTO target_role, target_state
   FROM member WHERE id = p_member_id FOR UPDATE;
-  -- §4.2: Owners and Admins already hold Room Manager authority everywhere, and
-  -- only Members receive explicit assignments. An assignment row for an
-  -- administrator would claim to narrow authority it cannot narrow -- a
-  -- 'contributor' row beside standing Manager rights. An absent member is refused
-  -- identically so a denial cannot enumerate member ids.
   IF target_role IS NULL OR target_state <> 'active' OR target_role <> 'member' THEN
     RAISE EXCEPTION 'member not assignable' USING ERRCODE = '42501';
   END IF;
 
-  FOR entry IN SELECT value FROM jsonb_array_elements(p_revoke) AS elements(value) LOOP
-    IF jsonb_typeof(entry) <> 'string' OR (entry #>> '{}') !~ '^[A-Za-z0-9_-]{32}$' THEN
-      RAISE EXCEPTION 'invalid revocation entry' USING ERRCODE = '22023';
-    END IF;
-    room_key := entry #>> '{}';
-    IF room_key = ANY (revoke_rooms) THEN
-      RAISE EXCEPTION 'duplicate room in revocation batch' USING ERRCODE = '22023';
-    END IF;
-    revoke_rooms := revoke_rooms || room_key;
-  END LOOP;
+  IF EXISTS (
+    SELECT 1 FROM (
+      SELECT entry."roomId" AS room_id
+      FROM jsonb_to_recordset(p_assign) AS entry("roomId" text, "roomRole" text)
+      UNION
+      SELECT value #>> '{}' FROM jsonb_array_elements(p_revoke) AS elements(value)
+    ) wanted
+    WHERE NOT EXISTS (SELECT 1 FROM room WHERE room.id = wanted.room_id)
+  ) THEN
+    RAISE EXCEPTION 'room not found' USING ERRCODE = '42501';
+  END IF;
 
-  FOR entry IN SELECT value FROM jsonb_array_elements(p_assign) AS elements(value) LOOP
-    IF jsonb_typeof(entry) <> 'object'
-       OR (SELECT count(*) FROM jsonb_object_keys(entry)) <> 2 THEN
-      RAISE EXCEPTION 'invalid assignment entry' USING ERRCODE = '22023';
-    END IF;
-    room_key := entry->>'roomId';
-    role_name := entry->>'roomRole';
-    IF room_key IS NULL OR room_key !~ '^[A-Za-z0-9_-]{32}$'
-       OR role_name IS NULL OR role_name NOT IN ('manager', 'contributor') THEN
-      RAISE EXCEPTION 'invalid assignment entry' USING ERRCODE = '22023';
-    END IF;
-    -- Two entries for one room, or one room both assigned and revoked, state two
-    -- different intentions. Guessing which one wins is worse than refusing.
-    IF room_key = ANY (assign_rooms) THEN
-      RAISE EXCEPTION 'duplicate room in assignment batch' USING ERRCODE = '22023';
-    END IF;
-    IF room_key = ANY (revoke_rooms) THEN
-      RAISE EXCEPTION 'room both assigned and revoked' USING ERRCODE = '22023';
-    END IF;
-    assign_rooms := assign_rooms || room_key;
-    assign_roles := assign_roles || role_name;
-  END LOOP;
+  PERFORM 1 FROM room_assignment
+  WHERE member_id = p_member_id AND state = 'active'
+  ORDER BY room_id FOR UPDATE;
 
-  -- Every room in the batch, assigned or revoked, must exist. The revoke loop used
-  -- to UPDATE without checking, so an unknown room id was indistinguishable from a
-  -- valid unassigned one: changed=0, a success response, and a success audit row
-  -- naming work that could not have happened. An unknown room and an unreachable
-  -- one share the assignment path's denial, so neither can enumerate room ids.
-  FOR slot IN 1..coalesce(array_length(revoke_rooms, 1), 0) LOOP
-    IF NOT EXISTS (SELECT 1 FROM room WHERE id = revoke_rooms[slot]) THEN
-      RAISE EXCEPTION 'room not found' USING ERRCODE = '42501';
-    END IF;
-  END LOOP;
+  WITH fresh AS (
+    INSERT INTO room_assignment (id, room_id, member_id, room_role)
+    SELECT replace(gen_random_uuid()::text, '-', ''), b."roomId", p_member_id, b."roomRole"
+    FROM jsonb_to_recordset(p_assign) AS b("roomId" text, "roomRole" text)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM room_assignment held
+      WHERE held.room_id = b."roomId" AND held.member_id = p_member_id
+        AND held.state = 'active'
+    )
+    RETURNING 1
+  )
+  SELECT count(*) INTO inserted FROM fresh;
 
-  FOR slot IN 1..coalesce(array_length(assign_rooms, 1), 0) LOOP
-    room_key := assign_rooms[slot];
-    role_name := assign_roles[slot];
-    -- An unknown room and a room the actor may not see share one refusal, so the
-    -- response cannot be used to enumerate room ids.
-    IF NOT EXISTS (SELECT 1 FROM room WHERE id = room_key) THEN
-      RAISE EXCEPTION 'room not found' USING ERRCODE = '42501';
-    END IF;
-    SELECT room_role INTO existing_role
-    FROM room_assignment
-    WHERE room_id = room_key AND member_id = p_member_id AND state = 'active'
-    FOR UPDATE;
-    IF existing_role IS NULL THEN
-      -- No active row, whether or not revoked rows exist. A new active assignment
-      -- is inserted beside them; the revoked history is never deleted.
-      INSERT INTO room_assignment (id, room_id, member_id, room_role)
-      VALUES (replace(gen_random_uuid()::text, '-', ''), room_key, p_member_id, role_name);
-      changed := changed + 1;
-    ELSIF existing_role <> role_name THEN
-      UPDATE room_assignment SET room_role = role_name
-      WHERE room_id = room_key AND member_id = p_member_id AND state = 'active';
-      changed := changed + 1;
-    END IF;
-  END LOOP;
+  WITH rerole AS (
+    UPDATE room_assignment held
+    SET room_role = b."roomRole"
+    FROM jsonb_to_recordset(p_assign) AS b("roomId" text, "roomRole" text)
+    WHERE held.room_id = b."roomId" AND held.member_id = p_member_id
+      AND held.state = 'active' AND held.room_role <> b."roomRole"
+    RETURNING 1
+  )
+  SELECT count(*) INTO updated FROM rerole;
 
-  FOR slot IN 1..coalesce(array_length(revoke_rooms, 1), 0) LOOP
-    UPDATE room_assignment SET state = 'revoked'
-    WHERE member_id = p_member_id AND room_id = revoke_rooms[slot] AND state = 'active';
-    IF FOUND THEN changed := changed + 1; END IF;
-  END LOOP;
+  WITH withdrawn AS (
+    UPDATE room_assignment held
+    SET state = 'revoked'
+    FROM jsonb_array_elements(p_revoke) AS elements(value)
+    WHERE held.room_id = value #>> '{}' AND held.member_id = p_member_id
+      AND held.state = 'active'
+    RETURNING 1
+  )
+  SELECT count(*) INTO revoked FROM withdrawn;
 
-  -- The caller receives the member's complete resulting assignment set, not a
-  -- count it would have to interpret. A surface that had to infer the outcome
-  -- from a number could show access the server did not grant.
-  --
-  -- "Complete" is only an honest promise if it is also bounded, and rooms are a
-  -- growing collection with no installation cap (§23). Rather than silently
-  -- truncating the set the response claims is complete, one member's active
-  -- assignment total is capped: a batch that would carry them past it is refused
-  -- whole, and the transaction rolls back. 500 rooms for one person is already far
-  -- beyond plausible internal staffing, so the bound refuses runaway growth without
-  -- constraining real use. read_members carries the same number as its page budget,
-  -- which is what lets it promise a COMPLETE set for every subject it returns.
+  changed := inserted + updated + revoked;
+  IF changed = 0 THEN
+    RAISE EXCEPTION 'assignment batch changes nothing' USING ERRCODE = '22023';
+  END IF;
+
   SELECT
     coalesce(
       jsonb_agg(
@@ -1111,52 +1034,74 @@ BEGIN
     'memberId', p_member_id, 'changed', changed, 'assignments', resulting
   );
 END $$;
+-- The purge sweep, scheduled the way 010's export cleanup is: one seeded row, and the
+-- handler re-arms itself under its own lease. Without a scheduled caller the previews
+-- would accumulate and the claim that a consumed preview is removed would be false.
+INSERT INTO job_queue (id, job_type, idempotency_key, payload, available_at, max_attempts)
+VALUES (
+  replace(gen_random_uuid()::text, '-', ''), 'ownership.preview.purge',
+  'ownership-preview-purge:initial', '{}'::jsonb,
+  statement_timestamp() + interval '1 hour', 10
+);
 
--- Direct table authority that predates the audited boundaries above.
+-- TABLE PRIVILEGES.
 --
--- 001 granted duefold_runtime full DML on room_assignment and duefold_authenticator
--- full DML on room_assignment, invitation, and member. Those grants are why the
--- functions above could be bypassed entirely: the web credential could grant or
--- revoke a room privilege with no administrator check and no audit row, and the
--- authenticator credential could rewrite intended_global_role from 'member' to
--- 'admin' before acceptance, escalating an invitee without using the audited
--- invitation path. Either route defeats invariant 14, so the privileges are
--- narrowed here to exactly what each credential's remaining direct SQL needs.
+-- Narrowed from what 001 granted, so identity and room privilege are reachable only
+-- through the functions above. The escalation each revocation closes:
 --
--- 007 already revoked invitation from runtime and worker and re-granted the
--- authenticator SELECT and UPDATE(state). PostgreSQL grants are additive, so that
--- re-grant never removed 001's broader one; the broad grant is revoked first and
--- the narrow pair restated, which is the only order that actually narrows it.
+-- * `invitation` -- an application role able to write `intended_global_role` could turn a
+--   pending Member invitation into an Admin one before acceptance, and acceptance would
+--   audit the elevated role as though it had been authorized. `duefold_authenticator`
+--   keeps SELECT only: `accept_member_invitation` performs the acceptance write, so no
+--   credential needs UPDATE on the state column either.
+-- * `room_assignment` -- direct DML would create room access with no audit row and no
+--   session revocation, which is an unaudited grant.
+-- * `member` -- `duefold_runtime` and `duefold_worker` never wrote it. The authenticator
+--   did, for the first-owner bootstrap and OIDC acceptance; both now call a function, so
+--   it holds SELECT alone. CLI owner recovery runs on the migration role, not this one.
 REVOKE ALL ON invitation FROM duefold_runtime, duefold_authenticator, duefold_worker;
--- Acceptance reads the pending invitation and writes only its state
--- (modules/core-security/src/auth/oidc.ts). It has no reason to author an
--- invitation or to choose the role one carries.
 GRANT SELECT ON invitation TO duefold_authenticator;
-GRANT UPDATE (state) ON invitation TO duefold_authenticator;
 
--- Room privileges are now writable only through apply_room_assignments. Both
--- credentials keep SELECT because session authorization resolves a member's room
--- roles on every request (apps/web/src/authenticate.ts).
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON room_assignment
   FROM duefold_runtime, duefold_authenticator, duefold_worker;
 GRANT SELECT ON room_assignment TO duefold_runtime, duefold_authenticator;
 
--- member keeps its authenticator DML: first-owner bootstrap, OIDC acceptance, and
--- guarded CLI owner recovery all insert or update member rows on that credential
--- and each writes its audit row in the same transaction. The runtime credential
--- keeps SELECT only, as 001 left it, so role and state changes stay confined to
--- set_member_global_role, set_member_state, and transfer_ownership.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON member FROM duefold_runtime, duefold_worker;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON member
+  FROM duefold_runtime, duefold_worker, duefold_authenticator;
 
+ALTER TABLE ownership_transfer_preview OWNER TO duefold_migration;
+REVOKE ALL ON ownership_transfer_preview
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+
+-- FUNCTION PRIVILEGES.
+--
+-- Revoked from PUBLIC and from every application role first, then granted back to the one
+-- role that needs each. PostgreSQL grants EXECUTE to PUBLIC by default, so a function
+-- created without this is callable by every role in the installation regardless of what
+-- it checks inside.
 REVOKE ALL ON FUNCTION assert_organization_administrator(text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 REVOKE ALL ON FUNCTION cancel_member_invitation_mail(text)
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION supersede_room_assignments_for_role(text,text,text,text)
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION member_subject_capabilities(text,text)
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION ownership_transfer_confirmation()
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION member_assignment_impact(text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 REVOKE ALL ON FUNCTION invite_member(text,text,text,text,text,text,text,text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 REVOKE ALL ON FUNCTION revoke_member_invitation(text,text,text,text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION accept_member_invitation(text,text,text,text,text,text,text,text)
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION claim_first_owner(text,text,text,text,text,text,text,text,text)
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 REVOKE ALL ON FUNCTION read_members(text,timestamptz,text,integer)
+  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
+REVOKE ALL ON FUNCTION may_administer_organization(text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 REVOKE ALL ON FUNCTION read_member_invitation_mail(text,text,text,text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
@@ -1168,9 +1113,9 @@ REVOKE ALL ON FUNCTION dry_run_ownership_transfer(text,text,text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 REVOKE ALL ON FUNCTION transfer_ownership(text,text,integer,timestamptz,text,text,text,text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
-REVOKE ALL ON FUNCTION apply_room_assignments(text,jsonb,jsonb,text,text,text)
+REVOKE ALL ON FUNCTION purge_ownership_transfer_previews()
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
-REVOKE ALL ON FUNCTION member_assignment_impact(text)
+REVOKE ALL ON FUNCTION apply_room_assignments(text,jsonb,jsonb,text,text,text)
   FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
 
 GRANT EXECUTE ON FUNCTION invite_member(text,text,text,text,text,text,text,text)
@@ -1179,8 +1124,8 @@ GRANT EXECUTE ON FUNCTION revoke_member_invitation(text,text,text,text)
   TO duefold_runtime;
 GRANT EXECUTE ON FUNCTION read_members(text,timestamptz,text,integer)
   TO duefold_runtime;
-GRANT EXECUTE ON FUNCTION read_member_invitation_mail(text,text,text,text)
-  TO duefold_worker;
+GRANT EXECUTE ON FUNCTION may_administer_organization(text)
+  TO duefold_runtime;
 GRANT EXECUTE ON FUNCTION set_member_global_role(text,text,text,integer,text,text)
   TO duefold_runtime;
 GRANT EXECUTE ON FUNCTION set_member_state(text,text,text,integer,text,text)
@@ -1191,24 +1136,37 @@ GRANT EXECUTE ON FUNCTION transfer_ownership(text,text,integer,timestamptz,text,
   TO duefold_runtime;
 GRANT EXECUTE ON FUNCTION apply_room_assignments(text,jsonb,jsonb,text,text,text)
   TO duefold_runtime;
+-- The two provisioning paths belong to the OIDC callback, which runs on the
+-- authenticator credential before any session exists.
+GRANT EXECUTE ON FUNCTION accept_member_invitation(text,text,text,text,text,text,text,text)
+  TO duefold_authenticator;
+GRANT EXECUTE ON FUNCTION claim_first_owner(text,text,text,text,text,text,text,text,text)
+  TO duefold_authenticator;
+GRANT EXECUTE ON FUNCTION read_member_invitation_mail(text,text,text,text)
+  TO duefold_worker;
+GRANT EXECUTE ON FUNCTION purge_ownership_transfer_previews()
+  TO duefold_worker;
 
 ALTER FUNCTION assert_organization_administrator(text) OWNER TO duefold_migration;
 ALTER FUNCTION cancel_member_invitation_mail(text) OWNER TO duefold_migration;
+ALTER FUNCTION supersede_room_assignments_for_role(text,text,text,text)
+  OWNER TO duefold_migration;
+ALTER FUNCTION member_subject_capabilities(text,text) OWNER TO duefold_migration;
+ALTER FUNCTION ownership_transfer_confirmation() OWNER TO duefold_migration;
+ALTER FUNCTION member_assignment_impact(text) OWNER TO duefold_migration;
 ALTER FUNCTION invite_member(text,text,text,text,text,text,text,text) OWNER TO duefold_migration;
 ALTER FUNCTION revoke_member_invitation(text,text,text,text) OWNER TO duefold_migration;
+ALTER FUNCTION accept_member_invitation(text,text,text,text,text,text,text,text)
+  OWNER TO duefold_migration;
+ALTER FUNCTION claim_first_owner(text,text,text,text,text,text,text,text,text)
+  OWNER TO duefold_migration;
 ALTER FUNCTION read_members(text,timestamptz,text,integer) OWNER TO duefold_migration;
+ALTER FUNCTION may_administer_organization(text) OWNER TO duefold_migration;
 ALTER FUNCTION read_member_invitation_mail(text,text,text,text) OWNER TO duefold_migration;
 ALTER FUNCTION set_member_global_role(text,text,text,integer,text,text) OWNER TO duefold_migration;
 ALTER FUNCTION set_member_state(text,text,text,integer,text,text) OWNER TO duefold_migration;
 ALTER FUNCTION dry_run_ownership_transfer(text,text,text) OWNER TO duefold_migration;
 ALTER FUNCTION transfer_ownership(text,text,integer,timestamptz,text,text,text,text)
   OWNER TO duefold_migration;
+ALTER FUNCTION purge_ownership_transfer_previews() OWNER TO duefold_migration;
 ALTER FUNCTION apply_room_assignments(text,jsonb,jsonb,text,text,text) OWNER TO duefold_migration;
-ALTER FUNCTION member_assignment_impact(text) OWNER TO duefold_migration;
-REVOKE ALL ON FUNCTION supersede_room_assignments_for_role(text,text,text,text)
-  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;
-ALTER FUNCTION supersede_room_assignments_for_role(text,text,text,text)
-  OWNER TO duefold_migration;
-ALTER TABLE ownership_transfer_preview OWNER TO duefold_migration;
-REVOKE ALL ON ownership_transfer_preview
-  FROM PUBLIC,duefold_runtime,duefold_worker,duefold_authenticator;

@@ -55,6 +55,18 @@ describe('failure classification', () => {
       body: { code: 'CONFLICT' },
     });
     expect(classifyFailure(pgError('55000', 'audit is append-only'))?.status).toBe(409);
+    /* An already-invited or already-provisioned address. `invite_member` raises this
+       deliberately, and while it was unmapped the Admin received a 500 for a refusal the
+       surface should state plainly. */
+    expect(
+      classifyFailure(pgError('23505', 'member invitation already pending')),
+    ).toMatchObject({
+      status: 409,
+      body: {
+        code: 'CONFLICT',
+        message: 'The resource changed before this request completed. Reload and try again.',
+      },
+    });
     // A Fastify schema rejection is a request problem, not a fault.
     expect(
       classifyFailure(Object.assign(new Error('bad'), { validation: [{}], statusCode: 400 }))

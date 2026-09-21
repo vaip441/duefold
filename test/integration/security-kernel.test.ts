@@ -304,6 +304,50 @@ describe('security migration and role boundaries', () => {
 });
 
 describe('OIDC member invitation acceptance', () => {
+  it('leaves the authenticator credential unable to author a member at all', async () => {
+    /*
+     * THE ESCALATION 017 CLAIMED TO HAVE CLOSED, AND HAD NOT.
+     *
+     * 017 narrowed invitation and room_assignment but left duefold_authenticator full
+     * DML on member, while the role a new member received was chosen in TypeScript.
+     * The credential serving the OIDC callback could therefore insert an Admin -- or
+     * an Owner -- with no invitation behind it and no audit row, which is exactly what
+     * invariant 14 forbids. 019 moved both provisioning paths into SECURITY DEFINER
+     * functions and revoked the grant, so the guarantee is enforced rather than
+     * described.
+     */
+    for (const statement of [
+      "INSERT INTO member (id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state) VALUES ('x','escalated@example.test','escalated@example.test','https://issuer.example','x','admin','active')",
+      "UPDATE member SET global_role = 'owner' WHERE id = $1",
+      'DELETE FROM member',
+    ])
+      await expect(
+        authPool.query(statement, [ownerId].slice(0, statement.includes('$1') ? 1 : 0)),
+      ).rejects.toMatchObject({ code: '42501' });
+    /* SELECT remains: session authorization resolves the principal's role on every
+       request. */
+    await expect(authPool.query('SELECT id FROM member LIMIT 1')).resolves.toBeDefined();
+  });
+
+  it('cannot even hold an invitation naming a role no invitation may name', async () => {
+    /*
+     * Ownership moves only through transfer_ownership, so an invitation promising
+     * 'owner' would advertise an arrival that cannot happen. A CHECK constraint makes
+     * the row unrepresentable, which is why accept_member_invitation's matching refusal
+     * is unreachable defence in depth rather than the primary guard -- asserted here so
+     * that relaxing the constraint fails loudly instead of silently promoting the
+     * function's check to load-bearing.
+     */
+    await expect(
+      migrationPool.query(
+        `INSERT INTO invitation (id,kind,email_key,email_display,state,expires_at,intended_global_role)
+         VALUES ($1,'member','impossible@example.test','impossible@example.test','pending',
+                 transaction_timestamp() + interval '1 day','owner')`,
+        [createOpaqueId()],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
   it('accepts an Admin invitation with its intended role and fully identified audit evidence', async () => {
     const invitationId = createOpaqueId();
     await runtimePool.query('SELECT invite_member($1,$2,$3,$4,$5,$6,$7,$8)', [
@@ -766,7 +810,10 @@ describe('sessions and immediate principal invalidation', () => {
       'CREATE TRIGGER fail_recovery_audit BEFORE INSERT ON audit_event FOR EACH ROW EXECUTE FUNCTION fail_recovery_audit_insert()',
     );
     try {
-      await expect(recoverOwner(authPool, 'recovery@example.com')).rejects.toThrow(
+      /* The migration credential, which is what the guarded CLI actually uses: 019
+         revoked member DML from the authenticator, so recovery could not run there
+         and this case was asserting a rollback on a pool that cannot write at all. */
+      await expect(recoverOwner(migrationPool, 'recovery@example.com')).rejects.toThrow(
         'injected audit failure',
       );
       expect(
@@ -967,8 +1014,12 @@ describe('concurrent identity constraints and first-owner audit rollback', () =>
   });
 
   it('lets one of two independent conflicting identity inserts commit', async () => {
-    const first = await authPool.connect();
-    const second = await authPool.connect();
+    /* Seeded with schema authority: 019 revoked member DML from every application
+       credential, so a member row is now authored only by accept_member_invitation,
+       claim_first_owner, or a fixture like this one. The UNIQUE constraint under test
+       is unchanged by who writes it. */
+    const first = await migrationPool.connect();
+    const second = await migrationPool.connect();
     try {
       await first.query('BEGIN');
       await second.query('BEGIN');

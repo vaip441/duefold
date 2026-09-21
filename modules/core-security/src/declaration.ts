@@ -134,6 +134,12 @@ export const moduleDeclaration: ModuleDeclaration = {
       handlerFactoryExport: 'createHandler',
       service: 'worker',
     },
+    {
+      id: 'ownership.preview.purge',
+      handler: 'jobs/ownership-preview-purge.ts',
+      handlerFactoryExport: 'createHandler',
+      service: 'worker',
+    },
   ],
   config: [
     {

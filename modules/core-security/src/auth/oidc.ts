@@ -270,7 +270,15 @@ export function bootstrapEligible(
   return allowed.has(identity.emailKey);
 }
 
-/** Atomically creates the installation and first verified Owner; it never domain-provisions. */
+/**
+ * Atomically creates the installation and first verified Owner; it never
+ * domain-provisions.
+ *
+ * The allowlist decision stays here, because the allowlist is deployment
+ * configuration rather than database state. Every WRITE is inside
+ * `claim_first_owner`, which holds the lock, refuses a second Owner, and audits
+ * itself -- so this credential needs no INSERT on `member` (invariant 14).
+ */
 export async function claimFirstOwner(input: {
   readonly pool: Pool;
   readonly identity: VerifiedOidcIdentity;
@@ -280,121 +288,71 @@ export async function claimFirstOwner(input: {
 }): Promise<FirstOwnerClaim> {
   if (!bootstrapEligible(input.identity, input.allowlist))
     throw new Error('BOOTSTRAP_IDENTITY_NOT_ALLOWED');
-  const client = await input.pool.connect();
+  const organizationId = createOpaqueId();
+  const memberId = createOpaqueId();
   try {
-    await client.query('BEGIN');
-    await client.query('LOCK TABLE organization, member IN EXCLUSIVE MODE');
-    const existing = await client.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM member WHERE global_role = 'owner' AND state = 'active'",
-    );
-    if (existing.rows[0]?.count !== '0') throw new Error('OWNER_ALREADY_EXISTS');
-    const organizationId = createOpaqueId();
-    const memberId = createOpaqueId();
-    await client.query('INSERT INTO organization (id, name) VALUES ($1, $2)', [
+    await input.pool.query('SELECT claim_first_owner($1,$2,$3,$4,$5,$6,$7,$8,$9)', [
       organizationId,
       input.organizationName,
+      memberId,
+      input.identity.emailKey,
+      input.identity.emailDisplay,
+      input.identity.issuer,
+      input.identity.subject,
+      input.correlationId,
+      createOpaqueId(),
     ]);
-    await client.query(
-      "INSERT INTO member (id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state) VALUES ($1,$2,$3,$4,$5,'owner','active')",
-      [
-        memberId,
-        input.identity.emailKey,
-        input.identity.emailDisplay,
-        input.identity.issuer,
-        input.identity.subject,
-      ],
-    );
-    await client.query(
-      "INSERT INTO audit_event (id,event_type,actor_kind,actor_id,subject_id,result,reason_code,correlation_id) VALUES ($1,'auth.oidc','member',$2,$2,'success','FIRST_OWNER_BOOTSTRAP',$3)",
-      [createOpaqueId(), memberId, input.correlationId],
-    );
-    await client.query('COMMIT');
-    return { memberId, organizationId };
-  } catch (error) {
-    await client.query('ROLLBACK');
+  } catch (error: unknown) {
+    /* A concurrent callback won the lock and claimed the installation. Mapped to the
+       name callers already handle rather than surfacing a constraint code. */
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { readonly code?: unknown }).code === '23505'
+    )
+      throw new Error('OWNER_ALREADY_EXISTS', { cause: error });
     throw error;
-  } finally {
-    client.release();
   }
+  return { memberId, organizationId };
 }
 
-/** Resolves an existing active member or atomically accepts an exact pending invitation. */
+/**
+ * Resolves an existing active member, or atomically accepts an exact pending
+ * invitation.
+ *
+ * The role a new member receives is NOT decided here. It is read from the invitation
+ * inside `accept_member_invitation`, together with that acceptance's audit rows, in
+ * one transaction. Choosing the role in this process meant the credential serving the
+ * callback could insert an Admin -- or an Owner -- with no invitation behind it, which
+ * is why it no longer holds INSERT on `member` at all.
+ */
 export async function resolveOidcMember(
   pool: Pool,
   identity: VerifiedOidcIdentity,
   correlationId: CorrelationId,
 ): Promise<{ readonly memberId: string }> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const existing = await client.query<{ id: string }>(
-      "SELECT id FROM member WHERE oidc_issuer = $1 AND oidc_subject = $2 AND state = 'active' FOR UPDATE",
-      [identity.issuer, identity.subject],
-    );
-    const existingId = existing.rows[0]?.id;
-    if (existingId !== undefined) {
-      await client.query('COMMIT');
-      return { memberId: existingId };
-    }
-    const invitation = await client.query<{
-      id: string;
-      intended_global_role: 'admin' | 'member';
-    }>(
-      `SELECT id,intended_global_role FROM invitation WHERE kind = 'member' AND email_key = $1
-         AND state = 'pending' AND expires_at > transaction_timestamp() FOR UPDATE`,
-      [identity.emailKey],
-    );
-    const accepted = invitation.rows[0];
-    if (accepted === undefined) throw new Error('MEMBER_INVITATION_REQUIRED');
-    const memberId = createOpaqueId();
-    await client.query(
-      `INSERT INTO member
-       (id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state)
-       VALUES ($1,$2,$3,$4,$5,$6,'active')`,
-      [
-        memberId,
-        identity.emailKey,
-        identity.emailDisplay,
-        identity.issuer,
-        identity.subject,
-        accepted.intended_global_role,
-      ],
-    );
-    await client.query("UPDATE invitation SET state = 'accepted' WHERE id = $1", [accepted.id]);
-    /* Member provisioning is a security mutation, so its audit evidence commits in
-     * this same transaction or acceptance rolls back (§15.1). Two rows are written
-     * because two distinct resources reach a new state and each must be
-     * identifiable on its own: the invitation that authorized this provisioning,
-     * and the member it created. Without the first, the spine cannot answer which
-     * invitation admitted an Admin. */
-    await client.query(
-      `INSERT INTO audit_event (
-         id,event_type,actor_kind,actor_id,subject_id,resource_type,resource_id,
-         result,reason_code,correlation_id,detail
-       ) VALUES (
-         $1,'invitation.accepted','member',$2,$2,'invitation',$3,
-         'success','MEMBER_INVITATION_ACCEPTED',$4,
-         jsonb_build_object('intendedRole',$5::text)
-       )`,
-      [createOpaqueId(), memberId, accepted.id, correlationId, accepted.intended_global_role],
-    );
-    await client.query(
-      `INSERT INTO audit_event (
-         id,event_type,actor_kind,actor_id,subject_id,resource_type,resource_id,
-         result,reason_code,correlation_id,detail
-       ) VALUES (
-         $1,'member.created','member',$2,$2,'member',$2,
-         'success','MEMBER_INVITATION_ACCEPTED',$3,
-         jsonb_build_object('invitationId',$4::text,'globalRole',$5::text)
-       )`,
-      [createOpaqueId(), memberId, correlationId, accepted.id, accepted.intended_global_role],
-    );
-    await client.query('COMMIT');
-    return { memberId };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  const existing = await pool.query<{ id: string }>(
+    "SELECT id FROM member WHERE oidc_issuer = $1 AND oidc_subject = $2 AND state = 'active'",
+    [identity.issuer, identity.subject],
+  );
+  const existingId = existing.rows[0]?.id;
+  if (existingId !== undefined) return { memberId: existingId };
+  const accepted = await pool.query<{ accept_member_invitation: string | null }>(
+    'SELECT accept_member_invitation($1,$2,$3,$4,$5,$6,$7,$8)',
+    [
+      createOpaqueId(),
+      identity.emailKey,
+      identity.emailDisplay,
+      identity.issuer,
+      identity.subject,
+      correlationId,
+      createOpaqueId(),
+      createOpaqueId(),
+    ],
+  );
+  const memberId = accepted.rows[0]?.accept_member_invitation ?? null;
+  /* NULL rather than an exception, so the callback can distinguish "no invitation" and
+     try first-owner bootstrap without the refusal having aborted a transaction. */
+  if (memberId === null) throw new Error('MEMBER_INVITATION_REQUIRED');
+  return { memberId };
 }

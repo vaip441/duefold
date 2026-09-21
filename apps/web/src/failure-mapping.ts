@@ -31,6 +31,19 @@ const SQLSTATE_STATUS = new Map<string, { readonly status: number; readonly code
   ['22023', { status: 400, code: 'REQUEST_INVALID' }],
   ['23514', { status: 400, code: 'REQUEST_INVALID' }],
   ['40001', { status: 409, code: 'CONFLICT' }],
+  /*
+   * A UNIQUENESS REFUSAL IS A CONFLICT, NOT A FAULT.
+   *
+   * Without this, inviting an address that is already invited or already a member
+   * reached the Admin as HTTP 500: `invite_member` raises 23505 deliberately, and an
+   * unmapped SQLSTATE is treated as a crash. The Admin was shown a fault for doing
+   * something entirely reasonable, and a real fault was indistinguishable from it.
+   *
+   * 409 with the uniform conflict copy, like 40001: both mean "the state you assumed is
+   * not the state that exists, look again". The database's own wording never reaches the
+   * client, so a duplicate cannot be used to probe which addresses are already known.
+   */
+  ['23505', { status: 409, code: 'CONFLICT' }],
   ['55000', { status: 409, code: 'CONFLICT' }],
 ]);
 

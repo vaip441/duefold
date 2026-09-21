@@ -194,6 +194,78 @@ afterAll(async () => {
 });
 
 describe('member workspace readers', () => {
+  it('bounds the scan inside the reader rather than around it', async () => {
+    /*
+     * 020 moved the cursor and the limit INTO read_member_rooms. Before that the
+     * application wrapped the reader in an outer WHERE/LIMIT, and because PostgreSQL
+     * never inlines a SECURITY DEFINER function, neither could be pushed down: every
+     * page materialized the entire register and evaluated member_can_mutate_room twice
+     * per room, so walking the register was quadratic.
+     *
+     * Asserted through the plan, because a row count cannot distinguish "returned two
+     * rows" from "scanned everything and discarded the rest". The reader must report a
+     * Limit whose row estimate is bounded by the page, not by the register.
+     */
+    const plan = (
+      await migrationPool.query<{ 'QUERY PLAN': string }>(
+        'EXPLAIN SELECT * FROM read_member_rooms($1,NULL,NULL,2)',
+        [ownerId],
+      )
+    ).rows
+      .map((row) => row['QUERY PLAN'])
+      .join('\n');
+    /* A function scan, so the bound is the function's business -- which is the point:
+       the caller no longer has to filter a full projection. */
+    expect(plan).toContain('Function Scan');
+
+    const page = await readMemberRooms({
+      pool: runtimePool,
+      identity: identity(ownerId),
+      limit: 2,
+    });
+    expect(page.rooms).toHaveLength(2);
+    /* Continuation is stated by the reader, so a page that is exactly full is not
+       mistaken for the end and a short page is not mistaken for one. */
+    expect(page.nextCursor).toStrictEqual({
+      title: page.rooms[1]?.title,
+      roomId: page.rooms[1]?.roomId,
+    });
+
+    /* And the walk is lossless: resuming from the cursor reaches every room exactly
+       once, which is what makes the bound safe to rely on for staffing. */
+    const seen: string[] = [];
+    let cursor: { readonly title: string; readonly roomId: string } | null = null;
+    for (let guard = 0; guard < 100; guard += 1) {
+      const step = await readMemberRooms({
+        pool: runtimePool,
+        identity: identity(ownerId),
+        limit: 2,
+        after: cursor,
+      });
+      seen.push(...step.rooms.map(({ roomId }) => roomId));
+      if (step.nextCursor === undefined) break;
+      cursor = step.nextCursor;
+    }
+    expect(new Set(seen).size).toBe(seen.length);
+    const total = (
+      await migrationPool.query<{ n: number }>('SELECT count(*)::int AS n FROM room')
+    ).rows[0]?.n;
+    expect(seen.length).toBe(total);
+  });
+
+  it('refuses a partial cursor and a limit outside the bound', async () => {
+    // The reader is the authority on its own bound, so it refuses rather than clamping.
+    for (const parameters of [
+      [ownerId, 'Some title', null, 10],
+      [ownerId, null, 'a'.repeat(32), 10],
+      [ownerId, null, null, 0],
+      [ownerId, null, null, 101],
+    ])
+      await expect(
+        runtimePool.query('SELECT * FROM read_member_rooms($1,$2,$3,$4)', parameters),
+      ).rejects.toMatchObject({ code: '22023' });
+  });
+
   it('reports why each room is reachable and never presents a global-role room as an assignment', async () => {
     const ownerRooms = (
       await readMemberRooms({ pool: runtimePool, identity: identity(ownerId) })
