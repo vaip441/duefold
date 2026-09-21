@@ -37,6 +37,16 @@ export interface InvitationTable {
   state: 'pending' | 'accepted' | 'revoked' | 'expired';
   expires_at: Timestamp;
   created_at: Generated<Timestamp>;
+  /**
+   * The global role acceptance grants, and the Admin who issued the invitation.
+   * `invitation_role_matches_kind` ties the role to `kind`: set for a member
+   * invitation, null for a viewer one. Both are nullable rather than `Generated`,
+   * because nothing generates them; Kysely derives insert optionality from that
+   * nullability, so a viewer insert omits both instead of naming columns that do
+   * not apply to it. `schema.unit.test.ts` holds that contract.
+   */
+  intended_global_role: 'admin' | 'member' | null;
+  invited_by: string | null;
 }
 export interface OidcTransactionTable {
   state_digest: string;

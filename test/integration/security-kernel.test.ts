@@ -275,18 +275,30 @@ describe('security migration and role boundaries', () => {
       createOpaqueId(),
       createCorrelationId(),
     ]);
-    await runtimePool.query(
+    /* The state machine is exercised on the migration credential, because migration
+     * 017 revoked direct room_assignment DML from every application role. The
+     * assertion is the same: enforce_state_transition permits active -> revoked and
+     * never the reverse, so a revoked privilege cannot be resurrected by UPDATE even
+     * by a credential with schema authority. */
+    await migrationPool.query(
       "INSERT INTO room_assignment (id,room_id,member_id,room_role) VALUES ($1,$2,$3,'manager')",
       [assignmentId, assignmentRoomId, ownerId],
     );
-    await runtimePool.query("UPDATE room_assignment SET state = 'revoked' WHERE id = $1", [
+    await migrationPool.query("UPDATE room_assignment SET state = 'revoked' WHERE id = $1", [
       assignmentId,
     ]);
+    await expect(
+      migrationPool.query("UPDATE room_assignment SET state = 'active' WHERE id = $1", [
+        assignmentId,
+      ]),
+    ).rejects.toThrow();
+    /* And the runtime credential cannot write the table at all, which is what makes
+     * apply_room_assignments the only path to a room privilege. */
     await expect(
       runtimePool.query("UPDATE room_assignment SET state = 'active' WHERE id = $1", [
         assignmentId,
       ]),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: '42501' });
   });
 });
 

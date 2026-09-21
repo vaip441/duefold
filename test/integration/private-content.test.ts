@@ -578,7 +578,10 @@ describe('multipart intent and quarantine transaction', () => {
 
   it('rechecks current room authorization before completion and emits no version when revoked', async () => {
     const { created, etag, objectKey } = await createAndUpload();
-    await runtimePool.query(
+    /* Revoked on the migration credential: migration 017 revoked direct
+     * room_assignment DML from the runtime credential. What is under test is
+     * unchanged -- finalization rechecks authorization against whatever rows exist. */
+    await migrationPool.query(
       "UPDATE room_assignment SET state = 'revoked' WHERE room_id = $1 AND member_id = $2",
       [roomId, contributorId],
     );

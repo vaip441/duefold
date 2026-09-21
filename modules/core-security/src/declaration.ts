@@ -95,7 +95,10 @@ export const moduleDeclaration: ModuleDeclaration = {
       handlerFactoryExport: 'createHandler',
     },
   ],
-  migrations: [{ id: '001_security_kernel', file: '001_security_kernel.sql' }],
+  migrations: [
+    { id: '001_security_kernel', file: '001_security_kernel.sql' },
+    { id: '017_organization_administration', file: '017_organization_administration.sql' },
+  ],
   jobs: [
     {
       id: 'mail.viewer_invitation',

@@ -302,7 +302,11 @@ describe('principal audience and CSRF matrix', () => {
       createOpaqueId(),
       createCorrelationId(),
     ]);
-    await databasePool.query(
+    /* Seeded and changed on the migration credential: migration 017 revoked direct
+     * room_assignment DML from the runtime credential, so a room privilege is now
+     * written only by apply_room_assignments or by schema authority. The behaviour
+     * under test is unchanged -- the authenticator resolves whatever rows exist. */
+    await migrationPool.query(
       "INSERT INTO room_assignment (id,room_id,member_id,room_role) VALUES ($1,$2,$3,'manager')",
       [createOpaqueId(), roomId, memberId],
     );
@@ -338,7 +342,7 @@ describe('principal audience and CSRF matrix', () => {
         roomRoles: { [roomId]: 'manager' },
       },
     });
-    await databasePool.query(
+    await migrationPool.query(
       "UPDATE room_assignment SET room_role = 'contributor' WHERE room_id = $1 AND member_id = $2",
       [roomId, memberId],
     );

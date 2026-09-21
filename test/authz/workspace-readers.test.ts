@@ -108,7 +108,10 @@ beforeAll(async () => {
   // The manager and contributor are assigned to ONE room only. The other two
   // rooms are fully populated, so a leak would surface as extra rows rather than
   // as an empty result that proves nothing.
-  await runtimePool.query(
+  /* Seeded on the migration credential: migration 017 revoked direct
+   * room_assignment DML from every application role, so a privilege row is now
+   * authored only by apply_room_assignments or by a fixture with schema authority. */
+  await migrationPool.query(
     "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager'),($4,$2,$5,'contributor')",
     [createOpaqueId(), assignedRoomId, managerId, createOpaqueId(), contributorId],
   );
@@ -293,7 +296,7 @@ describe('member workspace readers', () => {
       ownerId,
       ...audit(),
     ]);
-    await runtimePool.query(
+    await migrationPool.query(
       "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager')",
       [createOpaqueId(), movementRoomId, managerId],
     );

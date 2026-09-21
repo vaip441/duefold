@@ -219,7 +219,9 @@ beforeAll(async () => {
     ownerId,
     ...audit(),
   ]);
-  await runtimePool.query(
+  /* Migration 017 revoked direct room_assignment DML from the runtime credential,
+   * so this fixture uses the migration credential's schema authority. */
+  await migrationPool.query(
     "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager'),($4,$2,$5,'contributor'),($6,$7,$3,'manager')",
     [
       createOpaqueId(),
