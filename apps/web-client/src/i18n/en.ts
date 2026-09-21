@@ -131,6 +131,12 @@ export const messages = {
   'rooms.access.assignment': 'Assigned to you',
   'rooms.access.globalRole': 'Visible through your organization role',
   'rooms.loading': 'Loading rooms',
+  /* A paged register that stopped short. Saying nothing would let a prefix read as
+     every room this member can reach. */
+  'rooms.partial':
+    'This is part of your rooms. Load the rest before concluding which rooms you can reach.',
+  'rooms.more': 'Load more rooms',
+  'rooms.loadingMore': 'Loading more rooms\u2026',
   'rooms.columns.room': 'Room',
   'rooms.columns.state': 'State',
   'rooms.columns.access': 'Your access',
@@ -332,7 +338,8 @@ export const messages = {
   'viewer.expired': 'Your session has ended. Sign in again to keep reading.',
 
   /*
-   * Participants, grants, uploads, exports, and branding.
+   * Participants, grants, uploads, and exports. Branding copy lives in the
+   * optional module that owns it, so an omitted module takes its strings with it.
    *
    * Copy rules carrying real weight on these surfaces:
    * - An EXPIRED grant is named as expired, never hidden and never shown as
@@ -357,8 +364,136 @@ export const messages = {
   'workspace.tab.participants': 'Access',
   'workspace.tab.processing': 'Processing',
   'workspace.tab.exports': 'Exports',
-  'workspace.tab.branding': 'Branding',
   'workspace.tabs.label': 'Room sections',
+  'workspace.tab.rooms': 'Rooms',
+  'workspace.tab.members': 'Members',
+  'workspace.views.label': 'Workbench sections',
+
+  /*
+   * Member administration.
+   *
+   * Copy rules specific to this surface:
+   * - An invitation is never described as access. Someone invited has not signed in
+   *   and holds nothing, so their row says so in words.
+   * - Every state is named; none is carried by colour.
+   * - A change that signs someone out says so BEFORE the control that causes it.
+   * - The denied state neither confirms nor denies that members exist.
+   * - A completed ownership transfer reads as a transfer and a sign-out, never as
+   *   an authentication error.
+   */
+  'members.title': 'Members',
+  'members.lead':
+    'Everyone inside your organization who can reach Duefold, and which rooms they are staffed into.',
+  'members.loading': 'Loading members',
+  'members.empty': 'You are the only member of this installation.',
+  'members.emptyHelp': 'Invite a colleague to give them access to rooms.',
+  'members.denied': 'Member administration is not available to your role.',
+  'members.deniedHelp': 'Ask an administrator if you need to invite or staff a colleague.',
+  /* A load that FAILED rather than being refused. Distinct copy, because "not
+     available to your role" would name the wrong cause and offer no recovery for a
+     dropped connection, an ended session, or a server fault. */
+  'members.failed': 'The member list could not be loaded.',
+  'members.failed.retry': 'Load members again',
+  'members.columns.person': 'Person',
+  'members.columns.role': 'Role',
+  'members.columns.state': 'State',
+  'members.columns.rooms': 'Rooms',
+  'members.columns.actions': 'Actions',
+  'members.role.owner': 'Owner',
+  'members.role.admin': 'Admin',
+  'members.role.member': 'Member',
+  'members.role.owner.explain':
+    'Reaches every room, and is the only role that can transfer ownership.',
+  'members.role.admin.explain': 'Manages members and reaches every room.',
+  'members.role.member.explain': 'Reaches only the rooms they are staffed into.',
+  /* An invitation names the role someone WILL hold. Describing it as one they hold
+     would claim access before they have ever signed in. */
+  'members.role.intended': 'Will arrive as {role}. Holds nothing until they sign in.',
+  'members.state.active': 'Active',
+  'members.state.disabled': 'Disabled',
+  'members.state.disabledHelp': 'Cannot sign in. Their record and audit trail remain.',
+  'members.state.invited': 'Invited, not yet signed in',
+  'members.state.invitedHelp':
+    'This person holds no access yet. They become a member when they first sign in.',
+  'members.rooms.none': 'No rooms',
+  'members.rooms.byRole': 'Every room, through their organization role',
+  'members.rooms.unknown': 'A room not in your list',
+  'members.rooms.manage': 'Staff into rooms',
+  'members.page.more': 'Load more members',
+  'members.page.loadingMore': 'Loading more members\u2026',
+  'members.page.partial':
+    'This is part of the list. Load the rest before concluding who has access.',
+
+  'members.invite': 'Invite a member',
+  'members.invite.note':
+    'An invitation lets someone sign in with your identity provider. They arrive in the role you choose here.',
+  'members.invite.email': 'Email address',
+  'members.invite.emailHelp': 'They sign in with exactly this address.',
+  'members.invite.invalid': 'Enter an email address, for example name@example.com.',
+  'members.invite.role': 'Role on arrival',
+  'members.invite.submit': 'Invite member',
+  'members.invite.pending': 'Inviting\u2026',
+  'members.invite.sent': 'Invitation sent. It expires in seven days.',
+  'members.invite.revoke': 'Withdraw invitation',
+  'members.invite.revoked': 'Invitation withdrawn.',
+
+  'members.role.toAdmin': 'Make Admin',
+  'members.role.toMember': 'Make Member',
+  'members.role.changed': 'Role changed. That member has been signed out of every device.',
+  'members.role.signOutWarning':
+    'Changing a role signs that member out of every device. They must sign in again.',
+  'members.role.supersedesWarning':
+    'An Admin reaches every room, so their room assignments are removed by this change.',
+  'members.state.disable': 'Disable',
+  'members.state.enable': 'Re-enable',
+  'members.state.changed': 'Access changed. That member has been signed out of every device.',
+  'members.state.disableWarning':
+    'A disabled member cannot sign in and is signed out of every device immediately.',
+
+  'members.assign.title': 'Rooms for {person}',
+  'members.assign.explain':
+    'Choose the rooms this member works in, and whether they manage or contribute.',
+  'members.assign.signOutWarning':
+    'This member will be signed out of every device and must sign in again.',
+  'members.assign.roomRole': 'Role in {room}',
+  'members.assign.none': 'Not staffed',
+  'members.assign.manager': 'Room manager',
+  'members.assign.contributor': 'Contributor',
+  'members.assign.submit': 'Save rooms',
+  'members.assign.pending': 'Saving rooms\u2026',
+  'members.assign.saved': 'Rooms updated. That member has been signed out of every device.',
+  'members.assign.unchanged': 'Nothing changed. Choose a different room or role first.',
+  'members.assign.noRooms': 'There are no rooms to staff anyone into yet.',
+  /* The register is paged. If it stopped short, "Not staffed" is an answer about the
+     rooms shown and nothing more — the dialog must not imply it saw them all. */
+  'members.assign.partialRooms':
+    'Only part of the room list loaded. Rooms not shown here are unchanged by this form.',
+  'members.assign.onlyMembers':
+    'Owners and Admins already reach every room, so they are not staffed into rooms individually.',
+
+  'members.transfer': 'Transfer ownership',
+  'members.transfer.title': 'Transfer ownership',
+  'members.transfer.loading': 'Working out what this transfer changes',
+  'members.transfer.target': 'Ownership moves to {person}.',
+  'members.transfer.consequence':
+    'You become an Admin and are signed out of every device immediately.',
+  'members.transfer.revokes': '{count} room assignment(s) are removed from that person.',
+  'members.transfer.revokesNone': 'That person holds no room assignments to remove.',
+  'members.transfer.revokesWhy':
+    'An Owner reaches every room, so their individual room assignments are removed.',
+  'members.transfer.revokesTruncated':
+    'The rooms below are part of that list. The count above is exact.',
+  'members.transfer.columns.room': 'Room',
+  'members.transfer.columns.role': 'Role removed',
+  'members.transfer.confirmLabel': 'Type {phrase} to confirm',
+  'members.transfer.mismatch': 'Type the phrase exactly as shown to continue.',
+  'members.transfer.submit': 'Transfer',
+  'members.transfer.pending': 'Transferring\u2026',
+  'members.transfer.stale':
+    'That person changed while you were reviewing. Review the new impact before transferring.',
+  'members.transfer.sessionEnded':
+    'Ownership transferred. You are now an Admin and have been signed out of every device.',
+  'members.transfer.signInAgain': 'Sign in again',
 
   'participants.heading': 'Who can read this room',
   'participants.loading': 'Loading participants',
@@ -529,39 +664,6 @@ export const messages = {
   'exports.expiry': 'An export expires one hour after it is created.',
   'exports.freshSignIn':
     'Creating an export needs a recent sign-in. Sign in again, then retry.',
-
-  'branding.heading': 'Branding',
-  'branding.loading': 'Loading branding',
-  'branding.organizationName': 'Organization name',
-  'branding.accentColor': 'Accent colour',
-  'branding.accentColor.help':
-    'Used for links and the primary action. Duefold checks it stays readable in both light and dark themes.',
-  'branding.accentColor.contrast':
-    'That colour is too light or too dark to stay readable. Choose a stronger colour.',
-  'branding.accentColor.invalid': 'Enter a colour as six hex digits, for example #006b5e.',
-  'branding.senderDisplayName': 'Email sender name',
-  'branding.senderDisplayName.help': 'Shown as the sender on invitations and codes.',
-  'branding.roomIntroduction': 'Room introduction',
-  'branding.roomIntroduction.help': 'Plain text shown to readers when they open a room.',
-  'branding.supportContact': 'Support contact',
-  'branding.supportContact.help':
-    'An email address or an https link. Leave empty to show no support contact.',
-  'branding.supportContact.invalid':
-    'Enter an email address or an https link, or leave it empty.',
-  'branding.save': 'Save branding',
-  'branding.save.pending': 'Saving\u2026',
-  'branding.saved': 'Branding saved.',
-  'branding.note':
-    'Duefold accepts a name, one accent colour, a sender name, an introduction, and a support contact. Custom styles, fonts, and scripts are not accepted.',
-  'branding.logo': 'Organization logo',
-  'branding.logo.help': 'PNG, JPEG, or WebP. Processed into a secure, sanitized derivative.',
-  'branding.logo.remove': 'Remove logo',
-  'branding.squareMark': 'Square mark (favicon)',
-  'branding.squareMark.help': '1:1 square icon used in browser tabs and mobile shortcuts.',
-  'branding.squareMark.remove': 'Remove square mark',
-  'branding.upload.pending': 'Uploading image\u2026',
-  'branding.upload.success': 'Image uploaded and processed.',
-  'branding.upload.failed': 'Image upload failed. Try a smaller PNG or JPEG.',
 
   'bulk.label': 'Select items',
   'bulk.selectAll': 'Select all',

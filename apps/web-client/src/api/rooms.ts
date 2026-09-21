@@ -6,12 +6,40 @@
  * transport.ts so there is exactly one place that talks to the network.
  */
 
-import { ApiError, isRecord, json, requireArray } from './transport.ts';
+import {
+  ApiError,
+  isRecord,
+  json,
+  requireArray,
+  requireNumber,
+  requireString,
+} from './transport.ts';
 
 export type RoomState = 'draft' | 'published' | 'archived';
 export type RoomAccessSource = 'assignment' | 'global_role';
+export type MemberRoomRole = 'manager' | 'contributor';
 
-export interface MemberRoom {
+/**
+ * WHY a room is reachable, as a discriminated union.
+ *
+ * The two fields are not independent. `read_member_rooms` derives the source from the
+ * role — `CASE WHEN a.room_role IS NOT NULL THEN 'assignment' ELSE 'global_role' END`
+ * (`006_member_workspace_readers.sql:96`) — so an assignment ALWAYS carries a role and a
+ * role-derived reach NEVER does.
+ *
+ * Validating them separately admitted combinations the database cannot produce:
+ * `{roomRole: null, accessSource: 'assignment'}` claims a colleague staffed this member
+ * into a room in no stated role, and `{roomRole: 'manager', accessSource: 'global_role'}`
+ * advertises a narrower explicit role on someone who actually holds standing Room Manager
+ * authority everywhere. This surface EXPLAINS access from these fields, so either shape
+ * renders a false statement about why a room can be opened. The union removes both from
+ * the type rather than leaving them merely unexpected.
+ */
+export type RoomAccess =
+  | { readonly accessSource: 'assignment'; readonly roomRole: MemberRoomRole }
+  | { readonly accessSource: 'global_role'; readonly roomRole: null };
+
+export type MemberRoom = {
   readonly roomId: string;
   readonly title: string;
   readonly description: string;
@@ -19,10 +47,8 @@ export interface MemberRoom {
   readonly revision: number;
   readonly workingRevision: number;
   readonly publishedRevision: number;
-  readonly roomRole: 'manager' | 'contributor' | null;
-  readonly accessSource: RoomAccessSource;
   readonly canPublish: boolean;
-}
+} & RoomAccess;
 
 export type PublicationChangeKind =
   'add' | 'remove' | 'rename' | 'move' | 'reorder' | 'description' | 'version' | 'replace';
@@ -84,13 +110,118 @@ export interface SearchHit {
   readonly path: string;
 }
 
-export async function loadRooms(signal?: AbortSignal): Promise<readonly MemberRoom[]> {
+/**
+ * A keyset cursor over the room register. Echoed back unmodified.
+ *
+ * The server orders by `(title, roomId)`, so that pair is the key. Both components
+ * travel together: half a key resumes at a position in neither ordering and would skip
+ * or repeat rooms that share a title.
+ */
+export interface RoomCursor {
+  readonly title: string;
+  readonly roomId: string;
+}
+
+export interface RoomPage {
+  readonly rooms: readonly MemberRoom[];
+  /** Null when the server proved this page is the last one. */
+  readonly nextCursor: RoomCursor | null;
+}
+
+const ROOM_STATES: readonly RoomState[] = ['draft', 'published', 'archived'];
+
+/**
+ * Parses the access provenance as ONE decision, not two independent fields.
+ *
+ * Checking them separately accepted pairings the reader cannot emit, and both of them
+ * are false statements about why a room is reachable rather than merely odd data. This
+ * returns the union member the pair names, or fails closed.
+ */
+function parseAccess(value: Readonly<Record<string, unknown>>): RoomAccess {
+  const role = value['roomRole'];
+  switch (value['accessSource']) {
+    case 'assignment':
+      /* A colleague staffed this member into the room, so a ROLE is what they were
+         staffed as. Without one there is nothing the assignment could mean. */
+      if (role !== 'manager' && role !== 'contributor') throw new ApiError('unavailable');
+      return { accessSource: 'assignment', roomRole: role };
+    case 'global_role':
+      /* Reached through an organization role, which carries Room Manager authority in
+         every room. An explicit role here would advertise something NARROWER than the
+         authority actually held. */
+      if (role !== null) throw new ApiError('unavailable');
+      return { accessSource: 'global_role', roomRole: null };
+    default:
+      throw new ApiError('unavailable');
+  }
+}
+
+/**
+ * Parses one room, validating every field rather than casting the array.
+ *
+ * A blanket cast made the whole register whatever the server happened to send. That
+ * matters here beyond hygiene: `roomRole` and `accessSource` are how the product
+ * EXPLAINS why a room is reachable, and `canPublish` is a server decision the surface
+ * echoes. A value this process does not recognize means the two disagree about the
+ * vocabulary, and rendering it would state access or authority the server never
+ * described. Fail closed instead.
+ */
+function parseRoom(value: unknown): MemberRoom {
+  if (!isRecord(value)) throw new ApiError('unavailable');
+  const state = value['state'];
+  if (!(ROOM_STATES as readonly unknown[]).includes(state)) throw new ApiError('unavailable');
+  if (typeof value['canPublish'] !== 'boolean') throw new ApiError('unavailable');
+  if (typeof value['description'] !== 'string') throw new ApiError('unavailable');
+  return {
+    roomId: requireString(value, 'roomId'),
+    title: requireString(value, 'title'),
+    description: value['description'],
+    state: state as RoomState,
+    revision: requireNumber(value, 'revision'),
+    workingRevision: requireNumber(value, 'workingRevision'),
+    publishedRevision: requireNumber(value, 'publishedRevision'),
+    /* One decision, so a contradictory pair cannot be assembled here. */
+    ...parseAccess(value),
+    canPublish: value['canPublish'],
+  };
+}
+
+/**
+ * One bounded page of the member's rooms (§23).
+ *
+ * `nextCursor` is the whole completeness contract. Rooms grow without an installation
+ * cap and an Owner or Admin reaches all of them, so a caller that stops before following
+ * the cursor holds a PREFIX. That is load-bearing wherever the register decides
+ * staffing: a short room list would make "Not staffed" read as an answer about rooms it
+ * never saw.
+ */
+export async function loadRooms(input?: {
+  readonly after?: RoomCursor | null;
+  readonly signal?: AbortSignal;
+}): Promise<RoomPage> {
+  const after = input?.after ?? null;
+  const suffix =
+    after === null
+      ? ''
+      : `?afterTitle=${encodeURIComponent(after.title)}` +
+        `&afterRoomId=${encodeURIComponent(after.roomId)}`;
   const payload = await json({
     method: 'GET',
-    path: '/api/rooms',
-    ...(signal === undefined ? {} : { signal }),
+    path: `/api/rooms${suffix}`,
+    ...(input?.signal === undefined ? {} : { signal: input.signal }),
   });
-  return requireArray(payload, 'rooms') as readonly MemberRoom[];
+  const rooms = requireArray(payload, 'rooms').map(parseRoom);
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  const cursor = payload['nextCursor'];
+  if (cursor === undefined) return { rooms, nextCursor: null };
+  if (!isRecord(cursor)) throw new ApiError('unavailable');
+  return {
+    rooms,
+    nextCursor: {
+      title: requireString(cursor, 'title'),
+      roomId: requireString(cursor, 'roomId'),
+    },
+  };
 }
 
 export async function loadRoomWorkspace(

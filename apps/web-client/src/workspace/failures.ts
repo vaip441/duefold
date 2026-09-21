@@ -15,7 +15,16 @@
 import { ApiError } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
 
-export type FailureKind = 'conflict' | 'fresh-oidc' | 'denied' | 'plain';
+/**
+ * The failure classes a surface presents DIFFERENTLY.
+ *
+ * `session-ended` is its own kind rather than folded into `plain` because its recovery
+ * is different in kind: retrying a request on a session that no longer exists produces
+ * another 401, so the surface must offer sign-in instead of a reload. A surface that
+ * could not tell the two apart had to pick one and be wrong for the other.
+ */
+export type FailureKind =
+  'conflict' | 'fresh-oidc' | 'denied' | 'session-ended' | 'offline' | 'plain';
 
 export interface PresentedFailure {
   readonly kind: FailureKind;
@@ -74,14 +83,16 @@ export function presentFailure(error: unknown): PresentedFailure {
       };
     case 'offline':
       return {
-        kind: 'plain',
+        /* Named so a surface can offer retry-when-connected rather than a generic
+           failure: the request may well succeed unchanged once the link returns. */
+        kind: 'offline',
         title: translate('app.offline.title'),
         body: translate('app.offline.body'),
         offerReload: false,
       };
     case 'unauthenticated':
       return {
-        kind: 'plain',
+        kind: 'session-ended',
         title: translate('error.expired.title'),
         body: translate('error.expired.body'),
         offerReload: false,

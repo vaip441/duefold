@@ -16,5 +16,5 @@
     "vitest.config.ts",
     "eslint.config.mjs"
   ],
-  "exclude": ["**/dist/**", "**/node_modules/**", "test/browser/**"]
+  "exclude": ["**/dist/**", "**/node_modules/**", "test/browser/**", "modules/*/src/browser/**"]
 }

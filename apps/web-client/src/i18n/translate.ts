@@ -4,18 +4,13 @@
  * adding a locale never means editing a component.
  */
 
+import { formatMessage, type MessageValues } from './format.ts';
 import { messages, type MessageKey } from './en.ts';
 
 export type { MessageKey } from './en.ts';
-
-export type MessageValues = Readonly<Record<string, string | number>>;
+export type { MessageValues } from './format.ts';
 
 /** Substitutes `{name}` placeholders. An unknown placeholder is left intact. */
 export function translate(key: MessageKey, values?: MessageValues): string {
-  const template = messages[key];
-  if (values === undefined) return template;
-  return template.replace(/\{(\w+)\}/gu, (match, name: string) => {
-    const value = values[name];
-    return value === undefined ? match : String(value);
-  });
+  return formatMessage(messages[key], values);
 }

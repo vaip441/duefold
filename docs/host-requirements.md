@@ -136,6 +136,24 @@ contract, with no provider-specific code.
 - Exactly one of SMTP or Resend for invited-reader one-time codes. Deliverability
   matters more than throughput here: a code that lands in spam is a locked-out
   investor.
+- Mail jobs are at-least-once, so a worker that dies between provider acceptance
+  and recording success re-sends. Duefold does not claim exactly-once mail on
+  either adapter, and the guarantee differs by adapter and by message:
+  - Member-onboarding mail, and only that mail, carries a stable per-invitation
+    idempotency key. Viewer one-time codes and viewer invitations carry none:
+    a code is per-attempt by design, and re-sending an invitation is harmless.
+  - On Resend that key is sent as a request `Idempotency-Key`. Resend returns the
+    original result instead of sending again for the 24 hours it documents as the
+    key's retention window. Suppression is therefore bounded to that window: a
+    retry after it lapses is a new request to the provider and can deliver a
+    second copy.
+  - On SMTP there is no request-level equivalent, so onboarding mail stays
+    at-least-once: once a remote MTA has accepted the message, acceptance cannot
+    be retracted and a later duplicate cannot be collapsed.
+  A repeated onboarding message is identical to the first: same authenticated
+  application link, and no role, room, document, viewer, or other protected
+  detail. It carries no one-time code and no per-attempt state, so a second copy
+  is redundant rather than a security event or a stale action.
 
 ## 6. Compute and lifecycle
 

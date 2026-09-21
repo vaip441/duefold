@@ -1,9 +1,12 @@
 /**
- * Processing, exports, and branding section state.
+ * Processing and exports section state.
  *
- * Extracted from `Workspace` alongside the participants hook. These three share a
- * shape -- load a list or record for the open room, run one action, reload from the
- * server -- so they live together rather than in three near-identical files.
+ * Extracted from `Workspace` alongside the participants hook. Both share a
+ * shape -- load a list for the open room, run one action, reload from the server --
+ * so they live together rather than in two near-identical files.
+ *
+ * Branding's section state moved into the optional module that owns it, so an
+ * installation that omits branding ships neither its state machine nor its copy.
  *
  * The rule each loader preserves: a failed load becomes `failed`, never `ready` with
  * an empty value. Rendering "nothing is processing" or "No exports yet" for a refused
@@ -13,19 +16,13 @@
 
 import { useCallback, useState } from 'react';
 import {
-  createBrandingUploadIntent,
-  deleteBrandingAsset,
   deleteFailedSource,
   downloadExportOnce,
-  finalizeBrandingUpload,
   generateExport,
-  loadBranding,
   loadExports,
   loadProcessingState,
   preflightExport,
   retryProcessing,
-  updateBranding,
-  type BrandingConfiguration,
   type ExportPreflight,
   type ExportPreset,
   type ExportRecord,
@@ -33,8 +30,6 @@ import {
 } from '../api/client.ts';
 import { presentFailure, type PresentedFailure } from './failures.ts';
 import type { Load } from './state.ts';
-import { planParts } from '../components/UploadPanel.tsx';
-import { transferParts } from './upload.ts';
 
 export interface ProcessingSection {
   readonly versions: Load<readonly ProcessingVersion[]>;
@@ -235,94 +230,6 @@ export function useExportsSection(handlers: {
       setPreflight(null);
       setRequest(null);
       setFailure(null);
-    },
-  };
-}
-
-export interface BrandingSection {
-  readonly configuration: BrandingConfiguration | null;
-  readonly loading: boolean;
-  readonly denied: boolean;
-  readonly failure: PresentedFailure | null;
-  readonly saving: boolean;
-  readonly refresh: (roomId: string) => void;
-  readonly save: (input: Parameters<typeof updateBranding>[0]) => void;
-  readonly uploadAsset: (assetKind: 'logo' | 'square-mark', file: File) => Promise<void>;
-  readonly deleteAsset: (roomId: string, assetKind: 'logo' | 'square-mark') => Promise<void>;
-}
-
-export function useBrandingSection(handlers: {
-  readonly onSaved: () => void;
-}): BrandingSection {
-  const [configuration, setConfiguration] = useState<BrandingConfiguration | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [failure, setFailure] = useState<PresentedFailure | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const refresh = useCallback((roomId: string): void => {
-    setLoading(true);
-    setFailure(null);
-    loadBranding(roomId).then(
-      (value) => {
-        setLoading(false);
-        setConfiguration(value);
-      },
-      (error: unknown) => {
-        setLoading(false);
-        setFailure(presentFailure(error));
-      },
-    );
-  }, []);
-
-  return {
-    configuration,
-    loading,
-    // A refusal is terminal until a reload; it must not read as still loading.
-    denied: failure !== null,
-    failure,
-    saving,
-    refresh,
-    save: (input) => {
-      setSaving(true);
-      setFailure(null);
-      updateBranding(input).then(
-        (value) => {
-          setSaving(false);
-          setConfiguration(value);
-          handlers.onSaved();
-        },
-        (error: unknown) => {
-          setSaving(false);
-          setFailure(presentFailure(error));
-        },
-      );
-    },
-    uploadAsset: async (assetKind, file) => {
-      const plan = planParts(file.size);
-      const mediaType =
-        file.type === 'image/jpeg' || file.type === 'image/webp' ? file.type : 'image/png';
-      const intent = await createBrandingUploadIntent({
-        assetKind,
-        mediaType,
-        size: file.size,
-        parts: plan,
-      });
-      const controller = new AbortController();
-      const parts = await transferParts({
-        file,
-        intent,
-        plan,
-        signal: controller.signal,
-        onProgress: () => undefined,
-      });
-      await finalizeBrandingUpload({
-        intentId: intent.intentId,
-        uploadId: intent.uploadId,
-        parts,
-      });
-    },
-    deleteAsset: async (roomId, assetKind) => {
-      await deleteBrandingAsset({ roomId, assetKind });
     },
   };
 }

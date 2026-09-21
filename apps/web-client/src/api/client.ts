@@ -3,8 +3,12 @@
  *
  * This file was a single 1213-line module covering session, rooms, structure,
  * publication, search, viewer delivery, participants, grants, processing, exports,
- * branding, and uploads. It is now a barrel over five domain modules, so a change
- * to grants does not put export or viewer code in the same diff.
+ * branding, and uploads. It is now a barrel over domain modules, so a change to
+ * grants does not put export or viewer code in the same diff.
+ *
+ * Branding is deliberately ABSENT. Its requests moved into the optional module
+ * that owns them, because a branding request path in this barrel would reach the
+ * bundle of an installation that omitted the module.
  *
  * The properties that made the original file worth reading are preserved, and they
  * live in transport.ts where every request passes through them:
@@ -48,6 +52,8 @@ export {
   type PublicationImpact,
   type PublicationItem,
   type RoomAccessSource,
+  type RoomCursor,
+  type RoomPage,
   type RoomState,
   type RoomWorkspace,
   type SearchHit,
@@ -97,27 +103,45 @@ export {
 } from './participants.ts';
 
 export {
-  createBrandingUploadIntent,
+  applyOwnershipTransfer,
+  applyRoomAssignments,
+  dryRunOwnershipTransfer,
+  inviteMember,
+  loadMembers,
+  revokeMemberInvitation,
+  setMemberRole,
+  setMemberState,
+  type AppliedAssignments,
+  type AssignableGlobalRole,
+  type GlobalRole,
+  type InvitedMember,
+  type MemberPage,
+  type MemberPageCursor,
+  type MemberState,
+  type MemberSubject,
+  type OwnershipTransferImpact,
+  type PendingInvitation,
+  type ProvisionedMember,
+  type RevokedAssignment,
+  type RoomAssignment,
+  type RoomRole,
+  type TransferOutcome,
+} from './administration.ts';
+
+export {
   createUploadIntent,
-  deleteBrandingAsset,
   deleteFailedSource,
   downloadExportOnce,
-  finalizeBrandingUpload,
   finalizeUpload,
   generateExport,
-  loadBranding,
   loadExports,
   loadProcessingState,
-  loadPublicBranding,
   preflightExport,
   retryProcessing,
-  updateBranding,
-  type BrandingConfiguration,
   type ExportPreflight,
   type ExportPreset,
   type ExportRecord,
   type ExportRequestInput,
   type ProcessingVersion,
-  type PublicBranding,
   type UploadIntentResponse,
 } from './member-operations.ts';

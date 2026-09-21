@@ -15,11 +15,12 @@
  */
 
 import { useEffect, useId, useState } from 'react';
-import type { BrandingConfiguration } from '../api/client.ts';
-import { translate } from '../i18n/translate.ts';
-import { validateAccent, validateSupportContact } from '../workspace/state.ts';
-import type { PresentedFailure } from '../workspace/failures.ts';
-import { Notice } from './Notice.tsx';
+import { Notice } from '@duefold/web-client/components/Notice';
+import type { PresentedFailure } from '@duefold/web-client/workspace/failures';
+import { validateAccent, validateSupportContact } from '@duefold/web-client/workspace/state';
+import { translate } from '@duefold/web-client/i18n/translate';
+import type { BrandingAssetKind, BrandingConfiguration } from './api.ts';
+import { brandingCopy } from './copy.ts';
 
 export interface BrandingPanelProps {
   readonly configuration: BrandingConfiguration | null;
@@ -29,7 +30,6 @@ export interface BrandingPanelProps {
   readonly denied: boolean;
   readonly failure: PresentedFailure | null;
   readonly savePending: boolean;
-  readonly roomId?: string;
   readonly onSave: (input: {
     readonly organizationName: string;
     readonly accentColor: string;
@@ -38,8 +38,8 @@ export interface BrandingPanelProps {
     readonly supportContact: string | null;
     readonly expectedRevision: number;
   }) => void;
-  readonly onUploadAsset?: (assetKind: 'logo' | 'square-mark', file: File) => Promise<void>;
-  readonly onDeleteAsset?: (assetKind: 'logo' | 'square-mark') => Promise<void>;
+  readonly onUploadAsset: (assetKind: BrandingAssetKind, file: File) => Promise<void>;
+  readonly onDeleteAsset: (assetKind: BrandingAssetKind) => Promise<void>;
   readonly onReload: () => void;
 }
 
@@ -81,8 +81,8 @@ export function BrandingPanel({
     setSenderDisplayName(configuration.senderDisplayName);
     setRoomIntroduction(configuration.roomIntroduction);
     setSupportContact(configuration.supportContact ?? '');
-    setHasLogo(configuration.hasLogo === true);
-    setHasSquareMark(configuration.hasSquareMark === true);
+    setHasLogo(configuration.hasLogo);
+    setHasSquareMark(configuration.hasSquareMark);
   }, [configuration]);
 
   const accentProblem = validateAccent(accentColor);
@@ -91,8 +91,7 @@ export function BrandingPanel({
   const senderValid = senderDisplayName.trim() !== '';
   const valid = accentProblem === null && contactValid && nameValid && senderValid;
 
-  const handleUpload = async (kind: 'logo' | 'square-mark', file: File) => {
-    if (!onUploadAsset) return;
+  const handleUpload = async (kind: BrandingAssetKind, file: File) => {
     setAssetFailure(null);
     if (kind === 'logo') setLogoUploading(true);
     else setSquareUploading(true);
@@ -107,31 +106,30 @@ export function BrandingPanel({
         setSquareVersion((v) => v + 1);
       }
     } catch {
-      setAssetFailure(translate('branding.upload.failed'));
+      setAssetFailure(brandingCopy('upload.failed'));
     } finally {
       if (kind === 'logo') setLogoUploading(false);
       else setSquareUploading(false);
     }
   };
 
-  const handleDelete = async (kind: 'logo' | 'square-mark') => {
-    if (!onDeleteAsset) return;
+  const handleDelete = async (kind: BrandingAssetKind) => {
     setAssetFailure(null);
     try {
       await onDeleteAsset(kind);
       if (kind === 'logo') setHasLogo(false);
       else setHasSquareMark(false);
     } catch {
-      setAssetFailure(translate('branding.upload.failed'));
+      setAssetFailure(brandingCopy('upload.failed'));
     }
   };
 
   return (
     <section aria-labelledby={headingId}>
       <h2 className="df-section__heading" id={headingId}>
-        {translate('branding.heading')}
+        {brandingCopy('heading')}
       </h2>
-      <p className="df-field__help">{translate('branding.note')}</p>
+      <p className="df-field__help">{brandingCopy('note')}</p>
 
       {failure === null && assetFailure === null ? null : (
         <Notice tone="problem" role="alert">
@@ -149,12 +147,12 @@ export function BrandingPanel({
           underneath the error notice, so the operator saw a contradiction and no
           resolution. Failure is terminal until a reload. */}
       {denied ? null : loading || configuration === null ? (
-        <p className="df-field__help">{translate('branding.loading')}</p>
+        <p className="df-field__help">{brandingCopy('loading')}</p>
       ) : (
         <>
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-org`}>
-              {translate('branding.organizationName')}
+              {brandingCopy('organizationName')}
             </label>
             <input
               id={`${fieldId}-org`}
@@ -170,7 +168,7 @@ export function BrandingPanel({
 
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-accent`}>
-              {translate('branding.accentColor')}
+              {brandingCopy('accentColor')}
             </label>
             <input
               id={`${fieldId}-accent`}
@@ -189,14 +187,12 @@ export function BrandingPanel({
               }}
             />
             <p className="df-field__help" id={`${fieldId}-accent-help`}>
-              {translate('branding.accentColor.help')}
+              {brandingCopy('accentColor.help')}
             </p>
             {accentProblem === null ? null : (
               <p className="df-field__error" id={`${fieldId}-accent-error`} role="alert">
-                {translate(
-                  accentProblem === 'contrast'
-                    ? 'branding.accentColor.contrast'
-                    : 'branding.accentColor.invalid',
+                {brandingCopy(
+                  accentProblem === 'contrast' ? 'accentColor.contrast' : 'accentColor.invalid',
                 )}
               </p>
             )}
@@ -204,7 +200,7 @@ export function BrandingPanel({
 
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-sender`}>
-              {translate('branding.senderDisplayName')}
+              {brandingCopy('senderDisplayName')}
             </label>
             <input
               id={`${fieldId}-sender`}
@@ -218,13 +214,13 @@ export function BrandingPanel({
               }}
             />
             <p className="df-field__help" id={`${fieldId}-sender-help`}>
-              {translate('branding.senderDisplayName.help')}
+              {brandingCopy('senderDisplayName.help')}
             </p>
           </div>
 
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-intro`}>
-              {translate('branding.roomIntroduction')}
+              {brandingCopy('roomIntroduction')}
             </label>
             <textarea
               id={`${fieldId}-intro`}
@@ -238,13 +234,13 @@ export function BrandingPanel({
               }}
             />
             <p className="df-field__help" id={`${fieldId}-intro-help`}>
-              {translate('branding.roomIntroduction.help')}
+              {brandingCopy('roomIntroduction.help')}
             </p>
           </div>
 
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-support`}>
-              {translate('branding.supportContact')}
+              {brandingCopy('supportContact')}
             </label>
             <input
               id={`${fieldId}-support`}
@@ -261,11 +257,11 @@ export function BrandingPanel({
               }}
             />
             <p className="df-field__help" id={`${fieldId}-support-help`}>
-              {translate('branding.supportContact.help')}
+              {brandingCopy('supportContact.help')}
             </p>
             {contactValid ? null : (
               <p className="df-field__error" id={`${fieldId}-support-error`} role="alert">
-                {translate('branding.supportContact.invalid')}
+                {brandingCopy('supportContact.invalid')}
               </p>
             )}
           </div>
@@ -273,14 +269,14 @@ export function BrandingPanel({
           {/* Logo Upload & Preview */}
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-logo`}>
-              {translate('branding.logo')}
+              {brandingCopy('logo')}
             </label>
-            <p className="df-field__help">{translate('branding.logo.help')}</p>
+            <p className="df-field__help">{brandingCopy('logo.help')}</p>
             {hasLogo ? (
               <div className="df-brand-asset-preview">
                 <img
                   src={`/api/branding/assets/logo?v=${logoVersion}`}
-                  alt={translate('branding.logo')}
+                  alt={brandingCopy('logo')}
                   className="df-brand-asset-preview__image"
                 />
                 <button
@@ -291,7 +287,7 @@ export function BrandingPanel({
                     void handleDelete('logo');
                   }}
                 >
-                  {translate('branding.logo.remove')}
+                  {brandingCopy('logo.remove')}
                 </button>
               </div>
             ) : null}
@@ -307,21 +303,21 @@ export function BrandingPanel({
               }}
             />
             {logoUploading ? (
-              <p className="df-field__help">{translate('branding.upload.pending')}</p>
+              <p className="df-field__help">{brandingCopy('upload.pending')}</p>
             ) : null}
           </div>
 
           {/* Square Mark (Favicon) Upload & Preview */}
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-square`}>
-              {translate('branding.squareMark')}
+              {brandingCopy('squareMark')}
             </label>
-            <p className="df-field__help">{translate('branding.squareMark.help')}</p>
+            <p className="df-field__help">{brandingCopy('squareMark.help')}</p>
             {hasSquareMark ? (
               <div className="df-brand-asset-preview">
                 <img
                   src={`/api/branding/assets/square-mark?v=${squareVersion}`}
-                  alt={translate('branding.squareMark')}
+                  alt={brandingCopy('squareMark')}
                   className="df-brand-asset-preview__image df-brand-asset-preview__image--square"
                 />
                 <button
@@ -332,7 +328,7 @@ export function BrandingPanel({
                     void handleDelete('square-mark');
                   }}
                 >
-                  {translate('branding.squareMark.remove')}
+                  {brandingCopy('squareMark.remove')}
                 </button>
               </div>
             ) : null}
@@ -348,7 +344,7 @@ export function BrandingPanel({
               }}
             />
             {squareUploading ? (
-              <p className="df-field__help">{translate('branding.upload.pending')}</p>
+              <p className="df-field__help">{brandingCopy('upload.pending')}</p>
             ) : null}
           </div>
 
@@ -371,7 +367,7 @@ export function BrandingPanel({
                 });
               }}
             >
-              {savePending ? translate('branding.save.pending') : translate('branding.save')}
+              {savePending ? brandingCopy('save.pending') : brandingCopy('save')}
             </button>
           </div>
         </>

@@ -93,5 +93,12 @@ export const moduleDeclaration: ModuleDeclaration = {
       id: 'branding-notifications.branding',
       source: 'browser/branding.ts',
     },
+    {
+      /* The room Branding tab and panel. Contributed rather than hardcoded in the
+       * application, so omitting this module removes the tab, its label, and the
+       * panel from the bundle instead of shipping them inert. */
+      id: 'branding-notifications.branding-section',
+      source: 'browser/branding-section.tsx',
+    },
   ],
 };
