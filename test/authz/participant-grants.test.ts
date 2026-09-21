@@ -1604,7 +1604,7 @@ describe('Participant and allow-only grant boundary', () => {
         await roomRevision(),
         ...audit(),
       ]),
-    ).rejects.toMatchObject({ code: '40001' });
+    ).rejects.toMatchObject({ code: '42501' });
     const roomPolicyAudit = audit();
     await runtimePool.query('SELECT set_room_download_policy($1,$2,$3,$4,$5,$6)', [
       managerId,

@@ -2325,7 +2325,7 @@ git commit -m "Change room visibility through a reviewed, audited path only"
 
 `set_room_download_policy` folds authorization into its `UPDATE ... WHERE`, so a Contributor is told `409` — "reload and try again", a false recovery instruction — instead of `403`. Both setters also audit a change to the value already held, which is evidence of a change that never happened. The replacements fix both. The installation-wide default stays with milestone 3.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/authz/room-policies.test.ts`:
 
@@ -2480,7 +2480,7 @@ describe('default grant expiry', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 npm run compose
@@ -2489,7 +2489,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — `/api/policies` is 404.
 
-- [ ] **Step 3: Append the replacements to migration 023**
+- [x] **Step 3: Append the replacements to migration 023**
 
 ```sql
 -- Download policy setters authorize before anything else, and refuse a change to the
@@ -2552,7 +2552,7 @@ END $$;
 
 The no-op check reads the value before the revision check, so a no-op on a stale revision reports `409` either way; the order matters only for which `409`.
 
-- [ ] **Step 4: Append the wrappers**
+- [x] **Step 4: Append the wrappers**
 
 Append to `modules/participants-access/src/room-settings.ts`:
 
@@ -2638,7 +2638,7 @@ export async function applyDefaultExpiry(input: {
 
 `resolvedExpiresAt` arrives from `to_jsonb(timestamptz)` as `2027-09-21T10:00:00+00:00`; the route schema's `date-time` format accepts the offset form and the client parses it with `Date`.
 
-- [ ] **Step 5: Add the route**
+- [x] **Step 5: Add the route**
 
 Create `modules/participants-access/src/routes/policies.ts`:
 
@@ -2766,7 +2766,7 @@ Declare it:
     },
 ```
 
-- [ ] **Step 6: Append to the contract**
+- [x] **Step 6: Append to the contract**
 
 ````markdown
 ## `POST /api/policies`
@@ -2786,7 +2786,7 @@ held is `409`. The default-expiry review returns the exact instant new grants wi
 installation default joins this union in milestone 3.
 ````
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -2797,7 +2797,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS. `participant-grants.test.ts` exercises the 007 setters; if a case asserts `40001` for a forbidden room-policy change, it now gets `42501` — update the expectation, since `403` is the correct answer.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add modules/participants-access test/authz docs/room-administration-http-contract.md
@@ -2830,7 +2830,7 @@ git commit -m "Expose room download policy, document exceptions and default expi
 
 A counterparty with no viewers is invisible to `read_room_participants`, and nothing removes a viewer from one. Two uniqueness rules are the database's — one name per room after normalization, one counterparty per viewer per room — and they raise `23505`, which the failure mapping does not know, so a duplicate currently reaches the client as **500**. Mapping `23505` to `409` fixes that everywhere it occurs, including `invite_member`'s duplicate-address refusal from milestone 1.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `apps/web/src/failure-mapping.unit.test.ts`:
 
@@ -2978,7 +2978,7 @@ describe('counterparties', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 failure-mapping
@@ -2988,7 +2988,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — `classifyFailure` returns `null` for `23505`, so the duplicate invitation answers 500; `/api/counterparties` is 404.
 
-- [ ] **Step 3: Map `23505`**
+- [x] **Step 3: Map `23505`**
 
 In `apps/web/src/failure-mapping.ts`, add to `SQLSTATE_STATUS`:
 
@@ -2996,7 +2996,7 @@ In `apps/web/src/failure-mapping.ts`, add to `SQLSTATE_STATUS`:
   ['23505', { status: 409, code: 'CONFLICT' }],
 ```
 
-- [ ] **Step 4: Append the counterparty functions to migration 023**
+- [x] **Step 4: Append the counterparty functions to migration 023**
 
 ```sql
 -- A room's counterparties, including those nobody has been placed in yet.
@@ -3053,7 +3053,7 @@ ALTER FUNCTION remove_viewer_counterparty(text,text,text,integer,text,text) OWNE
 
 The `55000` after the room revision was already advanced is safe: the exception rolls the whole function back.
 
-- [ ] **Step 5: Append the wrappers**
+- [x] **Step 5: Append the wrappers**
 
 Append to `modules/participants-access/src/room-settings.ts`:
 
@@ -3141,7 +3141,7 @@ export async function removeViewerFromCounterparty(input: {
 }
 ```
 
-- [ ] **Step 6: Add the routes**
+- [x] **Step 6: Add the routes**
 
 Create `modules/participants-access/src/routes/counterparties.ts`:
 
@@ -3242,7 +3242,7 @@ In `modules/participants-access/src/routes/participant-list.ts`, add `counterpar
 
 and to the handler's return value `counterparties: await readRoomCounterparties({ pool: runtime.pool, identity, roomId }),`, importing `readRoomCounterparties` from `../room-settings.ts`. Both readers authorize the same way, so a refusal still arrives before any data.
 
-- [ ] **Step 7: Append to the contract**
+- [x] **Step 7: Append to the contract**
 
 ````markdown
 ## `POST /api/counterparties`
@@ -3268,7 +3268,7 @@ viewerCount}]`, including counterparties with no viewers yet.
 `23505` (a database uniqueness rule) is `409 CONFLICT`, alongside `40001` and `55000`.
 ````
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -3281,7 +3281,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS. `phase6-routes.test.ts` covers `GET /api/participants`; update any `toStrictEqual` on its body to include `counterparties`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/web/src/failure-mapping.ts apps/web/src/failure-mapping.unit.test.ts modules/participants-access test/authz docs/room-administration-http-contract.md

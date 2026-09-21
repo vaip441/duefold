@@ -2,6 +2,7 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyRequest } from 'fastify';
 import type { WebRuntime } from '../../../../apps/web/src/runtime.ts';
 import type { MemberIdentity } from '../../../core-security/src/authorization.ts';
+import { readRoomCounterparties } from '../room-settings.ts';
 
 const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
 const GRANT = Type.Object(
@@ -44,6 +45,17 @@ export const schema = {
             { additionalProperties: false },
           ),
         ),
+        counterparties: Type.Array(
+          Type.Object(
+            {
+              counterpartyId: ID,
+              name: Type.String({ minLength: 1, maxLength: 200 }),
+              revision: Type.Integer({ minimum: 1 }),
+              viewerCount: Type.Integer({ minimum: 0 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -70,13 +82,32 @@ interface ParticipantRow {
   readonly grants: readonly GrantRow[];
 }
 
+/**
+ * The roster and its counterparties are two readers, so they run in ONE read-only repeatable
+ * read transaction. Read separately, a placement committing between them would answer a
+ * participant whose counterparty is missing from the list, or a viewer count that does not
+ * match the participants shown beside it.
+ */
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return async (request: FastifyRequest) => {
     const { roomId } = request.query as { readonly roomId: string };
-    const result = await runtime.pool.query<ParticipantRow>(
-      'SELECT * FROM read_room_participants($1,$2)',
-      [identity.id, roomId],
-    );
+    const client = await runtime.pool.connect();
+    let result;
+    let counterparties;
+    try {
+      await client.query('BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ');
+      result = await client.query<ParticipantRow>(
+        'SELECT * FROM read_room_participants($1,$2)',
+        [identity.id, roomId],
+      );
+      counterparties = await readRoomCounterparties({ pool: client, identity, roomId });
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
     return {
       participants: result.rows.map((row) => ({
         viewerId: row.viewer_id,
@@ -87,6 +118,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
         counterpartyName: row.counterparty_name,
         grants: row.grants,
       })),
+      counterparties,
     };
   };
 }

@@ -98,6 +98,22 @@ export const moduleDeclaration: ModuleDeclaration = {
       handler: 'routes/room-visibility.ts',
       handlerFactoryExport: 'createHandler',
     },
+    {
+      id: 'policy.change',
+      method: 'POST',
+      path: '/api/policies',
+      audience: 'member',
+      handler: 'routes/policies.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
+      id: 'counterparty.change',
+      method: 'POST',
+      path: '/api/counterparties',
+      audience: 'member',
+      handler: 'routes/counterparties.ts',
+      handlerFactoryExport: 'createHandler',
+    },
   ],
   migrations: [
     { id: '007_participant_grants', file: '007_participant_grants.sql' },

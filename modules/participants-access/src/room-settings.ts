@@ -169,3 +169,213 @@ export async function applyRoomVisibility(
   if (revision === undefined) throw new Error('VISIBILITY_CHANGE_UNAVAILABLE');
   return { revision };
 }
+
+export interface DefaultExpiryImpact {
+  readonly affectedCount: number;
+  readonly paths: readonly string[];
+  readonly resolvedExpiresAt: string | null;
+  readonly confirmation: string;
+  readonly message: string;
+  readonly roomRevision?: number;
+}
+
+export async function setRoomDownloadPolicy(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+  readonly policy: DownloadPolicy | null;
+  readonly expectedRoomRevision: number;
+}): Promise<{ readonly roomRevision: number }> {
+  const revision = (
+    await input.pool.query<{ revision: number }>(
+      'SELECT set_room_download_policy($1,$2,$3,$4,$5,$6) AS revision',
+      [
+        input.identity.id,
+        input.roomId,
+        input.policy,
+        input.expectedRoomRevision,
+        createOpaqueId(),
+        createCorrelationId(),
+      ],
+    )
+  ).rows[0]?.revision;
+  if (revision === undefined) throw new Error('ROOM_POLICY_UNAVAILABLE');
+  return { roomRevision: revision };
+}
+
+export async function setDocumentDownloadPolicy(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly documentId: string;
+  readonly policy: DownloadPolicy | null;
+  readonly expectedDocumentRevision: number;
+}): Promise<{ readonly documentRevision: number }> {
+  const revision = (
+    await input.pool.query<{ revision: number }>(
+      'SELECT set_document_download_policy($1,$2,$3,$4,$5,$6) AS revision',
+      [
+        input.identity.id,
+        input.documentId,
+        input.policy,
+        input.expectedDocumentRevision,
+        createOpaqueId(),
+        createCorrelationId(),
+      ],
+    )
+  ).rows[0]?.revision;
+  if (revision === undefined) throw new Error('DOCUMENT_POLICY_UNAVAILABLE');
+  return { documentRevision: revision };
+}
+
+export async function dryRunDefaultExpiry(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+  readonly expiresAt: Date | null;
+}): Promise<DefaultExpiryImpact> {
+  const impact = (
+    await input.pool.query<{ impact: DefaultExpiryImpact }>(
+      'SELECT dry_run_room_default_expiry($1,$2,$3) AS impact',
+      [input.identity.id, input.roomId, input.expiresAt],
+    )
+  ).rows[0]?.impact;
+  if (impact === undefined) throw new Error('EXPIRY_IMPACT_UNAVAILABLE');
+  return impact;
+}
+
+export async function applyDefaultExpiry(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+  readonly expiresAt: Date | null;
+  readonly expectedRoomRevision: number;
+  readonly confirmation: string;
+}): Promise<DefaultExpiryImpact> {
+  const impact = (
+    await input.pool.query<{ impact: DefaultExpiryImpact }>(
+      'SELECT apply_room_default_expiry($1,$2,$3,$4,$5,$6,$7) AS impact',
+      [
+        input.identity.id,
+        input.roomId,
+        input.expiresAt,
+        input.expectedRoomRevision,
+        input.confirmation,
+        createOpaqueId(),
+        createCorrelationId(),
+      ],
+    )
+  ).rows[0]?.impact;
+  if (impact === undefined) throw new Error('EXPIRY_CHANGE_UNAVAILABLE');
+  return impact;
+}
+
+export interface Counterparty {
+  readonly counterpartyId: string;
+  readonly name: string;
+  readonly revision: number;
+  readonly viewerCount: number;
+}
+
+/**
+ * `Queryable` rather than `Pool`, so a caller reading counterparties alongside another
+ * reader can pass the client both run on and get ONE snapshot. Two autocommit reads would
+ * each see a different committed state, and a placement landing between them would answer a
+ * roster and a viewer count that disagree.
+ */
+export type Queryable = Pick<Pool, 'query'>;
+
+export async function readRoomCounterparties(input: {
+  readonly pool: Queryable;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+}): Promise<readonly Counterparty[]> {
+  const result = await input.pool.query<{
+    counterparty_id: string;
+    name: string;
+    revision: number;
+    viewer_count: number;
+  }>('SELECT * FROM read_room_counterparties($1,$2)', [input.identity.id, input.roomId]);
+  return result.rows.map((row) => ({
+    counterpartyId: row.counterparty_id,
+    name: row.name,
+    revision: row.revision,
+    viewerCount: row.viewer_count,
+  }));
+}
+
+export async function createCounterparty(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+  readonly name: string;
+  readonly expectedRoomRevision: number;
+}): Promise<{ readonly counterpartyId: string; readonly roomRevision: number }> {
+  const counterpartyId = createOpaqueId();
+  const revision = (
+    await input.pool.query<{ revision: number }>(
+      'SELECT create_counterparty($1,$2,$3,$4,$5,$6,$7) AS revision',
+      [
+        counterpartyId,
+        input.roomId,
+        input.name,
+        input.identity.id,
+        input.expectedRoomRevision,
+        createOpaqueId(),
+        createCorrelationId(),
+      ],
+    )
+  ).rows[0]?.revision;
+  if (revision === undefined) throw new Error('COUNTERPARTY_UNAVAILABLE');
+  return { counterpartyId, roomRevision: revision };
+}
+
+export async function placeViewer(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+  readonly counterpartyId: string;
+  readonly viewerId: string;
+  readonly expectedRoomRevision: number;
+}): Promise<{ readonly roomRevision: number }> {
+  const revision = (
+    await input.pool.query<{ revision: number }>(
+      'SELECT assign_viewer_counterparty($1,$2,$3,$4,$5,$6,$7,$8) AS revision',
+      [
+        createOpaqueId(),
+        input.counterpartyId,
+        input.viewerId,
+        input.roomId,
+        input.identity.id,
+        input.expectedRoomRevision,
+        createOpaqueId(),
+        createCorrelationId(),
+      ],
+    )
+  ).rows[0]?.revision;
+  if (revision === undefined) throw new Error('PLACEMENT_UNAVAILABLE');
+  return { roomRevision: revision };
+}
+
+export async function removeViewerFromCounterparty(input: {
+  readonly pool: Pool;
+  readonly identity: MemberIdentity;
+  readonly roomId: string;
+  readonly viewerId: string;
+  readonly expectedRoomRevision: number;
+}): Promise<{ readonly roomRevision: number }> {
+  const revision = (
+    await input.pool.query<{ revision: number }>(
+      'SELECT remove_viewer_counterparty($1,$2,$3,$4,$5,$6) AS revision',
+      [
+        input.identity.id,
+        input.roomId,
+        input.viewerId,
+        input.expectedRoomRevision,
+        createOpaqueId(),
+        createCorrelationId(),
+      ],
+    )
+  ).rows[0]?.revision;
+  if (revision === undefined) throw new Error('PLACEMENT_UNAVAILABLE');
+  return { roomRevision: revision };
+}

@@ -150,6 +150,8 @@ const ROUTE_FACTORIES = {
   'grant.change': memberFactory('grant.change'),
   'room.settings.read': memberFactory('room.settings.read'),
   'room.visibility': memberFactory('room.visibility'),
+  'policy.change': memberFactory('policy.change'),
+  'counterparty.change': memberFactory('counterparty.change'),
   'organization.members.list': memberFactory('organization.members.list'),
   'organization.members.actions': memberFactory('organization.members.actions'),
   'branding.asset.upload': memberFactory('branding.asset.upload'),
@@ -191,6 +193,8 @@ function memberFactory(
     | 'grant.change'
     | 'room.settings.read'
     | 'room.visibility'
+    | 'policy.change'
+    | 'counterparty.change'
     | 'organization.members.list'
     | 'organization.members.actions'
     | 'branding.asset.upload'

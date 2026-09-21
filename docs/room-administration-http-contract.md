@@ -90,4 +90,55 @@ otherwise).
 `change_room_state` is not executable by the web credential; this route is the only path
 to a room state change.
 
+## `POST /api/policies`
+
+```
+{action:'room-download', roomId, policy:'allow'|'deny'|null, expectedRoomRevision}          → 200 {roomRevision}
+{action:'document-download', documentId, policy:'allow'|'deny'|null, expectedDocumentRevision} → 200 {documentRevision}
+{action:'default-expiry-dry-run', roomId, expiresAt:instant|null}                            → 200 {impact}
+{action:'default-expiry-apply', roomId, expiresAt, expectedRoomRevision, confirmation}      → 200 {impact:{...,roomRevision}}
+```
+
+Room Manager. Policy resolves document → room → installation (§9.3); `null` removes the
+override at that level. `expectedDocumentRevision` is the **document** revision from the
+structure reader's `documentRevision`, never the entry revision. Setting the value already
+held is `409`.
+
+The default-expiry review echoes the exact instant new grants would inherit (§9.2) with the
+phrase `CHANGE DEFAULT EXPIRY FOR 1 ROOM`; a past instant is `400`. The phrase is a constant
+and the apply recomputes the impact from its own `expiresAt`, so it confirms the ACT, not the
+value: sending a different instant with a phrase obtained for another one succeeds, and what
+is stored and audited is always the instant the apply carried. That is sound here because the
+review discloses nothing the caller did not supply — unlike publication or ownership
+transfer, where the review counts consequences the caller cannot see and the apply is
+therefore bound to a server-issued preview. The `expectedRoomRevision` still refuses a room
+that changed. The installation default joins this union in milestone 3.
+
+## `POST /api/counterparties`
+
+```
+{action:'create', roomId, name, expectedRoomRevision}                          → 201 {counterpartyId, roomRevision}
+{action:'assign-viewer', roomId, counterpartyId, viewerId, expectedRoomRevision} → 200 {roomRevision}
+{action:'remove-viewer', roomId, viewerId, expectedRoomRevision}               → 200 {roomRevision}
+```
+
+Room Manager. Names are unique per room after case and space normalization; a viewer is in
+at most one counterparty per room (§9.1). Both are database constraints and a violation is
+`409`. Removing a viewer who is in no counterparty is `409`.
+
+A counterparty's grants reach every viewer placed in it, so a placement is itself an access
+change. Removal revokes the placement row rather than deleting it and the counterparty's own
+grants stay active, because they belong to the counterparty and not to the departing viewer:
+the viewer loses the access those grants gave them, and everyone still placed keeps theirs.
+Placing that viewer again therefore restores that access — a placement is the grant, so this
+is one deliberate act by a Manager reading a roster, not a silent re-grant.
+
+`GET /api/participants` also returns `counterparties: [{counterpartyId, name, revision,
+viewerCount}]`, including counterparties with no viewers yet.
+
+## Failure mapping
+
+`23505` (a database uniqueness rule) is `409 CONFLICT`, alongside `40001` and `55000`.
+
+
 
