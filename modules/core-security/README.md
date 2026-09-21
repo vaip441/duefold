@@ -24,6 +24,14 @@ Owns installation identity, member authentication and sessions, organization mem
 
 PostgreSQL functions are authoritative for role/state transitions, room-assignment batches, ownership-transfer freshness, session revocation, and append-only audit. Routes must not reproduce those decisions.
 
+## Installation status
+
+- [Deployment status](src/deployment-status.ts) and [status observations](src/status-observations.ts) — build facts, OIDC startup conformance, migration state, queue, mail evidence, and the checks only the worker or the CLI can make
+- [Running release](src/release.ts)
+- [Status route](src/routes/deployment-status.ts), described in the [installation status HTTP contract](../../docs/installation-status-http-contract.md)
+- [Status database functions](migrations/024_deployment_status.sql)
+- [Status authorization suites](../../test/authz/installation-status.test.ts) and [routes](../../test/authz/installation-status-routes.test.ts)
+
 ## Does not own
 
 Room/document lifecycle belongs to [rooms-documents](../rooms-documents/README.md). Viewer invitations and grants belong to [participants-access](../participants-access/README.md). Optional visual branding belongs to [branding-notifications](../branding-notifications/README.md).

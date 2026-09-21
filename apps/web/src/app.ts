@@ -154,6 +154,8 @@ const ROUTE_FACTORIES = {
   'counterparty.change': memberFactory('counterparty.change'),
   'organization.members.list': memberFactory('organization.members.list'),
   'organization.members.actions': memberFactory('organization.members.actions'),
+  'installation.status.read': memberFactory('installation.status.read'),
+  'installation.content.read': memberFactory('installation.content.read'),
   'branding.asset.upload': memberFactory('branding.asset.upload'),
   'branding.configuration': memberFactory('branding.configuration'),
   'branding.asset.delete': memberFactory('branding.asset.delete'),
@@ -197,6 +199,8 @@ function memberFactory(
     | 'counterparty.change'
     | 'organization.members.list'
     | 'organization.members.actions'
+    | 'installation.status.read'
+    | 'installation.content.read'
     | 'branding.asset.upload'
     | 'branding.configuration'
     | 'branding.asset.delete',

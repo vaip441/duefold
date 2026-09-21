@@ -5,6 +5,7 @@ Owns the private content lifecycle: rooms and structure, uploads and quarantine,
 ## Start here
 
 - [Module declaration](src/declaration.ts) — composed routes, migrations, worker jobs, and configuration.
+- [Content status](src/content-status.ts) and [status route](src/routes/content-status.ts) — failed processing and the recovery record for the installation status surface.
 - [Workspace reads](src/workspace-reads.ts), [room operations](src/room-operations.ts), and [structure](src/structure.ts) — member room capabilities.
 - [Uploads](src/uploads.ts), [source validation](src/source-validation.ts), and [processing](src/processing/) — quarantine through derived artifacts.
 - [Release policy](src/release-policy.ts) — publication boundary.

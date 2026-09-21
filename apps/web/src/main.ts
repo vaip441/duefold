@@ -23,6 +23,7 @@ import {
 import { buildWebApp } from './app.ts';
 import { createSessionAuthenticator } from './authenticate.ts';
 import { assertDistinctDatabaseRoles } from './database-roles.ts';
+import { composedDeploymentFacts } from './deployment-facts.ts';
 import { loadStaticClient } from './static-client.ts';
 import { parseTrustedProxies } from './proxy.ts';
 import { sandboxProgram } from '../../../modules/rooms-documents/src/processing/sandbox.ts';
@@ -101,6 +102,7 @@ try {
     ) as OidcClientAuthMethod,
     redirectUri: oidcRedirectUri,
   });
+  const oidcDiscoveryConformedAt = new Date();
   startupStage = 'database';
   const pool = new Pool({ connectionString: databaseUrl, application_name: 'duefold-web' });
   const authPool = new Pool({
@@ -148,6 +150,7 @@ try {
   const runtime: WebRuntime = {
     pool,
     authPool,
+    deployment: composedDeploymentFacts(oidcDiscoveryConformedAt),
     oidc: oidcConfig,
     oidcRedirectUri,
     ownerAllowlist: stringConfig(config, 'DUEFOLD_OWNER_EMAIL_ALLOWLIST').split(','),

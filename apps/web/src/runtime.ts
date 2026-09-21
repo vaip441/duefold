@@ -11,9 +11,12 @@ import type {
 } from '../../../modules/rooms-documents/src/storage/s3-compatible.ts';
 import type { SandboxProgram } from '../../../modules/rooms-documents/src/processing/sandbox.ts';
 import type { SandboxIsolation } from '../../../modules/rooms-documents/src/processing/preflight.ts';
+import type { DeploymentFacts } from '../../../modules/core-security/src/deployment-status.ts';
 
 export interface WebRuntime {
   readonly pool: Pool;
+  /** What this process was built from, for the status surface. */
+  readonly deployment: DeploymentFacts;
   /** Isolated authentication-evidence/session-lifecycle credential. It has no
    * protected-content privileges; `pool` cannot mint sessions. */
   readonly authPool: Pool;

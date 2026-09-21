@@ -23,6 +23,7 @@ import * as oidc from 'openid-client';
 import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
 import { buildTestWebApp } from './web-runtime.ts';
 import { createSessionAuthenticator } from '../../apps/web/src/authenticate.ts';
+import { composedDeploymentFacts } from '../../apps/web/src/deployment-facts.ts';
 import { loadStaticClient } from '../../apps/web/src/static-client.ts';
 import { migrate } from '../../modules/core-security/src/db/migrate.ts';
 import { createHandler as createOtpDeliveryHandler } from '../../modules/core-security/src/jobs/otp-delivery.ts';
@@ -378,6 +379,7 @@ export async function startTestServer(
   const runtime: WebRuntime = {
     pool: runtimePool,
     authPool,
+    deployment: composedDeploymentFacts(new Date()),
     oidc: oidcConfig,
     oidcRedirectUri: 'https://127.0.0.1/api/auth/oidc/callback',
     ownerAllowlist: ['owner@example.com'],

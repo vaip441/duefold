@@ -110,10 +110,19 @@ export const moduleDeclaration: ModuleDeclaration = {
       handler: 'routes/member-actions.ts',
       handlerFactoryExport: 'createHandler',
     },
+    {
+      id: 'installation.status.read',
+      method: 'GET',
+      path: '/api/status',
+      audience: 'member',
+      handler: 'routes/deployment-status.ts',
+      handlerFactoryExport: 'createHandler',
+    },
   ],
   migrations: [
     { id: '001_security_kernel', file: '001_security_kernel.sql' },
     { id: '017_organization_administration', file: '017_organization_administration.sql' },
+    { id: '024_deployment_status', file: '024_deployment_status.sql' },
   ],
   jobs: [
     {

@@ -27,6 +27,7 @@ Runtime composition is declared by modules and generated at build time. PostgreS
 | Participants, invitations, and allow-only grants | [participants-access](modules/participants-access/README.md) | [participants API](apps/web-client/src/api/participants.ts), [room settings API](apps/web-client/src/api/room-settings.ts), [participants state](apps/web-client/src/workspace/useParticipantsSection.ts), [access section](apps/web-client/src/workspace/views/AccessSection.tsx) | [participant grants](test/authz/participant-grants.test.ts) |
 | Branding and operational notifications | [branding-notifications](modules/branding-notifications/README.md) | Module-local [browser contribution](modules/branding-notifications/src/browser/) | [branding lifecycle](test/integration/branding-lifecycle.test.ts), [branding journey](test/browser/branding.spec.ts) |
 | Static module composition and omission | [composition package](packages/composition/), module `src/declaration.ts` files | [browser module API](apps/web-client/src/module-api.ts), [browser entry plugin](apps/web-client/build/browser-entries-plugin.ts) | [module boundary](test/unit/module-boundary.test.ts), [composition journey](test/browser/composition.spec.ts) |
+| Installation status and installation settings | [core-security installation status](modules/core-security/README.md#installation-status), [rooms-documents](modules/rooms-documents/README.md), [participants-access](modules/participants-access/README.md) | [installation status HTTP contract](docs/installation-status-http-contract.md) | [status authorization](test/authz/installation-status.test.ts), [status routes](test/authz/installation-status-routes.test.ts) |
 | Visual system and accessibility | [shipped design record](DESIGN.md), [tokens](apps/web-client/src/styles/tokens.css), [component styles](apps/web-client/src/styles/components.css), [field styles](apps/web-client/src/styles/fields.css) | Components and route surfaces under [web-client source](apps/web-client/src/) | [token checks](apps/web-client/src/tokens.unit.test.ts), [WCAG journey](test/browser/wcag22.spec.ts), [responsive journey](test/browser/responsive.spec.ts) |
 
 ## Common request paths
@@ -60,4 +61,5 @@ Runtime composition is declared by modules and generated at build time. PostgreS
 - [Threat model](docs/security/threat-model.md)
 - [Trust boundaries](docs/security/data-flow.md)
 - [Room administration HTTP contract](docs/room-administration-http-contract.md)
+- [Installation status HTTP contract](docs/installation-status-http-contract.md)
 - [Development setup](docs/development.md)

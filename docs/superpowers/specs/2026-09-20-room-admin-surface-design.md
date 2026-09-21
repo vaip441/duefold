@@ -3,7 +3,8 @@
 **Date:** 2026-09-20
 **Basis:** `DESIGN_SPEC.md` v2.0 §4, §8, §9, §10, §15, §17, §20
 **Status:** milestone 1 implemented (`docs/superpowers/plans/2026-09-20-organization-administration.md`);
-milestone 2 planned (`docs/superpowers/plans/2026-09-21-room-administration.md`); milestone 3 not yet planned
+milestone 2 implemented (`docs/superpowers/plans/2026-09-21-room-administration.md`); milestone 3 planned
+(`docs/superpowers/plans/2026-09-21-installation-status.md`)
 
 ## 1. Why this exists
 
@@ -60,9 +61,10 @@ no module-management UI (§5.2 forbids the last outright).
 
 ## 4. Data model
 
-Migrations are one global sequence across modules. Milestone 1 and its review fixes
-used 017–021; milestone 2 uses 022 (`rooms-documents`) and 023
-(`participants-access`); milestone 3 takes the next free number. All new functions are `SECURITY DEFINER`, `SET search_path=public,pg_temp`,
+Migrations are one global sequence across modules. Milestone 1 is 017 (its review
+fixes were folded into it before it shipped) with 020 for the room register; milestone
+2 is 022 (`rooms-documents`) and 023 (`participants-access`); milestone 3 is 024
+(`core-security`), 025 (`rooms-documents`) and 026 (`participants-access`). All new functions are `SECURITY DEFINER`, `SET search_path=public,pg_temp`,
 owned by `duefold_migration`, executable only by the credential that calls them
 (`duefold_runtime` for the web, `duefold_authenticator` for member provisioning,
 none for helpers), and write their audit row in the same transaction as their
@@ -251,31 +253,70 @@ The installation-wide download default stays with milestone 3 (§2 item 3), whic
 adds the Installation tab it belongs on. Milestone 2 shows it read-only as the
 value a room inherits.
 
-### 4.7 Status observations migration — `core-security` (milestone 3, next free number)
+### 4.7 Migrations 024–026 — status observations, status readers, installation download default
 
-One table:
+§20.2 names eight facts. Each is read where it is already true, and only what no web
+request can learn is observed and stored:
+
+| §20.2 fact | Source | Owner |
+|---|---|---|
+| Application, build and manifest version | the root `package.json` version and the composed manifest, injected into the web runtime | `core-security` |
+| Database migration state | the migration ledger against the composed registry | `core-security` |
+| Storage privacy and versioning | worker observations `storage-privacy` and `storage-versioning` | `rooms-documents` (recorded into `core-security`'s table) |
+| ClamAV signature age | worker observation `scanner`, carrying the signature build time | `rooms-documents` |
+| Worker queue and failed processing | live counts over `job_queue` and `document_version` | `core-security`, `rooms-documents` |
+| OIDC and mail conformance | OIDC: the discovery and client-authentication check the web process must pass before it serves anything, reported with the time it passed; mail: delivery evidence in `job_queue` | `core-security` |
+| Restore drill and recovery expectation | `operational_recovery_status`, which the CLI already maintains | `rooms-documents` |
+| Update availability and security advisory | CLI observation `updates`, recorded by `updates check-file` | `core-security` |
+
+**024 (`core-security`)** adds one table, overwritten in place:
 
 ```
 deployment_status_observation(
-  check_name text,          -- 'oidc' | 'mail' | 'storage' | ...
-  result text,              -- 'pass' | 'fail' | 'not-run'
-  detail text,              -- redacted summary, no endpoint or credential
-  source text,              -- 'cli' | 'worker'
-  observed_at timestamptz,
-  PRIMARY KEY (check_name)
+  check_name text PRIMARY KEY,   -- closed set: storage-privacy, storage-versioning,
+                                 --   scanner, updates
+  result text,                   -- 'pass' | 'attention' | 'fail'
+  code text,                     -- ^[A-Z][A-Z0-9_]{0,63}$
+  evidence_at timestamptz,       -- scanner only: the signature build time
+  evidence_version text,         -- updates only: the offered release, X.Y.Z
+  observed_at timestamptz
 )
 ```
 
-Written by CLI preflight and by a new scheduled worker job
-`status.observe`. Read-only from the web. Placed in `core-security`, which §5.1
-gives "health, configuration". Other modules contribute their checks through a
-registry contract shaped like the existing `ReadinessExtension`
-(`modules/core-security/src/routes/health-ready.ts:22`) rather than by importing
-across module boundaries.
+A check that has never run has no row and reads as "not yet checked"; there is no stored
+`not-run`. `code` is a pattern-bound code rather than a summary, so an issuer URL, endpoint,
+bucket, host, e-mail or credential cannot be written into it at all (§20.3). There is no
+`source` column: which process may record a check is fixed by the check, and is enforced by
+two writers — `record_worker_status_observation` (storage and scanner, `EXECUTE` for
+`duefold_worker`) and `record_update_observation` (the update check, callable only by the
+migration role the CLI runs as). `read_deployment_status` and `read_status_observations`
+are Owner/Admin; each observation carries `stale` once it is older than three hours (worker
+checks) or thirty days (the update check). An update check is relative to the release that
+was running when it was made, so once the offered release is installed the surface reads it
+as current. Observations are not security mutations and write no audit row.
 
-`detail` is a redacted summary only. §20.3 forbids telemetry carrying object
-keys, full emails or raw IPs, and the same rule binds this column: a failing
-OIDC check records `ISSUER_DISCOVERY_FAILED`, never the issuer URL.
+OIDC is not observed separately. The CLI runs on a network with no egress and the worker
+holds no OIDC configuration, while the web process already performs discovery and
+client-authentication negotiation at startup and refuses to start if either fails; the
+surface reports that check and when it passed.
+
+**025 (`rooms-documents`)** adds `read_content_status` (Owner/Admin: failed processing
+count and the recovery record) and seeds the self-rescheduling hourly worker job
+`status.observe`, first due an hour after migration as the ownership preview sweep is. The
+job probes storage privacy (an unauthenticated request for a random
+key and for a listing must both be refused), storage versioning (`GetBucketVersioning` with
+the worker credential; a provider or credential that cannot answer reads as "not
+detectable", never as enabled) and scanner signatures. The privacy probe reaches the S3 API
+endpoint only: a provider-side public URL such as R2's `r2.dev` domain is invisible to it,
+and the surface says exactly what was tested.
+
+**026 (`participants-access`)** makes the installation download default a reviewed change.
+`read_installation_settings`, `dry_run_installation_download_policy` and
+`apply_installation_download_policy` are Owner/Admin. Allowing original downloads
+installation-wide widens every inheriting room at once, so it needs the review, the typed
+phrase `ALLOW ORIGINAL DOWNLOADS` and a fresh sign-in (§9.4, broad grant). Denying is the
+restrictive direction and needs only the review and one confirmation. The 007 setter
+`set_installation_download_policy` loses its runtime grant, so nothing bypasses the review.
 
 ## 5. HTTP surface
 
@@ -289,7 +330,7 @@ PostgreSQL decide Owner/Admin. Adding an audience cannot silently default-allow
 |---|---|---|---|
 | `GET` | `/api/members` | — | Owner/Admin |
 | `POST` | `/api/members/actions` | union: `invite`, `revoke-invitation`, `set-role`, `set-state`, `transfer-dry-run`, `transfer-apply`, `assign-rooms` | Owner/Admin; `transfer-apply` additionally fresh OIDC |
-| `GET` | `/api/status` | — | Owner/Admin |
+| `GET` | `/api/status` | — → version, manifest, migrations, queue, mail, observations | Owner/Admin |
 
 `assign-rooms` takes `{memberId, assign: [{roomId, roomRole}], revoke: [roomId]}`, at most 100 entries in total, and applies the whole batch in one transaction (§4.3).
 
@@ -301,6 +342,7 @@ mutation refuse independently.
 
 | Method | Path | Body / query | Authority |
 |---|---|---|---|
+| `GET` | `/api/status/content` | — → failed processing count, recovery record | Owner/Admin |
 | `POST` | `/api/rooms` | `{title, description}` → `201 {roomId}` | Owner/Admin, enforced by `create_room` |
 | `GET` | `/api/rooms?roomId=` | one register row by id | any member who can reach the room |
 
@@ -328,13 +370,19 @@ not a kill switch.
 | Method | Path | Body / query | Authority |
 |---|---|---|---|
 | `GET` | `/api/rooms/settings` | `roomId` → `{settings, downloadOverrides}` | Room Manager |
-| `POST` | `/api/policies` | union: `room-download`, `document-download`, `default-expiry-dry-run`, `default-expiry-apply`; `installation-download` joins in milestone 3 | Room Manager |
+| `POST` | `/api/policies` | union: `room-download`, `document-download`, `default-expiry-dry-run`, `default-expiry-apply` | Room Manager |
+| `GET` | `/api/installation` | — → `{settings: {downloadPolicy, revision, inheritingRoomCount}}` | Owner/Admin |
+| `POST` | `/api/installation/download-policy` | union: `dry-run {policy}`, `apply {policy, expectedRevision, confirmation?}` | Owner/Admin; allowing additionally fresh OIDC |
 | `POST` | `/api/counterparties` | union: `create`, `assign-viewer`, `remove-viewer` | Room Manager |
 | `GET` | `/api/participants` | gains `counterparties: [{counterpartyId, name, revision, viewerCount}]` | Room Manager |
 
 `/api/rooms/settings` is declared by `participants-access` even though its path
 sits under `/api/rooms`, because that is where its reader can legally live
 (§4.6). Paths are not owned by modules; tables are.
+
+The installation default has its own routes rather than joining `/api/policies`: that
+union is Room Manager authority, the installation default is Owner/Admin, and one body
+union should not carry two authorities.
 
 ## 6. Client architecture
 
@@ -345,7 +393,9 @@ views. This design adds roughly six panels, so it splits:
 
 - `routes/Workspace.tsx` — thin frame: session, theme, which view is current.
 - `workspace/views/RegisterView.tsx` — the room register plus the New room action.
-- `workspace/views/AdministrationView.tsx` — Members, Installation, Status.
+- `workspace/views/AdministrationView.tsx` — Members, Installation, Status. Its top-level
+  tab reads **Administration** once it holds more than Members, and its inner strip is
+  labelled "Administration sections" so the two navigation landmarks are distinct.
 - `workspace/views/RoomView.tsx` — the existing sections plus Settings.
 
 New components: `MembersPanel`, `MemberDetail`, `InstallationPanel`,
@@ -419,7 +469,9 @@ offline and destructive-confirmation states. Two are specific to this work:
 | Self-lockout | The Owner cannot be disabled or demoted except through `transfer_ownership`; `one_active_owner` plus the deferred constraint trigger backstop it. No member may change their own role or state at all (§7.1). |
 | Stale privileged session after change | Existing triggers revoke all sessions of the affected member; ownership transfer revokes the actor's own. |
 | Invitation enumeration | The member surface is Owner/Admin-only and legitimately enumerates. §8.2's neutral-response requirement binds the unauthenticated viewer OTP surface, which is untouched. |
-| Secret leakage through status | `detail` carries redacted codes only; no issuer URL, endpoint, bucket, credential or object key. Asserted by test. |
+| Secret leakage through status | Observations store a pattern-bound `code`, not prose, so no issuer URL, endpoint, bucket, host, credential or object key can be written; the response is asserted free of every configured value. |
+| Forged status | Each check has one writer, granted only to the process that runs it; the web credential writes nothing. A green check says what was tested and when, and turns stale on its own. |
+| Installation-wide download exposure | Allowing original downloads installation-wide needs a review naming the inheriting rooms and reachable documents, the typed phrase and a fresh sign-in; the 007 setter is no longer callable by the web credential. |
 | Assignment as a covert access grant | Assignments are Owner/Admin-only, audited, and shown per member and per room so that internal access is answerable from both directions. |
 | Purge of a room returned to service | A trigger pins a room to `archived` while its purge is live; returning it to draft requires cancelling the purge, which is Owner-only, typed, and audited. |
 | Typed confirmation bypassed by calling the building block | `duefold_runtime` has no `EXECUTE` on `change_room_state`; visibility changes reach it only through `apply_room_visibility`. |
@@ -496,12 +548,12 @@ regains access to a room they were removed from while promoted.
 
 ## 10. Milestones
 
-1. **Organization administration** (017; review fixes 018–021) — invite, roles,
+1. **Organization administration** (017, with 020 for register paging) — invite, roles,
    states, assignments, ownership transfer, member-invitation mail, Members tab.
    Unblocks everything else, since a room without staff is not usable.
 2. **Room administration** (022, 023) — create room, room state, Settings
    section, retention and purge UI, counterparties, download overrides.
-3. **Installation status** (next free number) — observations table, worker job,
+3. **Installation status** (024, 025, 026) — observations table, worker job,
    CLI writes, Installation and Status tabs, installation download default.
 
 The client split (§6.1) and the section contribution (§6.2) land with

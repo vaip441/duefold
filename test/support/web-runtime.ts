@@ -9,6 +9,7 @@ import type {
   DeliveryStorage,
 } from '../../modules/rooms-documents/src/storage/s3-compatible.ts';
 import { sandboxProgram } from '../../modules/rooms-documents/src/processing/sandbox.ts';
+import { composedDeploymentFacts } from '../../apps/web/src/deployment-facts.ts';
 
 const unusedStorage: WebStorage = {
   checksumSupport: false,
@@ -68,6 +69,7 @@ export function testWebRuntime(overrides: Partial<WebRuntime> = {}): WebRuntime 
       overrides.authPool ??
       overrides.pool ??
       new Pool({ connectionString: 'postgresql://unused:unused@127.0.0.1:1/unused' }),
+    deployment: composedDeploymentFacts(new Date()),
     pool:
       overrides.pool ??
       new Pool({ connectionString: 'postgresql://unused:unused@127.0.0.1:1/unused' }),

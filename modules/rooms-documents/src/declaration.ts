@@ -25,6 +25,14 @@ export const moduleDeclaration: ModuleDeclaration = {
       handlerFactoryExport: 'createHandler',
     },
     {
+      id: 'installation.content.read',
+      method: 'GET',
+      path: '/api/status/content',
+      audience: 'member',
+      handler: 'routes/content-status.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
       id: 'room.workspace.read',
       method: 'GET',
       path: '/api/rooms/workspace',
@@ -238,6 +246,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '014_member_state_readers', file: '014_member_state_readers.sql' },
     { id: '020_room_register_paging', file: '020_room_register_paging.sql' },
     { id: '022_room_administration', file: '022_room_administration.sql' },
+    { id: '025_content_status', file: '025_content_status.sql' },
   ],
   jobs: [
     {
