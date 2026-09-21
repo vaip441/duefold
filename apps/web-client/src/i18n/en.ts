@@ -956,6 +956,27 @@ export const messages = {
   'status.restore.untested': 'No restore drill has been recorded.',
   'status.restore.passed': 'The last restore drill passed.',
   'status.restore.failed': 'The last restore drill did not pass.',
+  'workspace.tab.installation': 'Installation',
+  'installation.heading': 'Installation settings',
+  'installation.loading': 'Loading installation settings',
+  'installation.denied': 'Installation settings are not available to your role.',
+  'installation.download.heading': 'Original downloads',
+  'installation.download.allowed': 'Allowed by default',
+  'installation.download.denied': 'Denied by default',
+  'installation.download.explain':
+    'Every room and document without its own policy inherits this. {rooms} rooms inherit it now.',
+  'installation.download.allow': 'Allow original downloads',
+  'installation.download.deny': 'Deny original downloads',
+  'installation.download.allow.title': 'Allow original downloads installation-wide',
+  'installation.download.deny.title': 'Deny original downloads installation-wide',
+  'installation.download.allow.consequence':
+    'Viewers will be able to download originals in the {rooms} rooms that inherit this default, including {documents} published documents they can open now.',
+  'installation.download.deny.consequence':
+    'Original downloads stop in the {rooms} rooms that inherit this default, including {documents} published documents viewers can open now. Rooms and documents with their own policy keep it.',
+  'installation.download.freshSignIn':
+    'This change needs a sign-in within the last 15 minutes.',
+  'installation.download.done.allow': 'Original downloads are now allowed by default.',
+  'installation.download.done.deny': 'Original downloads are now denied by default.',
 } as const;
 
 export type MessageKey = keyof typeof messages;

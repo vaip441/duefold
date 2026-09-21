@@ -12,11 +12,17 @@ import {
   isContributed,
 } from '../sections.ts';
 import { useAdministrationSection } from '../useAdministrationSection.ts';
-import { StatusSection } from './InstallationSections.tsx';
+import { InstallationSection, StatusSection } from './InstallationSections.tsx';
 import { classifyLoad } from './load-state.ts';
 
 const ADMINISTRATION_SECTIONS = [
   { id: 'members', scope: 'top', label: () => translate('workspace.tab.members'), order: 10 },
+  {
+    id: 'installation',
+    scope: 'top',
+    label: () => translate('workspace.tab.installation'),
+    order: 20,
+  },
   { id: 'status', scope: 'top', label: () => translate('workspace.tab.status'), order: 30 },
 ] as const satisfies readonly SectionTab[];
 
@@ -158,6 +164,7 @@ export function AdministrationView({
         />
       ) : null}
 
+      {currentId === 'installation' ? <InstallationSection onStatus={onStatus} /> : null}
       {currentId === 'status' ? <StatusSection /> : null}
 
       {section !== null && isContributed(section)

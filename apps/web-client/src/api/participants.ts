@@ -12,6 +12,7 @@ import {
   isRecord,
   json,
   oneOf,
+  positive,
   requireArray,
   requireInteger,
   requireString,
@@ -89,12 +90,6 @@ function stringOrNull(value: unknown): string | null {
   if (value === null) return null;
   if (typeof value !== 'string') throw new ApiError('unavailable');
   return value;
-}
-
-function positive(value: Readonly<Record<string, unknown>>, key: string): number {
-  const revision = requireInteger(value, key);
-  if (revision < 1) throw new ApiError('unavailable');
-  return revision;
 }
 
 /**

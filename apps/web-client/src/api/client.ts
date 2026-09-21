@@ -198,3 +198,12 @@ export {
   type StatusCheck,
   type StatusCheckRow,
 } from './status.ts';
+
+export {
+  applyInstallationDownload,
+  loadInstallationSettings,
+  reviewInstallationDownload,
+  type InstallationDownloadChange,
+  type InstallationDownloadImpact,
+  type InstallationSettings,
+} from './installation.ts';

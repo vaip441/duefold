@@ -5024,7 +5024,7 @@ git commit -m "Show installation status to Owners and Admins"
 
 The review's type carries the asymmetry: an allowing review holds its phrase and needs a fresh sign-in, a denying one holds neither, and the parser refuses any other pairing. `confirmationFor` therefore cannot turn a review of one direction into a change of the other.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `apps/web-client/src/api/installation.unit.test.ts`:
 
@@ -5159,7 +5159,7 @@ describe('InstallationDownloadControls', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 installation InstallationDownloadControls
@@ -5167,7 +5167,7 @@ npx vitest run --project unit --maxWorkers=2 installation InstallationDownloadCo
 
 Expected: FAIL — `installation.ts` and `InstallationDownloadControls.tsx` do not exist.
 
-- [ ] **Step 3: Write the client and the section state**
+- [x] **Step 3: Write the client and the section state**
 
 Create `apps/web-client/src/api/installation.ts`:
 
@@ -5337,7 +5337,7 @@ export function useInstallationSettings(): InstallationSettingsSection {
 
 `DownloadPolicy` must be re-exported from `api/client.ts`; it already is, with the room settings types.
 
-- [ ] **Step 4: Write the controls and the panel**
+- [x] **Step 4: Write the controls and the panel**
 
 Create `apps/web-client/src/components/InstallationDownloadControls.tsx`:
 
@@ -5606,7 +5606,7 @@ In `AdministrationView.tsx`, add the Installation entry between Members and Stat
       {currentId === 'installation' ? <InstallationSection onStatus={onStatus} /> : null}
 ```
 
-- [ ] **Step 5: Add the copy**
+- [x] **Step 5: Add the copy**
 
 In `apps/web-client/src/i18n/en.ts`:
 
@@ -5633,11 +5633,11 @@ In `apps/web-client/src/i18n/en.ts`:
   'installation.download.done.deny': 'Original downloads are now denied by default.',
 ```
 
-- [ ] **Step 6: Point the maps at the browser side**
+- [x] **Step 6: Point the maps at the browser side**
 
 In the `CODEBASE_MAP.md` installation row, add `[installation API](apps/web-client/src/api/installation.ts)` and `[installation panel](apps/web-client/src/components/InstallationPanel.tsx)` to the browser cell. In `modules/participants-access/README.md`, add `- [Browser installation API](../../apps/web-client/src/api/installation.ts), [state](../../apps/web-client/src/workspace/useInstallationSettings.ts) and [panel](../../apps/web-client/src/components/InstallationPanel.tsx)` to `## Start here`.
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2

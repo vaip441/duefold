@@ -287,6 +287,7 @@ test.describe('accessibility', () => {
       await page.getByRole('button', { name: 'Publish room' }).click();
       const reviewDialog = page.getByRole('dialog', { name: 'Publish this room' });
       await expect(reviewDialog).toContainText('PUBLISH ROOM');
+      await expect(reviewDialog).toHaveCSS('opacity', '1');
       const dialogResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();

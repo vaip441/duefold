@@ -107,6 +107,24 @@ export interface ConfirmationDialogProps {
   readonly onReload: () => void;
 }
 
+export function isConfirmationUnlocked(confirmation: Confirmation, typed: string): boolean {
+  return confirmation.phrase === null || typed === confirmation.phrase;
+}
+
+/**
+ * Whether the primary action may be pressed: never while a press is in flight, and for a
+ * typed confirmation only once the phrase matches exactly. The dialog reads its disabled
+ * state from here so the gate cannot be bypassed by rendering the button differently.
+ */
+export function submitEnabled(
+  confirmation: Confirmation | null,
+  typed: string,
+  pending: boolean,
+): boolean {
+  if (pending || confirmation === null) return false;
+  return isConfirmationUnlocked(confirmation, typed);
+}
+
 export function ConfirmationDialog({
   open,
   title,
@@ -140,7 +158,7 @@ export function ConfirmationDialog({
   };
 
   const ready = content.kind === 'ready' ? content.confirmation : null;
-  const unlocked = ready !== null && (ready.phrase === null || typed === ready.phrase);
+  const unlocked = submitEnabled(ready, typed, pending);
 
   return (
     <Dialog.Root
@@ -181,7 +199,7 @@ export function ConfirmationDialog({
                   type="button"
                   className="df-button df-button--primary"
                   data-busy={pending ? 'true' : 'false'}
-                  disabled={pending || !unlocked}
+                  disabled={!unlocked}
                   onClick={() => {
                     void run(ready);
                   }}

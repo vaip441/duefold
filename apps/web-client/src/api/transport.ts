@@ -172,6 +172,18 @@ export function requireInteger(value: Readonly<Record<string, unknown>>, key: st
   return found;
 }
 
+export function nonNegative(value: Readonly<Record<string, unknown>>, key: string): number {
+  const found = requireInteger(value, key);
+  if (found < 0) throw new ApiError('unavailable');
+  return found;
+}
+
+export function positive(value: Readonly<Record<string, unknown>>, key: string): number {
+  const found = requireInteger(value, key);
+  if (found < 1) throw new ApiError('unavailable');
+  return found;
+}
+
 export function oneOf<T>(values: readonly T[], value: unknown): T {
   if (!(values as readonly unknown[]).includes(value)) throw new ApiError('unavailable');
   return value as T;
