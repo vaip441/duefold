@@ -6153,7 +6153,7 @@ Grants to a counterparty are already routable (`grant-change.ts` accepts `grante
 
 `ParticipantsPanel` (714 lines) does not grow: counterparty work lives in `CounterpartyControls`, `AccessSection` composes the two, and the grant target and expiry fields move to `GrantDraftFields` so both surfaces share them. `RoomView` loses the ~45-line `ParticipantsPanel` element, which pays back what Tasks 9 and 12 added.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Create `apps/web-client/src/api/participants.unit.test.ts`:
 
@@ -6252,7 +6252,7 @@ describe('CounterpartyTables', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 participants.unit grants.unit CounterpartyControls
@@ -6260,7 +6260,7 @@ npx vitest run --project unit --maxWorkers=2 participants.unit grants.unit Count
 
 Expected: FAIL.
 
-- [ ] **Step 3: Carry counterparties through the client**
+- [x] **Step 3: Carry counterparties through the client**
 
 In `apps/web-client/src/api/participants.ts`:
 
@@ -6349,7 +6349,7 @@ export function counterpartyNameTaken(name: string, counterparties: readonly Cou
 }
 ```
 
-- [ ] **Step 4: Rework the participants hook**
+- [x] **Step 4: Rework the participants hook**
 
 In `apps/web-client/src/workspace/useParticipantsSection.ts`:
 
@@ -6459,7 +6459,7 @@ with matching members on `ParticipantsSection`:
 
 In `RoomView.tsx`, pass `onRosterChanged: onRoomsChanged` to `useParticipantsSection`.
 
-- [ ] **Step 5: Share the grant draft fields**
+- [x] **Step 5: Share the grant draft fields**
 
 Move the target-kind, folder, document and expiry fields out of `GrantChangeForm` (`ParticipantsPanel.tsx:448` onward) into `apps/web-client/src/components/GrantDraftFields.tsx`, **unchanged in markup and copy**, as:
 
@@ -6476,7 +6476,7 @@ export interface GrantDraftFieldsProps {
 
 `GrantChangeForm` renders `<GrantDraftFields .../>` where the fields were. Where `ParticipantsPanel` builds a submission, change `{ participant, draft, grantId }` to `{ grantee: { kind: 'viewer', viewerId: participant.viewerId, label: participant.email }, draft, grantId }`. `wc -l ParticipantsPanel.tsx` must be lower than 714 afterwards.
 
-- [ ] **Step 6: Write the counterparty controls**
+- [x] **Step 6: Write the counterparty controls**
 
 Create `apps/web-client/src/components/CounterpartyControls.tsx`:
 
@@ -6869,7 +6869,7 @@ function GrantConsequence({
 
 `counterparties[0]` is the select's initial value before the Manager chooses — the first option it shows.
 
-- [ ] **Step 7: Compose the Access section**
+- [x] **Step 7: Compose the Access section**
 
 Create `apps/web-client/src/workspace/views/AccessSection.tsx`:
 
@@ -6963,7 +6963,7 @@ The `ParticipantsPanel` props are the ones `RoomView.tsx` passes today, moved un
       ) : null}
 ```
 
-- [ ] **Step 8: Add the copy**
+- [x] **Step 8: Add the copy**
 
 ```ts
   'counterparty.heading': 'Counterparties',
@@ -7002,7 +7002,7 @@ The `ParticipantsPanel` props are the ones `RoomView.tsx` passes today, moved un
   'counterparty.grant.freshSignIn': 'A grant to a counterparty needs a sign-in from the last 15 minutes.',
 ```
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2
@@ -7012,7 +7012,7 @@ wc -l apps/web-client/src/workspace/views/RoomView.tsx apps/web-client/src/compo
 
 Expected: PASS; `RoomView.tsx` at most 30 lines over 776 across the milestone; `ParticipantsPanel.tsx` under 714.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add apps/web-client/src

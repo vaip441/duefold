@@ -127,9 +127,13 @@ export {
 
 export {
   applyGrantChange,
+  createCounterparty,
   dryRunGrantChange,
   inviteParticipant,
   loadParticipants,
+  placeViewerInCounterparty,
+  removeViewerFromCounterparty,
+  type Counterparty,
   type GrantChangeAction,
   type GrantChangeRequest,
   type GrantImpact,
@@ -138,6 +142,7 @@ export {
   type GranteeKind,
   type Participant,
   type ParticipantGrant,
+  type ParticipantRoster,
 } from './participants.ts';
 
 export {

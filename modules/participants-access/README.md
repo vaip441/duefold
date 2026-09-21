@@ -12,7 +12,7 @@ Owns external participants, viewer invitations, allow-only grants, expiry and re
 - [Database functions](migrations/) — authoritative grant and invitation transitions.
 - [Browser API](../../apps/web-client/src/api/participants.ts) and [room settings API](../../apps/web-client/src/api/room-settings.ts)
 - [Browser state](../../apps/web-client/src/workspace/useParticipantsSection.ts) and [room settings state](../../apps/web-client/src/workspace/useRoomSettings.ts)
-- [Participant panel](../../apps/web-client/src/components/ParticipantsPanel.tsx) and [room settings panel](../../apps/web-client/src/components/RoomSettingsPanel.tsx)
+- [Access section](../../apps/web-client/src/workspace/views/AccessSection.tsx) composing [participant panel](../../apps/web-client/src/components/ParticipantsPanel.tsx) and [counterparty controls](../../apps/web-client/src/components/CounterpartyControls.tsx); [room settings panel](../../apps/web-client/src/components/RoomSettingsPanel.tsx)
 - Authorization suites: [participant grants](../../test/authz/participant-grants.test.ts), [room settings](../../test/authz/room-settings.test.ts), [download policy](../../test/authz/room-download-policy.test.ts), [default grant expiry](../../test/authz/room-default-expiry.test.ts), and [counterparties](../../test/authz/room-counterparties.test.ts), sharing [seeding](../../test/authz/support/policy-fixture.ts)
 
 ## Does not own

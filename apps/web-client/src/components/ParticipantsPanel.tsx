@@ -24,7 +24,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type {
   GrantChangeAction,
   GrantImpact,
-  GrantTargetKind,
   Participant,
   WorkingEntry,
 } from '../api/client.ts';
@@ -32,11 +31,14 @@ import { translate } from '../i18n/translate.ts';
 import {
   describeGrant,
   formatDate,
+  grantableTargets,
   validateGrantDraft,
   type GrantDraft,
+  type GrantDraftProblem,
+  type GrantSubmission,
 } from '../workspace/grants.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
-import type { GrantSubmission } from '../workspace/grants.ts';
+import { GrantDraftFields } from './GrantDraftFields.tsx';
 import { Notice } from './Notice.tsx';
 
 export interface ParticipantsPanelProps {
@@ -98,12 +100,8 @@ export function ParticipantsPanel({
   const [typed, setTyped] = useState('');
   const [typedAttempted, setTypedAttempted] = useState(false);
 
-  const folders = entries.filter(
-    (entry) => entry.resourceKind === 'folder' && !entry.stagedRemoved,
-  );
-  const documents = entries.filter(
-    (entry) => entry.resourceKind === 'document' && !entry.stagedRemoved,
-  );
+  const folders = grantableTargets(entries, 'folder');
+  const documents = grantableTargets(entries, 'document');
   const problems = validateGrantDraft(draft, new Date());
   const emailValid = EMAIL.test(email.trim());
 
@@ -331,7 +329,11 @@ export function ParticipantsPanel({
                   setDraftAttempted(true);
                   if (problems.length > 0) return;
                   onReview({
-                    participant,
+                    grantee: {
+                      kind: 'viewer',
+                      viewerId: participant.viewerId,
+                      label: participant.email,
+                    },
                     draft,
                     ...(existing === undefined ? {} : { grantId: existing.grantId }),
                   });
@@ -422,7 +424,7 @@ interface GrantChangeFormProps {
   readonly participant: Participant;
   readonly action: GrantChangeAction;
   readonly draft: GrantDraft;
-  readonly problems: readonly string[];
+  readonly problems: readonly GrantDraftProblem[];
   readonly folders: readonly WorkingEntry[];
   readonly documents: readonly WorkingEntry[];
   readonly impact: GrantImpact | null;
@@ -482,126 +484,14 @@ function GrantChangeForm({
         <Notice tone="caution">{translate('grant.revoke.warning')}</Notice>
       ) : null}
 
-      {action === 'grant' ? (
-        <>
-          <div className="df-field">
-            <label className="df-field__label" htmlFor={`${fieldId}-target`}>
-              {translate('grant.target.label')}
-            </label>
-            <select
-              id={`${fieldId}-target`}
-              className="df-field__input"
-              ref={firstField as React.RefObject<HTMLSelectElement>}
-              value={draft.targetKind ?? ''}
-              aria-invalid={problems.includes('target-required') ? 'true' : undefined}
-              onChange={(event) => {
-                const value = event.target.value;
-                onDraftChange({
-                  ...draft,
-                  targetKind: value === '' ? null : (value as GrantTargetKind),
-                  folderId: null,
-                  documentId: null,
-                });
-              }}
-            >
-              <option value="">{translate('grant.target.pick')}</option>
-              <option value="room">{translate('grant.target.room')}</option>
-              <option value="folder">{translate('grant.target.folder')}</option>
-              <option value="document">{translate('grant.target.document')}</option>
-            </select>
-          </div>
-
-          {draft.targetKind === 'folder' ? (
-            <div className="df-field">
-              <label className="df-field__label" htmlFor={`${fieldId}-folder`}>
-                {translate('grant.target.folder')}
-              </label>
-              <select
-                id={`${fieldId}-folder`}
-                className="df-field__input"
-                value={draft.folderId ?? ''}
-                onChange={(event) => {
-                  onDraftChange({
-                    ...draft,
-                    folderId: event.target.value === '' ? null : event.target.value,
-                  });
-                }}
-              >
-                <option value="">{translate('grant.target.pick')}</option>
-                {folders.map((folder) => (
-                  <option key={folder.resourceId} value={folder.resourceId}>
-                    {folder.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-
-          {draft.targetKind === 'document' ? (
-            <div className="df-field">
-              <label className="df-field__label" htmlFor={`${fieldId}-document`}>
-                {translate('grant.target.document')}
-              </label>
-              <select
-                id={`${fieldId}-document`}
-                className="df-field__input"
-                value={draft.documentId ?? ''}
-                onChange={(event) => {
-                  onDraftChange({
-                    ...draft,
-                    documentId: event.target.value === '' ? null : event.target.value,
-                  });
-                }}
-              >
-                <option value="">{translate('grant.target.pick')}</option>
-                {documents.map((document) => (
-                  <option key={document.resourceId} value={document.resourceId}>
-                    {document.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-        </>
-      ) : null}
-
-      {action === 'revoke' ? null : (
-        <div className="df-field">
-          <label className="df-field__label" htmlFor={`${fieldId}-expiry`}>
-            {translate('grant.expiry.label')}
-          </label>
-          <input
-            id={`${fieldId}-expiry`}
-            className="df-field__input"
-            type="date"
-            value={draft.expiresOn}
-            ref={action === 'expiry' ? (firstField as React.RefObject<HTMLInputElement>) : null}
-            aria-invalid={
-              problems.includes('expiry-past') || problems.includes('expiry-required')
-                ? 'true'
-                : undefined
-            }
-            aria-describedby={`${fieldId}-expiry-help`}
-            onChange={(event) => {
-              onDraftChange({ ...draft, expiresOn: event.target.value });
-            }}
-          />
-          <p className="df-field__help" id={`${fieldId}-expiry-help`}>
-            {translate('grant.expiry.help')}
-          </p>
-          {problems.includes('expiry-past') ? (
-            <p className="df-field__error" role="alert">
-              {translate('grant.expiry.past')}
-            </p>
-          ) : null}
-        </div>
-      )}
-
-      {problems.includes('target-required') ? (
-        <p className="df-field__error" role="alert">
-          {translate('grant.target.pick')}
-        </p>
-      ) : null}
+      <GrantDraftFields
+        draft={draft}
+        problems={problems}
+        folders={folders}
+        documents={documents}
+        firstField={firstField}
+        onDraftChange={onDraftChange}
+      />
 
       {failure === null ? null : (
         <Notice

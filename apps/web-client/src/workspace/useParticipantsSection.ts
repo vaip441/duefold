@@ -13,21 +13,26 @@
  *    "no participants" for a refusal represents inaccessible data as absent.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   applyGrantChange,
+  createCounterparty,
   dryRunGrantChange,
   inviteParticipant,
   loadParticipants,
+  placeViewerInCounterparty,
+  removeViewerFromCounterparty,
   type GrantImpact,
-  type Participant,
+  type ParticipantRoster,
 } from '../api/client.ts';
 import { presentFailure, type PresentedFailure } from './failures.ts';
-import { draftToRequest, type GrantSubmission } from './grants.ts';
+import { draftToRequest, granteeRequest, type GrantSubmission } from './grants.ts';
+import { committed, settle, type Outcome } from './outcome.ts';
+import { readFor } from './room-settings.ts';
 import type { Load } from './state.ts';
 
 export interface ParticipantsSection {
-  readonly participants: Load<readonly Participant[]>;
+  readonly roster: Load<ParticipantRoster>;
   readonly failure: PresentedFailure | null;
   readonly inviteFailure: PresentedFailure | null;
   readonly invitePending: boolean;
@@ -49,15 +54,59 @@ export interface ParticipantsSection {
     confirmation: string;
   }) => void;
   readonly cancelChange: () => void;
+  readonly previewGrant: (
+    roomId: string,
+    submission: GrantSubmission,
+  ) => Promise<Outcome<GrantImpact>>;
+  readonly commitGrant: (input: {
+    readonly roomId: string;
+    readonly submission: GrantSubmission;
+    readonly impact: GrantImpact;
+    readonly expectedRoomRevision: number;
+    readonly confirmation: string;
+  }) => Promise<PresentedFailure | null>;
+  readonly addCounterparty: (input: {
+    readonly roomId: string;
+    readonly name: string;
+    readonly expectedRoomRevision: number;
+  }) => Promise<PresentedFailure | null>;
+  readonly placeViewer: (input: {
+    readonly roomId: string;
+    readonly counterpartyId: string;
+    readonly viewerId: string;
+    readonly expectedRoomRevision: number;
+  }) => Promise<PresentedFailure | null>;
+  readonly removeViewer: (input: {
+    readonly roomId: string;
+    readonly viewerId: string;
+    readonly expectedRoomRevision: number;
+  }) => Promise<PresentedFailure | null>;
 }
 
 export function useParticipantsSection(handlers: {
   readonly onInvited: (email: string) => void;
   readonly onApplied: () => void;
+  readonly onRosterChanged: () => void;
 }): ParticipantsSection {
-  const [participants, setParticipants] = useState<Load<readonly Participant[]>>({
-    kind: 'loading',
-  });
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
+
+  /*
+   * Tagged with the room it describes. This view is reused as the member moves between rooms,
+   * so a read or a post-mutation refresh that resolves after they have left would otherwise
+   * put one room's readers, counterparties and grants on another room's Access section.
+   * `readFor` answers `loading` rather than the wrong room's value.
+   */
+  const [read, setRead] = useState<{
+    readonly roomId: string;
+    readonly load: Load<ParticipantRoster>;
+  } | null>(null);
+  const openRoomId = useRef<string | null>(null);
   const [failure, setFailure] = useState<PresentedFailure | null>(null);
   const [inviteFailure, setInviteFailure] = useState<PresentedFailure | null>(null);
   const [invitePending, setInvitePending] = useState(false);
@@ -68,22 +117,31 @@ export function useParticipantsSection(handlers: {
   const [changeFailure, setChangeFailure] = useState<PresentedFailure | null>(null);
 
   const refresh = useCallback((roomId: string, signal?: AbortSignal): void => {
+    openRoomId.current = roomId;
     setFailure(null);
     loadParticipants(roomId, signal).then(
       (value) => {
-        setParticipants({ kind: 'ready', value });
+        if (!mounted.current) return;
+        setRead({ roomId, load: { kind: 'ready', value } });
       },
       (error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
+        if (!mounted.current) return;
         const presented = presentFailure(error);
-        setParticipants({ kind: 'failed', failure: presented.title });
+        setRead({ roomId, load: { kind: 'failed', failure: presented.title } });
         setFailure(presented);
       },
     );
   }, []);
 
+  /* Only for the room still open: a mutation that resolved after the member moved on must not
+     reload a room nobody is looking at, nor tell the frame that one changed. */
+  const settled = useCallback((roomId: string): boolean => {
+    return mounted.current && openRoomId.current === roomId;
+  }, []);
+
   const beginLoading = useCallback((): void => {
-    setParticipants({ kind: 'loading' });
+    setRead(null);
   }, []);
 
   const invite: ParticipantsSection['invite'] = (input) => {
@@ -91,15 +149,48 @@ export function useParticipantsSection(handlers: {
     setInviteFailure(null);
     inviteParticipant(input).then(
       () => {
+        if (!mounted.current) return;
         setInvitePending(false);
         handlers.onInvited(input.email);
         refresh(input.roomId);
       },
       (error: unknown) => {
+        if (!mounted.current) return;
         setInvitePending(false);
         setInviteFailure(presentFailure(error));
       },
     );
+  };
+
+  const previewGrant: ParticipantsSection['previewGrant'] = (roomId, next) =>
+    settle(
+      dryRunGrantChange({
+        roomId,
+        changeAction: next.draft.changeAction,
+        ...(next.grantId === undefined ? {} : { grantId: next.grantId }),
+        ...granteeRequest(next.grantee),
+        ...draftToRequest(next.draft),
+      }),
+    );
+
+  const commitGrant: ParticipantsSection['commitGrant'] = async (input) => {
+    const failure = await committed(
+      applyGrantChange({
+        roomId: input.roomId,
+        changeAction: input.submission.draft.changeAction,
+        // The server's own grantId, not one chosen here.
+        grantId: input.impact.grantId,
+        ...granteeRequest(input.submission.grantee),
+        ...draftToRequest(input.submission.draft),
+        expectedRoomRevision: input.expectedRoomRevision,
+        confirmation: input.confirmation,
+      }),
+    );
+    if (failure === null && settled(input.roomId)) {
+      handlers.onApplied();
+      refresh(input.roomId);
+    }
+    return failure;
   };
 
   const review: ParticipantsSection['review'] = (roomId, next) => {
@@ -107,24 +198,12 @@ export function useParticipantsSection(handlers: {
     setImpact(null);
     setChangeFailure(null);
     setImpactPending(true);
-    dryRunGrantChange({
-      roomId,
-      changeAction: next.draft.changeAction,
-      ...(next.grantId === undefined ? {} : { grantId: next.grantId }),
-      granteeKind: 'viewer',
-      viewerId: next.participant.viewerId,
-      counterpartyId: null,
-      ...draftToRequest(next.draft),
-    }).then(
-      (value) => {
-        setImpactPending(false);
-        setImpact(value);
-      },
-      (error: unknown) => {
-        setImpactPending(false);
-        setChangeFailure(presentFailure(error));
-      },
-    );
+    void previewGrant(roomId, next).then((outcome) => {
+      if (!mounted.current) return;
+      setImpactPending(false);
+      if (outcome.ok) setImpact(outcome.value);
+      else setChangeFailure(outcome.failure);
+    });
   };
 
   const apply: ParticipantsSection['apply'] = (input) => {
@@ -133,30 +212,14 @@ export function useParticipantsSection(handlers: {
     if (current === null || reviewed === null) return;
     setApplyPending(true);
     setChangeFailure(null);
-    applyGrantChange({
-      roomId: input.roomId,
-      changeAction: current.draft.changeAction,
-      // The server's own grantId, not one chosen here.
-      grantId: reviewed.grantId,
-      granteeKind: 'viewer',
-      viewerId: current.participant.viewerId,
-      counterpartyId: null,
-      ...draftToRequest(current.draft),
-      expectedRoomRevision: input.expectedRoomRevision,
-      confirmation: input.confirmation,
-    }).then(
-      () => {
-        setApplyPending(false);
+    void commitGrant({ ...input, submission: current, impact: reviewed }).then((failure) => {
+      if (!mounted.current) return;
+      setApplyPending(false);
+      if (failure === null) {
         setImpact(null);
         setSubmission(null);
-        handlers.onApplied();
-        refresh(input.roomId);
-      },
-      (error: unknown) => {
-        setApplyPending(false);
-        setChangeFailure(presentFailure(error));
-      },
-    );
+      } else setChangeFailure(failure);
+    });
   };
 
   const cancelChange = useCallback((): void => {
@@ -165,8 +228,20 @@ export function useParticipantsSection(handlers: {
     setChangeFailure(null);
   }, []);
 
+  const rosterChange = async (
+    roomId: string,
+    work: Promise<unknown>,
+  ): Promise<PresentedFailure | null> => {
+    const failure = await committed(work);
+    if (failure === null && settled(roomId)) {
+      handlers.onRosterChanged();
+      refresh(roomId);
+    }
+    return failure;
+  };
+
   return {
-    participants,
+    roster: readFor(read, openRoomId.current) ?? { kind: 'loading' },
     failure,
     inviteFailure,
     invitePending,
@@ -180,5 +255,10 @@ export function useParticipantsSection(handlers: {
     review,
     apply,
     cancelChange,
+    previewGrant,
+    commitGrant,
+    addCounterparty: (input) => rosterChange(input.roomId, createCounterparty(input)),
+    placeViewer: (input) => rosterChange(input.roomId, placeViewerInCounterparty(input)),
+    removeViewer: (input) => rosterChange(input.roomId, removeViewerFromCounterparty(input)),
   };
 }

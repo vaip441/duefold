@@ -10,14 +10,17 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  counterpartyNameTaken,
   describeGrant,
   expiryInstant,
+  grantableTargets,
+  granteeRequest,
   hasExpiredGrant,
   isBroadChange,
   validateGrantDraft,
   type GrantDraft,
 } from './grants.ts';
-import type { Participant, ParticipantGrant } from '../api/client.ts';
+import type { Participant, ParticipantGrant, WorkingEntry } from '../api/client.ts';
 
 function grant(overrides: Partial<ParticipantGrant> = {}): ParticipantGrant {
   return {
@@ -190,5 +193,114 @@ describe('isBroadChange', () => {
     expect(isBroadChange({ ...draft, targetKind: 'document' }, false)).toBe(false);
     // A revoke is resolved server-side and is not classified broad here.
     expect(isBroadChange({ ...draft, changeAction: 'revoke' }, false)).toBe(false);
+  });
+});
+
+describe('granteeRequest', () => {
+  it('sends exactly one grantee id, of the grantee’s kind', () => {
+    expect(
+      granteeRequest({ kind: 'viewer', viewerId: 'v'.repeat(32), label: 'a@example.test' }),
+    ).toStrictEqual({
+      granteeKind: 'viewer',
+      viewerId: 'v'.repeat(32),
+      counterpartyId: null,
+    });
+    expect(
+      granteeRequest({
+        kind: 'counterparty',
+        counterpartyId: 'c'.repeat(32),
+        label: 'Buyer A',
+      }),
+    ).toStrictEqual({
+      granteeKind: 'counterparty',
+      viewerId: null,
+      counterpartyId: 'c'.repeat(32),
+    });
+  });
+});
+
+describe('counterpartyNameTaken', () => {
+  const existing = [
+    { counterpartyId: 'c'.repeat(32), name: 'Buyer A', revision: 1, viewerCount: 0 },
+  ];
+
+  it('compares after case and space normalization, as the database does', () => {
+    expect(counterpartyNameTaken('  buyer a ', existing)).toBe(true);
+    expect(counterpartyNameTaken('Buyer B', existing)).toBe(false);
+  });
+
+  /*
+   * `canonical_structure_name` is `normalize(lower(btrim(value)), NFC)`, and PostgreSQL's
+   * `btrim` strips the SPACE character alone. Trimming more here would veto a name the server
+   * accepts, which is worse than letting the request go and presenting the 409: the member
+   * would be told a name is taken when it is not.
+   */
+  it('does not treat a non-breaking space as trimmable, because the database does not', () => {
+    expect(counterpartyNameTaken('\u00A0Buyer A\u00A0', existing)).toBe(false);
+  });
+
+  it('distinguishes an internal wide space, which is part of the name', () => {
+    expect(counterpartyNameTaken('Buyer\u2003A', existing)).toBe(false);
+  });
+
+  /* NFC, so a decomposed accent and its composed form are one name. */
+  it('treats the two spellings of an accented name as the same', () => {
+    const cafe = [
+      { counterpartyId: 'd'.repeat(32), name: 'Caf\u00e9', revision: 1, viewerCount: 0 },
+    ];
+    expect(counterpartyNameTaken('cafe\u0301', cafe)).toBe(true);
+  });
+});
+
+describe('grantableTargets', () => {
+  const entry = (
+    id: string,
+    kind: 'folder' | 'document',
+    stagedRemoved: boolean,
+  ): WorkingEntry =>
+    ({
+      entryId: id,
+      resourceKind: kind,
+      resourceId: id,
+      documentRevision: kind === 'document' ? 2 : null,
+      parentFolderId: null,
+      displayName: id,
+      description: '',
+      revision: 1,
+      stagedRemoved,
+      depth: 0,
+      position: 1,
+      canMoveUp: false,
+      canMoveDown: false,
+      changeKinds: [],
+      hasPublishableVersion: true,
+      isPublished: true,
+    }) as WorkingEntry;
+
+  const entries = [
+    entry('keep-folder', 'folder', false),
+    entry('going-folder', 'folder', true),
+    entry('keep-doc', 'document', false),
+    entry('going-doc', 'document', true),
+  ];
+
+  /*
+   * A staged removal is a pending change, so `grant_target_impact` counts nothing for it while
+   * the published copy is still reachable: a review would report no affected items and the
+   * grant would still expose content. Both grant surfaces have to agree on this.
+   */
+  it('never offers an entry staged for removal', () => {
+    expect(grantableTargets(entries, 'folder').map((e) => e.entryId)).toStrictEqual([
+      'keep-folder',
+    ]);
+    expect(grantableTargets(entries, 'document').map((e) => e.entryId)).toStrictEqual([
+      'keep-doc',
+    ]);
+  });
+
+  it('keeps folders and documents apart', () => {
+    expect(grantableTargets(entries, 'folder').every((e) => e.resourceKind === 'folder')).toBe(
+      true,
+    );
   });
 });

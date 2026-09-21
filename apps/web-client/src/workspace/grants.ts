@@ -10,10 +10,12 @@
  */
 
 import type {
+  Counterparty,
   GrantChangeAction,
   GrantTargetKind,
   Participant,
   ParticipantGrant,
+  WorkingEntry,
 } from '../api/client.ts';
 import { translate, type MessageKey } from '../i18n/translate.ts';
 
@@ -135,6 +137,11 @@ export function isBroadChange(draft: GrantDraft, granteeIsCounterparty: boolean)
   );
 }
 
+/** Who a grant names. Exactly one id travels, of the grantee's own kind. */
+export type Grantee =
+  | { readonly kind: 'viewer'; readonly viewerId: string; readonly label: string }
+  | { readonly kind: 'counterparty'; readonly counterpartyId: string; readonly label: string };
+
 /**
  * A reviewed grant change waiting to be applied.
  *
@@ -143,9 +150,46 @@ export function isBroadChange(draft: GrantDraft, granteeIsCounterparty: boolean)
  * other grant logic.
  */
 export interface GrantSubmission {
-  readonly participant: Participant;
+  readonly grantee: Grantee;
   readonly draft: GrantDraft;
   readonly grantId?: string;
+}
+
+export function granteeRequest(grantee: Grantee): {
+  readonly granteeKind: 'viewer' | 'counterparty';
+  readonly viewerId: string | null;
+  readonly counterpartyId: string | null;
+} {
+  return grantee.kind === 'viewer'
+    ? { granteeKind: 'viewer', viewerId: grantee.viewerId, counterpartyId: null }
+    : { granteeKind: 'counterparty', viewerId: null, counterpartyId: grantee.counterpartyId };
+}
+
+/** Convenience only: `counterparty (room_id, normalized_name)` is the authority. */
+/**
+ * Whether the room already holds this name, by the DATABASE's rule.
+ *
+ * `canonical_structure_name` is `normalize(lower(btrim(value)), NFC)`, and PostgreSQL's
+ * `btrim` defaults to stripping the SPACE character alone. JavaScript's `trim()` strips every
+ * Unicode whitespace, so using it here would report a clash the server does not see and block
+ * a name it would accept.
+ *
+ * This is convenience, not authority: uniqueness is a database constraint and its 409 is still
+ * presented if two requests race.
+ */
+function canonicalName(value: string): string {
+  return value
+    .replace(/^ +| +$/gu, '')
+    .toLowerCase()
+    .normalize('NFC');
+}
+
+export function counterpartyNameTaken(
+  name: string,
+  counterparties: readonly Counterparty[],
+): boolean {
+  const key = canonicalName(name);
+  return counterparties.some((counterparty) => canonicalName(counterparty.name) === key);
 }
 
 /** Turns a draft into request fields. The server validates them again. */
@@ -162,4 +206,19 @@ export function draftToRequest(draft: GrantDraft): {
     documentId: draft.documentId,
     expiresAt: instant === null ? null : instant.toISOString(),
   };
+}
+
+/**
+ * The entries a grant may name: never one staged for removal.
+ *
+ * ONE definition, because two surfaces grant access to the same room. A staged removal is a
+ * pending change to the working structure, so `grant_target_impact` counts nothing for it
+ * while the published copy of that target is still reachable — a review would report no
+ * affected items and the grant would still expose content. Both grant paths filter here.
+ */
+export function grantableTargets(
+  entries: readonly WorkingEntry[],
+  kind: 'folder' | 'document',
+): readonly WorkingEntry[] {
+  return entries.filter((entry) => entry.resourceKind === kind && !entry.stagedRemoved);
 }

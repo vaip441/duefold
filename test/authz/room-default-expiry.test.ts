@@ -201,8 +201,11 @@ describe('default grant expiry', () => {
 
     const audited = (
       await migrationPool.query<{ expires: string }>(
+        /* `sequence` is the append order; `id` is an opaque random string and sorting by it
+           would return an arbitrary row. */
         `SELECT detail->>'expiresAt' AS expires FROM audit_event
-          WHERE event_type='grant.default_expiry' AND room_id=$1 ORDER BY id DESC LIMIT 1`,
+          WHERE event_type='grant.default_expiry' AND room_id=$1
+          ORDER BY sequence DESC LIMIT 1`,
         [roomId],
       )
     ).rows[0]?.expires;

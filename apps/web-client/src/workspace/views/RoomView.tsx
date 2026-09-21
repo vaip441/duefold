@@ -32,7 +32,6 @@ import {
 } from '../../api/client.ts';
 import { ExportsPanel } from '../../components/ExportsPanel.tsx';
 import { Notice } from '../../components/Notice.tsx';
-import { ParticipantsPanel } from '../../components/ParticipantsPanel.tsx';
 import { ProcessingPanel } from '../../components/ProcessingPanel.tsx';
 import { RoomSettingsPanel } from '../../components/RoomSettingsPanel.tsx';
 import { SectionNav } from '../../components/SectionNav.tsx';
@@ -55,6 +54,7 @@ import { useExportsSection, useProcessingSection } from '../useRoomSections.ts';
 import { useRoomSettings } from '../useRoomSettings.ts';
 import { transferParts } from '../upload.ts';
 import { failureMessage } from '../failure-message.ts';
+import { AccessSection } from './AccessSection.tsx';
 
 export interface RoomViewProps {
   readonly roomId: string;
@@ -175,6 +175,7 @@ export function RoomView({
       onStatus(translate('grant.done'));
       onRoomsChanged();
     },
+    onRosterChanged: onRoomsChanged,
   });
 
   /* Offered on Room Manager authority, the register row's `canPublish`. The reader
@@ -695,47 +696,13 @@ export function RoomView({
       ) : null}
 
       {currentId === 'participants' ? (
-        <ParticipantsPanel
-          participants={
-            participantsSection.participants.kind === 'ready'
-              ? participantsSection.participants.value
-              : []
-          }
+        <AccessSection
+          roomId={roomId}
+          room={room}
           entries={entries}
-          loading={participantsSection.participants.kind === 'loading'}
-          denied={participantsSection.participants.kind === 'failed'}
-          failure={participantsSection.failure}
-          inviteFailure={participantsSection.inviteFailure}
-          invitePending={participantsSection.invitePending}
-          impact={participantsSection.impact}
-          impactLoading={participantsSection.impactPending}
-          applyPending={participantsSection.applyPending}
-          changeFailure={participantsSection.changeFailure}
-          onInvite={(email) => {
-            if (room === null) return;
-            participantsSection.invite({
-              roomId,
-              email,
-              expectedRoomRevision: room.revision,
-            });
-          }}
-          onReview={(submission) => {
-            participantsSection.review(roomId, submission);
-          }}
-          onApply={(confirmation) => {
-            if (room === null) return;
-            participantsSection.apply({
-              roomId,
-              expectedRoomRevision: room.revision,
-              confirmation,
-            });
-          }}
-          onCancelChange={participantsSection.cancelChange}
-          onReload={() => {
-            participantsSection.beginLoading();
-            participantsSection.refresh(roomId);
-            onRoomsChanged();
-          }}
+          section={participantsSection}
+          onStatus={onStatus}
+          onRoomsChanged={onRoomsChanged}
         />
       ) : null}
 
