@@ -171,7 +171,7 @@ describe('upload authorization matrix', () => {
       'SELECT revision FROM room WHERE id = $1',
       [roomId],
     );
-    await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+    await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
       roomId,
       'archived',
       ownerId,
@@ -193,7 +193,7 @@ describe('manual processing retry authorization matrix', () => {
       'SELECT revision FROM room WHERE id = $1',
       [roomId],
     );
-    await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+    await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
       roomId,
       'draft',
       ownerId,

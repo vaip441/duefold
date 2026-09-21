@@ -557,7 +557,7 @@ describe('room structure database boundary', () => {
     ]);
     const publishable = await room();
     await expect(
-      runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+      migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
         roomId,
         'published',
         managerId,

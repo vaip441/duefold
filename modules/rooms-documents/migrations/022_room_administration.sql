@@ -159,3 +159,8 @@ $$;
 REVOKE ALL ON FUNCTION read_member_working_structure(text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION read_member_working_structure(text,text) TO duefold_runtime;
 ALTER FUNCTION read_member_working_structure(text,text) OWNER TO duefold_migration;
+
+-- change_room_state is a building block for SECURITY DEFINER callers. A runtime grant
+-- would let any caller change visibility without the review, phrase and freshness rules.
+REVOKE EXECUTE ON FUNCTION change_room_state(text,text,text,integer,text,text) FROM duefold_runtime;
+

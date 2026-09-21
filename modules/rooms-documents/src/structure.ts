@@ -260,26 +260,3 @@ export async function updateDocumentMetadata(input: {
   if (row === undefined) throw new Error('METADATA_MUTATION_FAILED');
   return { documentRevision: row.document_revision, workingRevision: row.working_revision };
 }
-
-export async function changeRoomState(input: {
-  readonly pool: Pool;
-  readonly identity: MemberIdentity;
-  readonly roomId: string;
-  readonly state: 'draft' | 'published' | 'archived';
-  readonly expectedRevision: number;
-}): Promise<{ readonly revision: number }> {
-  const result = await input.pool.query<{ change_room_state: number }>(
-    'SELECT change_room_state($1,$2,$3,$4,$5,$6)',
-    [
-      input.roomId,
-      input.state,
-      input.identity.id,
-      input.expectedRevision,
-      createOpaqueId(),
-      createCorrelationId(),
-    ],
-  );
-  const revision = result.rows[0]?.change_room_state;
-  if (revision === undefined) throw new Error('ROOM_STATE_CHANGE_FAILED');
-  return { revision };
-}

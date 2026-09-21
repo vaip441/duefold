@@ -227,7 +227,7 @@ async function publish() {
 }
 async function state(value: 'draft' | 'published' | 'archived') {
   const r = await revisions();
-  await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+  await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
     roomId,
     value,
     managerId,
@@ -486,7 +486,7 @@ describe('published structure projection authorization boundary', () => {
     await state('draft');
     expect(await readPublishedStructure(migrationPool, roomId)).toEqual([]);
     const before = await revisions();
-    await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+    await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
       roomId,
       'published',
       managerId,
@@ -700,7 +700,7 @@ describe('published structure projection authorization boundary', () => {
   it('publishes an entire replacement snapshot atomically and records exact version evidence', async () => {
     await publish();
     const before = await revisions();
-    await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+    await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
       roomId,
       'published',
       managerId,

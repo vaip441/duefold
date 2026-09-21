@@ -180,7 +180,7 @@ beforeAll(async () => {
     ],
   );
 
-  await runtimePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+  await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
     archivedRoomId,
     'archived',
     ownerId,

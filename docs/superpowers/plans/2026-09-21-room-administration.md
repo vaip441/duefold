@@ -1198,7 +1198,7 @@ git commit -m "Send the document revision that document writers compare"
 
 Each capability mirrors exactly one function's refusals, and the Settings surface renders a control only where its key is true. `publish`, `archive` and `returnToDraft` mirror `apply_room_visibility`, which Task 5 adds; their mirror test lives there.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/authz/room-settings.test.ts`:
 
@@ -1411,7 +1411,7 @@ describe('GET /api/rooms/settings', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 npm run compose
@@ -1420,7 +1420,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL with `function read_room_settings(unknown, unknown) does not exist`.
 
-- [ ] **Step 3: Write migration 023, part 1**
+- [x] **Step 3: Write migration 023, part 1**
 
 Create `modules/participants-access/migrations/023_room_settings.sql`:
 
@@ -1516,7 +1516,7 @@ Register the migration in `modules/participants-access/src/declaration.ts`:
     { id: '023_room_settings', file: '023_room_settings.sql' },
 ```
 
-- [ ] **Step 4: Write the wrapper**
+- [x] **Step 4: Write the wrapper**
 
 Create `modules/participants-access/src/room-settings.ts`:
 
@@ -1627,7 +1627,7 @@ export async function readRoomSettings(input: {
 
 `purge_id`, `purge_state` and `purge_after` come from one joined row and are null together; the combined check narrows all three rather than trusting one.
 
-- [ ] **Step 5: Add the route**
+- [x] **Step 5: Add the route**
 
 Create `modules/participants-access/src/routes/room-settings.ts`:
 
@@ -1723,7 +1723,7 @@ Declare it in `modules/participants-access/src/declaration.ts`, in `routes`:
     },
 ```
 
-- [ ] **Step 6: Append to the contract**
+- [x] **Step 6: Append to the contract**
 
 ````markdown
 ## `GET /api/rooms/settings?roomId=<id>`
@@ -1748,7 +1748,7 @@ refusals — `publish`, `archive`, `returnToDraft`: `apply_room_visibility`;
 freshness, the typed phrase and the expected revision are still decided on apply.
 ````
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -1758,7 +1758,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add modules/participants-access test/authz/room-settings.test.ts docs/room-administration-http-contract.md
@@ -1790,7 +1790,7 @@ git commit -m "Read room settings with the capabilities that decide each control
 
 The confirmations are asymmetric (spec §5): publishing needs a dry run, the phrase `PUBLISH ROOM` and a fresh sign-in, because it is the direction that exposes content; archiving needs a dry run and `ARCHIVE ROOM`; returning to draft is the kill switch (§10.1) and needs none of them. The phrases are constants: the apply is bound to what the dry run saw by `expectedRevision`, which every grant, invitation and counterparty change advances. `change_room_state` loses its runtime grant, so no caller can reach a state change without these rules.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/authz/room-settings.test.ts`:
 
@@ -1976,7 +1976,7 @@ describe('visibility capabilities mirror apply_room_visibility', () => {
 
 `setState` moves a draft straight to `published` through the migration role, which the transition trigger allows; the case only needs the state to exist, not to have been reached through the product.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxWorkers=2 test/authz/room-settings.test.ts
@@ -1984,7 +1984,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — `/api/rooms/visibility` is 404 and `apply_room_visibility` does not exist.
 
-- [ ] **Step 3: Append the visibility functions to migration 023**
+- [x] **Step 3: Append the visibility functions to migration 023**
 
 ```sql
 -- Visibility. Publishing or archiving is reviewed first; the review counts the viewers
@@ -2075,11 +2075,11 @@ Append to `modules/rooms-documents/migrations/022_room_administration.sql`:
 REVOKE EXECUTE ON FUNCTION change_room_state(text,text,text,integer,text,text) FROM duefold_runtime;
 ```
 
-- [ ] **Step 4: Move the existing suites off the revoked grant**
+- [x] **Step 4: Move the existing suites off the revoked grant**
 
 In each call site listed under **Files**, change the pool on the `change_room_state` query from `runtimePool` to `migrationPool` and nothing else. `change_room_state` still authorizes its `p_actor_id` argument, and `room-structure.test.ts:560` still asserts `40001` for a stale revision. Then delete `changeRoomState` from `modules/rooms-documents/src/structure.ts`; `git grep -n changeRoomState` must return nothing afterwards.
 
-- [ ] **Step 5: Append the wrappers**
+- [x] **Step 5: Append the wrappers**
 
 Append to `modules/participants-access/src/room-settings.ts` (add the imports at the top):
 
@@ -2144,7 +2144,7 @@ export async function applyRoomVisibility(input: {
 }
 ```
 
-- [ ] **Step 6: Add the route**
+- [x] **Step 6: Add the route**
 
 Create `modules/participants-access/src/routes/room-visibility.ts`:
 
@@ -2257,7 +2257,7 @@ Declare it:
     },
 ```
 
-- [ ] **Step 7: Append to the contract**
+- [x] **Step 7: Append to the contract**
 
 ````markdown
 ## `POST /api/rooms/visibility`
@@ -2283,7 +2283,7 @@ once (`409` otherwise).
 to a room state change.
 ````
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -2297,7 +2297,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add modules test docs/room-administration-http-contract.md

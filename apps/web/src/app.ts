@@ -148,6 +148,8 @@ const ROUTE_FACTORIES = {
   'participant.list': memberFactory('participant.list'),
   'participant.invite': memberFactory('participant.invite'),
   'grant.change': memberFactory('grant.change'),
+  'room.settings.read': memberFactory('room.settings.read'),
+  'room.visibility': memberFactory('room.visibility'),
   'organization.members.list': memberFactory('organization.members.list'),
   'organization.members.actions': memberFactory('organization.members.actions'),
   'branding.asset.upload': memberFactory('branding.asset.upload'),
@@ -187,6 +189,8 @@ function memberFactory(
     | 'participant.list'
     | 'participant.invite'
     | 'grant.change'
+    | 'room.settings.read'
+    | 'room.visibility'
     | 'organization.members.list'
     | 'organization.members.actions'
     | 'branding.asset.upload'

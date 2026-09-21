@@ -40,3 +40,54 @@ returning it to draft answers `409` until the Owner cancels the purge. A cancell
 longer holds its room, so the room can be scheduled again. The purge confirmation is the
 constant `SCHEDULE ROOM PURGE`; the room is bound by id and expected revision.
 
+## `GET /api/rooms/settings?roomId=<id>`
+
+```
+200 {settings:{roomId,state,revision,publishedRevision,auditRetentionYears,
+               defaultGrantExpiresAt,downloadPolicy,installationDownloadPolicy,
+               purge:{purgeId,state,purgeAfter}|null,
+               capabilities:{publish,archive,returnToDraft,setRetention,schedulePurge,cancelPurge}},
+     downloadOverrides:[{documentId,policy}]}
+```
+
+Room Manager (Owners and Admins hold it everywhere). A Contributor, a plain member and an
+unknown room all get the uniform `403`. `downloadPolicy: null` means the room inherits
+`installationDownloadPolicy`. `downloadOverrides` lists only documents with an explicit
+policy.
+
+**Capabilities are the only reason a control appears.** Each key mirrors one function's
+refusals — `publish`, `archive`, `returnToDraft`: `apply_room_visibility`;
+`setRetention`: `apply_audit_retention`; `schedulePurge`: `schedule_room_purge`;
+`cancelPurge`: `cancel_room_purge`. A true key does not skip that function's own checks:
+freshness, the typed phrase and the expected revision are still decided on apply.
+
+## `POST /api/rooms/visibility`
+
+```
+{action:'dry-run', roomId, state:'published'|'archived'}
+  → 200 {impact:{roomId,currentState,proposedState,viewerCount,publishedDocumentCount,
+                 requiresFreshAuthentication,expectedRevision,confirmation}}
+{action:'apply', roomId, state:'published'|'archived', expectedRevision, confirmation}  → 200 {revision}
+{action:'apply', roomId, state:'draft', expectedRevision}                               → 200 {revision}
+```
+
+Room Manager. Publishing needs the dry run's phrase (`PUBLISH ROOM`) and a sign-in within
+15 minutes; archiving needs `ARCHIVE ROOM`; returning to draft — the viewer-access kill
+switch — needs neither and refuses a phrase. `viewerCount` counts viewers whose access the
+change grants (publish) or ends (archive a published room).
+
+`expectedRevision` binds the apply to the room as the review saw it: any grant, invitation or
+counterparty change in between answers `409`. It does not bind `viewerCount` exactly, and it
+cannot — a grant reaching its `expires_at`, and a trash removal revoking the grants beneath
+it, both reduce reach without advancing `room.revision`. Both only REMOVE reach, so the
+reviewed count is an upper bound on what a publication can expose: a Manager is never shown
+fewer viewers than the change goes on to affect.
+
+A change to the current state is `409`; so is returning a room to draft while its purge is
+live. Publishing requires the structure to have been published at least once (`409`
+otherwise).
+
+`change_room_state` is not executable by the web credential; this route is the only path
+to a room state change.
+
+

@@ -215,23 +215,29 @@ describe('purge safety', () => {
   let roomId = '';
 
   /*
-   * State changes go through `change_room_state`, the only path a member has. Writing
-   * `room.state` directly would leave the product path untested: the trigger fires on the
-   * column, but what has to hold is that a Room Manager's request is refused.
+   * The product path, so the pin is proven where a member would meet it. Nothing here writes
+   * `room.state` directly except the one case that says why it does.
    */
-  function changeState(id: string, state: string, revision: number) {
-    return databasePool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+  function changeState(
+    id: string,
+    state: string,
+    revision: number,
+    confirmation: string | null,
+  ) {
+    return databasePool.query('SELECT apply_room_visibility($1,$2,$3,$4,$5,$6,$7,$8)', [
+      ownerId,
       id,
       state,
-      ownerId,
       revision,
+      new Date(),
+      confirmation,
       createOpaqueId(),
       createCorrelationId(),
     ]);
   }
 
   async function archive(id: string): Promise<void> {
-    await changeState(id, 'archived', await roomRevision(id));
+    await changeState(id, 'archived', await roomRevision(id), 'ARCHIVE ROOM');
   }
 
   async function schedule(id: string, confirmation = 'SCHEDULE ROOM PURGE'): Promise<string> {
@@ -279,7 +285,9 @@ describe('purge safety', () => {
   it('pins the room to archived while the purge is live, and frees it on cancellation', async () => {
     const purgeId = await schedule(roomId);
     const pinned = await roomRevision(roomId);
-    await expect(changeState(roomId, 'draft', pinned)).rejects.toMatchObject({ code: '55000' });
+    await expect(changeState(roomId, 'draft', pinned, null)).rejects.toMatchObject({
+      code: '55000',
+    });
     /* The revision did not move, so the refusal happened before the write. */
     expect(await roomRevision(roomId)).toBe(pinned);
 
@@ -297,7 +305,7 @@ describe('purge safety', () => {
     ).rejects.toMatchObject({ code: '55000' });
 
     await cancel(purgeId);
-    await changeState(roomId, 'draft', await roomRevision(roomId));
+    await changeState(roomId, 'draft', await roomRevision(roomId), null);
     expect(
       (await migrationPool.query('SELECT state FROM room WHERE id=$1', [roomId])).rows[0],
     ).toEqual({ state: 'draft' });
@@ -324,7 +332,7 @@ describe('purge safety', () => {
         createCorrelationId(),
       ]),
     ).rejects.toMatchObject({ code: '55000' });
-    await changeState(held, 'draft', await roomRevision(held));
+    await changeState(held, 'draft', await roomRevision(held), null);
     expect(
       (await migrationPool.query('SELECT state FROM room WHERE id=$1', [held])).rows[0],
     ).toEqual({ state: 'draft' });
