@@ -74,10 +74,23 @@ export {
 } from './rooms.ts';
 
 export {
+  applyDefaultExpiry,
+  applyRetention,
   applyVisibility,
+  cancelPurge,
+  CANCEL_PURGE_PHRASE,
   loadRoomSettings,
+  reviewDefaultExpiry,
+  reviewPurge,
+  reviewRetention,
   reviewVisibility,
+  schedulePurge,
+  setDocumentDownloadPolicy,
+  setRoomDownloadPolicy,
+  type DefaultExpiryImpact,
+  type PurgeImpact,
   type PurgeState,
+  type RetentionImpact,
   type ReviewedVisibility,
   type RoomCapabilities,
   type RoomSettings,

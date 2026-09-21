@@ -6,6 +6,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
 import './styles/components.css';
+import './styles/fields.css';
 
 const container = document.getElementById('duefold');
 if (container === null) throw new Error('application container is missing');

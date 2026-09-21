@@ -8,6 +8,8 @@ import type { RoomSettingsSection } from '../workspace/useRoomSettings.ts';
 import { classifyLoad } from '../workspace/views/load-state.ts';
 import { FailureNotice } from './FailureNotice.tsx';
 import { Notice } from './Notice.tsx';
+import { RoomLifecycleControls } from './RoomLifecycleControls.tsx';
+import { RoomPolicyControls } from './RoomPolicyControls.tsx';
 import { RoomVisibilityControls } from './RoomVisibilityControls.tsx';
 
 export interface RoomSettingsPanelProps {
@@ -62,6 +64,19 @@ export function RoomSettingsPanel({
     <section aria-labelledby={headingId}>
       {heading}
       <RoomVisibilityControls settings={settings} section={section} onStatus={onStatus} />
+      <RoomPolicyControls
+        key={`policy-${settings.revision}`}
+        settings={settings}
+        overrideCount={load.value.downloadOverrides.size}
+        section={section}
+        onStatus={onStatus}
+      />
+      <RoomLifecycleControls
+        key={`lifecycle-${settings.revision}`}
+        settings={settings}
+        section={section}
+        onStatus={onStatus}
+      />
     </section>
   );
 }

@@ -53,6 +53,15 @@ const section: RoomSettingsSection = {
   reload: () => undefined,
   reviewVisibility: () => Promise.reject(new Error('not called in these cases')),
   applyVisibility: () => Promise.resolve(null),
+  setRoomDownloadPolicy: () => Promise.resolve(null),
+  reviewDefaultExpiry: () => Promise.reject(new Error('not called in these cases')),
+  applyDefaultExpiry: () => Promise.resolve(null),
+  reviewRetention: () => Promise.reject(new Error('not called in these cases')),
+  applyRetention: () => Promise.resolve(null),
+  reviewPurge: () => Promise.reject(new Error('not called in these cases')),
+  schedulePurge: () => Promise.resolve(null),
+  cancelPurge: () => Promise.resolve(null),
+  structureDownloads: () => null,
 };
 
 const render = (settings: RoomSettings) =>

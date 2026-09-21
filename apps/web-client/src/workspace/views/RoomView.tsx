@@ -598,6 +598,9 @@ export function RoomView({
               selection={selection}
               onSelectionChange={setSelection}
               folders={folders}
+              downloads={
+                settings === null ? null : settings.structureDownloads(refreshWorkspace)
+              }
               onRename={(entry: WorkingEntry, displayName: string) => {
                 runMutation(
                   {

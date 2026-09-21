@@ -1,0 +1,20 @@
+/*
+ * Form field styles that would otherwise push components.css past its size limit.
+ *
+ * Loaded after components.css so these rules win on equal specificity, and scoped to
+ * classes that appear nowhere else so nothing here restyles an existing control.
+ */
+
+/*
+ * One option in a radio group: the whole row is the label, so the clickable target is the
+ * text and not only the 13-pixel control. Separate from `.df-field--check`, which is a
+ * single checkbox and needs no spacing between siblings.
+ */
+.df-field__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+  font-weight: 400;
+  cursor: pointer;
+}

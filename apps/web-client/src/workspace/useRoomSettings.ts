@@ -8,9 +8,22 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  applyDefaultExpiry,
+  applyRetention,
   applyVisibility,
+  cancelPurge,
   loadRoomSettings,
+  reviewDefaultExpiry,
+  reviewPurge,
+  reviewRetention,
   reviewVisibility,
+  schedulePurge,
+  setDocumentDownloadPolicy,
+  setRoomDownloadPolicy,
+  type DefaultExpiryImpact,
+  type DownloadPolicy,
+  type PurgeImpact,
+  type RetentionImpact,
   type ReviewedVisibility,
   type RoomSettingsView,
   type VisibilityChange,
@@ -18,7 +31,7 @@ import {
 } from '../api/client.ts';
 import { presentFailure, type PresentedFailure } from './failures.ts';
 import { committed, settle, type Outcome } from './outcome.ts';
-import { readFor } from './room-settings.ts';
+import { readFor, roomDownloadPolicy, type StructureDownloads } from './room-settings.ts';
 import type { Load } from './state.ts';
 
 export interface RoomSettingsSection {
@@ -28,6 +41,31 @@ export interface RoomSettingsSection {
   readonly reload: () => void;
   readonly reviewVisibility: (state: ReviewedVisibility) => Promise<Outcome<VisibilityImpact>>;
   readonly applyVisibility: (change: VisibilityChange) => Promise<PresentedFailure | null>;
+  readonly setRoomDownloadPolicy: (
+    policy: DownloadPolicy | null,
+    expectedRoomRevision: number,
+  ) => Promise<PresentedFailure | null>;
+  readonly reviewDefaultExpiry: (
+    expiresAt: string | null,
+  ) => Promise<Outcome<DefaultExpiryImpact>>;
+  readonly applyDefaultExpiry: (
+    expiresAt: string | null,
+    expectedRoomRevision: number,
+    confirmation: string,
+  ) => Promise<PresentedFailure | null>;
+  readonly reviewRetention: (years: number) => Promise<Outcome<RetentionImpact>>;
+  readonly applyRetention: (
+    years: number,
+    expectedRevision: number,
+    confirmation: string,
+  ) => Promise<PresentedFailure | null>;
+  readonly reviewPurge: () => Promise<Outcome<PurgeImpact>>;
+  readonly schedulePurge: (
+    expectedRevision: number,
+    confirmation: string,
+  ) => Promise<PresentedFailure | null>;
+  readonly cancelPurge: (purgeId: string) => Promise<PresentedFailure | null>;
+  readonly structureDownloads: (onDocumentChanged: () => void) => StructureDownloads | null;
 }
 
 interface Read {
@@ -96,11 +134,42 @@ export function useRoomSettings(
   const load = readFor(read, roomId);
   if (roomId === null || load === null) return null;
   const current = read?.roomId === roomId ? read : null;
+  const view = current !== null && current.load.kind === 'ready' ? current.load.value : null;
   return {
     load,
     failure: current?.failure ?? null,
     reload,
     reviewVisibility: (state) => settle(reviewVisibility(roomId, state)),
     applyVisibility: (change) => commit(applyVisibility(roomId, change)),
+    setRoomDownloadPolicy: (policy, expected) =>
+      commit(setRoomDownloadPolicy(roomId, policy, expected)),
+    reviewDefaultExpiry: (expiresAt) => settle(reviewDefaultExpiry(roomId, expiresAt)),
+    applyDefaultExpiry: (expiresAt, expected, confirmation) =>
+      commit(applyDefaultExpiry(roomId, expiresAt, expected, confirmation)),
+    reviewRetention: (years) => settle(reviewRetention(roomId, years)),
+    applyRetention: (years, expected, confirmation) =>
+      commit(applyRetention(roomId, years, expected, confirmation)),
+    reviewPurge: () => settle(reviewPurge(roomId)),
+    schedulePurge: (expected, confirmation) =>
+      commit(schedulePurge(roomId, expected, confirmation)),
+    cancelPurge: (purgeId) => commit(cancelPurge(purgeId)),
+    structureDownloads: (onDocumentChanged) =>
+      view === null
+        ? null
+        : {
+            overrides: view.downloadOverrides,
+            inherited: roomDownloadPolicy(view.settings),
+            change: async (entry, policy) => {
+              const failure = await commit(
+                setDocumentDownloadPolicy(entry.resourceId, policy, entry.documentRevision),
+              );
+              if (failure === null) onDocumentChanged();
+              return failure;
+            },
+            reload: () => {
+              reload();
+              onDocumentChanged();
+            },
+          },
   };
 }

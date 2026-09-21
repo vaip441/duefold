@@ -4940,7 +4940,7 @@ git commit -m "Add the room Settings section with reviewed visibility changes"
 
 The download choice is three-valued and says what "inherit" resolves to. Allowing downloads widens access to original bytes, so saving opens the confirmation dialog on a stated consequence; the value is applied by one deliberate press, with no phrase, because §9.4 does not list download policy as high-consequence. Default expiry shows the exact inherited instant before confirmation (§9.2) and uses the server's phrase.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Append to `apps/web-client/src/api/room-settings.unit.test.ts`:
 
@@ -4980,7 +4980,7 @@ describe('parseExpiryField', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 room-settings
@@ -4988,7 +4988,7 @@ npx vitest run --project unit --maxWorkers=2 room-settings
 
 Expected: FAIL — `reviewDefaultExpiry`, `expiryDisplay` and `parseExpiryField` do not exist.
 
-- [ ] **Step 3: Append the calls**
+- [x] **Step 3: Append the calls**
 
 Append to `apps/web-client/src/api/room-settings.ts`:
 
@@ -5087,7 +5087,7 @@ export function expiryDisplay(instant: string): { readonly local: string; readon
 
 Check `formatDate`'s signature in `grants.ts` and pass what it takes.
 
-- [ ] **Step 4: Write the controls**
+- [x] **Step 4: Write the controls**
 
 Create `apps/web-client/src/components/RoomPolicyControls.tsx`:
 
@@ -5293,7 +5293,7 @@ Render it in `RoomSettingsPanel` after the visibility controls:
       />
 ```
 
-- [ ] **Step 5: Add the copy**
+- [x] **Step 5: Add the copy**
 
 ```ts
   'settings.download.heading': 'Original downloads',
@@ -5329,7 +5329,7 @@ Render it in `RoomSettingsPanel` after the visibility controls:
 
 If `df-field__choice` does not exist in the stylesheet, use the radio markup the grant form in `ParticipantsPanel.tsx` uses.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2
@@ -5338,7 +5338,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/web-client/src
@@ -5366,7 +5366,7 @@ git commit -m "Set a room's download policy and default grant expiry"
 
 Retention and purge are Owner-only and freshly authenticated; both are typed and dry-run first (§15.4, §15.5). `cancel_room_purge` compares a constant phrase no dry run returns, so the client holds `CANCEL_PURGE_PHRASE`; its value is asserted end-to-end by the browser journey in Task 14.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Append to `apps/web-client/src/api/room-settings.unit.test.ts`:
 
@@ -5406,7 +5406,7 @@ describe('formatByteSize', () => {
 
 (`formatByteSize` uses decimal units — 1 MB is 10⁶ bytes — so 3 GiB reads 3.2 GB.)
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 room-settings
@@ -5414,7 +5414,7 @@ npx vitest run --project unit --maxWorkers=2 room-settings
 
 Expected: FAIL.
 
-- [ ] **Step 3: Append the calls and the helper**
+- [x] **Step 3: Append the calls and the helper**
 
 Append to `apps/web-client/src/api/room-settings.ts`:
 
@@ -5525,7 +5525,7 @@ export function formatByteSize(bytes: number): string {
 }
 ```
 
-- [ ] **Step 4: Write the controls**
+- [x] **Step 4: Write the controls**
 
 Create `apps/web-client/src/components/RoomLifecycleControls.tsx`:
 
@@ -5754,7 +5754,7 @@ Render it in `RoomSettingsPanel` after the policy controls, keyed the same way:
       <RoomLifecycleControls key={`lifecycle-${settings.revision}`} settings={settings} section={section} onStatus={onStatus} />
 ```
 
-- [ ] **Step 5: Add the copy**
+- [x] **Step 5: Add the copy**
 
 ```ts
   'settings.lifecycle.freshSignIn': 'This change needs a sign-in from the last 15 minutes.',
@@ -5791,7 +5791,7 @@ Render it in `RoomSettingsPanel` after the policy controls, keyed the same way:
 
 `settings.retention.locked` says "while published or archived" because the SQL gate is `state='draft'`; see the open question in the plan's closing notes.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2
@@ -5800,7 +5800,7 @@ npm run typecheck && npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/web-client/src
@@ -5828,7 +5828,7 @@ git commit -m "Change audit retention and schedule or cancel a purge"
 
 The control lives on the document's own row (spec §6.1), and an exception is marked in words on that row (§9.1: "document-level exceptions are visibly marked in member UI"). A change sends the **document** revision, so it can no longer strand later metadata edits (Task 3). After it commits, the collection re-reads because the document's revision moved.
 
-- [ ] **Step 1: Write the failing unit test**
+- [x] **Step 1: Write the failing unit test**
 
 Create `apps/web-client/src/components/DownloadOverrideControl.unit.test.tsx`:
 
@@ -5876,7 +5876,7 @@ describe('DownloadMarker', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 DownloadOverrideControl
@@ -5884,7 +5884,7 @@ npx vitest run --project unit --maxWorkers=2 DownloadOverrideControl
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Append the call and extend the hook**
+- [x] **Step 3: Append the call and extend the hook**
 
 Append to `apps/web-client/src/api/room-settings.ts`:
 
@@ -5950,7 +5950,7 @@ and, beside the other members of the returned object (with `view` computed once 
           },
 ```
 
-- [ ] **Step 4: Write the control**
+- [x] **Step 4: Write the control**
 
 Create `apps/web-client/src/components/DownloadOverrideControl.tsx`:
 
@@ -6047,7 +6047,7 @@ export function DownloadOverrideControl({
 
 `current ?? 'inherit'` maps "no exception" onto the option that names it; it is the value's meaning, not a default.
 
-- [ ] **Step 5: Put it on the row**
+- [x] **Step 5: Put it on the row**
 
 In `apps/web-client/src/components/StructureTable.tsx`:
 
@@ -6090,7 +6090,7 @@ In `RoomView.tsx`, pass to the `StructureTable` element:
 
 Every other `StructureTable` render (unit tests, other views) passes `downloads={null}`; `npm run typecheck` lists them.
 
-- [ ] **Step 6: Add the copy**
+- [x] **Step 6: Add the copy**
 
 ```ts
   'downloads.label': 'Downloads for {name}',
@@ -6109,7 +6109,7 @@ Every other `StructureTable` render (unit tests, other views) passes `downloads=
     'This document will follow the room’s policy, which currently resolves to {policy}.',
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2
@@ -6119,7 +6119,7 @@ wc -l apps/web-client/src/workspace/views/RoomView.tsx apps/web-client/src/compo
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/web-client/src

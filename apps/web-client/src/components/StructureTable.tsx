@@ -17,6 +17,8 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { translate, type MessageKey } from '../i18n/translate.ts';
 import type { PublicationChangeKind, WorkingEntry } from '../api/client.ts';
+import type { StructureDownloads } from '../workspace/room-settings.ts';
+import { DownloadMarker, DownloadOverrideControl } from './DownloadOverrideControl.tsx';
 import {
   MetadataForm,
   MoveForm,
@@ -47,6 +49,8 @@ export interface StructureTableProps {
   readonly onStageRemoval: (entry: WorkingEntry) => void;
   readonly onMove?: (input: MoveInput) => void;
   readonly onMetadata?: (input: MetadataInput) => void;
+  /** Present only for a Room Manager once settings are loaded. */
+  readonly downloads: StructureDownloads | null;
 }
 
 function statusText(entry: WorkingEntry): string {
@@ -66,6 +70,7 @@ export function StructureTable({
   onStageRemoval,
   onMove,
   onMetadata,
+  downloads,
 }: StructureTableProps): React.ReactElement {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
@@ -230,6 +235,11 @@ export function StructureTable({
                   >
                     {statusText(entry)}
                   </span>
+                  {downloads !== null && entry.resourceKind === 'document' ? (
+                    <DownloadMarker
+                      policy={downloads.overrides.get(entry.resourceId) ?? null}
+                    />
+                  ) : null}
                   {entry.changeKinds.length > 0 ? (
                     <ul className="df-changes">
                       {entry.changeKinds.map((change) => (
@@ -315,6 +325,15 @@ export function StructureTable({
                         {translate('structure.metadata')}
                         <span className="df-visually-hidden"> {entry.displayName}</span>
                       </button>
+                    )}
+                    {downloads === null || entry.resourceKind !== 'document' ? null : (
+                      <DownloadOverrideControl
+                        entry={entry}
+                        current={downloads.overrides.get(entry.resourceId) ?? null}
+                        inherited={downloads.inherited}
+                        onChange={(policy) => downloads.change(entry, policy)}
+                        onReload={downloads.reload}
+                      />
                     )}
                     {moving === entry.entryId &&
                     onMove !== undefined &&

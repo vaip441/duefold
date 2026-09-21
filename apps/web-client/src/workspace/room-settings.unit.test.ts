@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { RoomSettings } from '../api/client.ts';
-import { readFor, visibilityNotes } from './room-settings.ts';
+import {
+  expiryDisplay,
+  formatByteSize,
+  parseExpiryField,
+  readFor,
+  visibilityNotes,
+} from './room-settings.ts';
 
 const base: RoomSettings = {
   roomId: 'r'.repeat(32),
@@ -76,5 +82,73 @@ describe('readFor', () => {
       load: { kind: 'failed', failure: 'No.' },
     } as const;
     expect(readFor(failed, failed.roomId)).toStrictEqual(failed.load);
+  });
+});
+
+describe('expiryDisplay', () => {
+  /* Seconds included, because an expiry is the END of the chosen day: shown to the minute,
+     the value displayed would not be the value the review promised. */
+  it('always carries the exact UTC instant beside the localized one', () => {
+    expect(expiryDisplay('2027-09-21T23:59:59.999+00:00').utc).toBe('2027-09-21 23:59:59 UTC');
+  });
+});
+
+describe('parseExpiryField', () => {
+  it('reads empty as no default and a date as the end of that UTC day', () => {
+    expect(parseExpiryField('')).toStrictEqual({ ok: true, expiresAt: null });
+    expect(parseExpiryField('2027-09-21')).toStrictEqual({
+      ok: true,
+      expiresAt: '2027-09-21T23:59:59.999Z',
+    });
+  });
+
+  it('never turns an unreadable date into no default', () => {
+    expect(parseExpiryField('21/09/2027')).toStrictEqual({ ok: false });
+  });
+});
+
+describe('formatByteSize', () => {
+  it.each([
+    [512, '512 B'],
+    [2_500_000, '2.5 MB'],
+    [3 * 1024 ** 3, '3.2 GB'],
+  ])('formats %i', (bytes, text) => {
+    expect(formatByteSize(bytes)).toBe(text);
+  });
+});
+
+describe('parseExpiryField', () => {
+  const now = new Date('2026-09-21T12:00:00.000Z');
+
+  it('treats an empty field as no default rather than a mistake', () => {
+    expect(parseExpiryField('', now)).toStrictEqual({ ok: true, expiresAt: null });
+  });
+
+  it('sends the end of the chosen day, so choosing today means through today', () => {
+    expect(parseExpiryField('2026-12-31', now)).toStrictEqual({
+      ok: true,
+      expiresAt: '2026-12-31T23:59:59.999Z',
+    });
+  });
+
+  /* `new Date` turns 31 February into 3 March. Storing a different day than the one chosen
+     is worse than refusing, so the round trip has to agree. */
+  it('refuses a date that does not exist instead of moving it', () => {
+    expect(parseExpiryField('2027-02-31', now)).toStrictEqual({ ok: false });
+  });
+
+  /* The server answers 400 for a past instant. Refusing here means the reason is shown
+     beside the field rather than arriving as a rejection. */
+  it('refuses an instant that has already passed', () => {
+    expect(parseExpiryField('2026-09-20', now)).toStrictEqual({ ok: false });
+    expect(parseExpiryField('2020-01-01', now)).toStrictEqual({ ok: false });
+  });
+
+  it('refuses text that is not a date at all', () => {
+    for (const value of ['tomorrow', '2026-9-1', '2026-09', '']) {
+      const parsed = parseExpiryField(value, now);
+      if (value === '') expect(parsed.ok).toBe(true);
+      else expect(parsed).toStrictEqual({ ok: false });
+    }
   });
 });
