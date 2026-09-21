@@ -58,6 +58,16 @@ docker compose run --rm migrate <command>
 | `restore drill`                                       | Checks a restored database and records the result.                                                 |
 | `updates check-file <manifest>`                       | Verifies a release manifest against the running release and records the answer for Status. See [Upgrade](#upgrade). |
 
+### Status
+
+Owners and Admins see **Administration → Status**: version and modules, migrations, storage
+privacy and versioning, malware signatures, the worker queue, failed processing, OIDC
+discovery, required mail, backups, the restore drill, and updates. The worker checks storage
+and signatures every hour, starting an hour after the first migration; `backup-status
+acknowledge`, `restore drill` and `updates check-file` record the rest. Storage privacy is
+tested against the S3 API only: a public address your provider serves outside it (for
+example R2's `r2.dev` domain) must be turned off at the provider, and Status cannot see it.
+
 Duefold does not create backups. Enable provider-native database backups and object versioning, and prove restoration in an isolated environment before using real data. Database migrations move forward; rollback across a migration requires a tested database restore and matching object-store version.
 
 ## Upgrade

@@ -2856,7 +2856,7 @@ Changing the default reaches every room without its own policy at once. Allowing
 
 The reader carries no capability object: every one of these functions refuses on the same predicate, so a successful read is the capability.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/authz/installation-download.test.ts`:
 
@@ -3179,7 +3179,7 @@ describe('the installation routes', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxWorkers=2 test/authz/installation-download.test.ts
@@ -3187,7 +3187,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — `read_installation_settings` does not exist.
 
-- [ ] **Step 3: Write migration 026**
+- [x] **Step 3: Write migration 026**
 
 Create `modules/participants-access/migrations/026_installation_settings.sql`:
 
@@ -3305,7 +3305,7 @@ The update runs as `duefold_migration`, the function's owner, which is what `pro
 
 In `modules/participants-access/src/declaration.ts`, add `{ id: '026_installation_settings', file: '026_installation_settings.sql' }` after `023_room_settings`.
 
-- [ ] **Step 4: Write the wrappers**
+- [x] **Step 4: Write the wrappers**
 
 Create `modules/participants-access/src/installation-settings.ts`:
 
@@ -3397,7 +3397,7 @@ export async function applyInstallationDownloadPolicy(
 }
 ```
 
-- [ ] **Step 5: Add the routes**
+- [x] **Step 5: Add the routes**
 
 Create `modules/participants-access/src/routes/installation.ts`:
 
@@ -3573,7 +3573,7 @@ In `apps/web/src/app.ts`, add both to `ROUTE_FACTORIES` and to `memberFactory`'s
     | 'installation.download-policy'
 ```
 
-- [ ] **Step 6: Extend the contract and the maps**
+- [x] **Step 6: Extend the contract and the maps**
 
 Append to `docs/installation-status-http-contract.md`:
 
@@ -3614,7 +3614,7 @@ In `modules/participants-access/README.md`, add to `## Start here`:
 
 In `CODEBASE_MAP.md`, add `[installation download](test/authz/installation-download.test.ts)` to the installation row's Primary tests.
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -5671,7 +5671,7 @@ git commit -m "Set the installation download default from the Installation secti
 
 Each journey starts from seeded facts and makes every change it asserts through the product. The installation default is one value shared by every test in the file, so each journey that changes it leaves it as it found it.
 
-- [ ] **Step 1: Write the seeding helper**
+- [x] **Step 1: Write the seeding helper**
 
 Create `test/support/status-seeding.ts`:
 
@@ -5710,7 +5710,7 @@ export async function seedStatusObservation(
 }
 ```
 
-- [ ] **Step 2: Write the journeys**
+- [x] **Step 2: Write the journeys**
 
 Create `test/browser/installation-status.spec.ts`:
 
@@ -5895,7 +5895,7 @@ test.describe('accessibility', () => {
 });
 ```
 
-- [ ] **Step 3: Run the journeys**
+- [x] **Step 3: Run the journeys**
 
 ```bash
 npm run build
@@ -5905,7 +5905,7 @@ node --env-file=.env ./node_modules/@playwright/test/cli.js test test/browser/me
 
 Expected: PASS. A failure here is a defect in Tasks 7–8, not in the spec: fix it there.
 
-- [ ] **Step 4: Record the system decisions**
+- [x] **Step 4: Record the system decisions**
 
 In `DESIGN.md` under `## Components`, after the accessible-primitives paragraph, add:
 
@@ -5932,7 +5932,7 @@ and under `## Security-bearing UI decisions` add:
   reach.
 ```
 
-- [ ] **Step 5: Record the operator facts and the threat rows**
+- [x] **Step 5: Record the operator facts and the threat rows**
 
 In `docs/self-hosting.md`, after the command table, add:
 
@@ -5954,7 +5954,7 @@ In `docs/release-evidence.md`, add a `### Installation status screen-reader revi
 
 In `CODEBASE_MAP.md`'s installation row, add `[installation status journeys](test/browser/installation-status.spec.ts)` to Primary tests.
 
-- [ ] **Step 6: Verify the whole milestone**
+- [x] **Step 6: Verify the whole milestone**
 
 Run each on its own, checking `free -h` between them:
 

@@ -57,6 +57,9 @@ Primary boundaries:
 | Resource exhaustion | Body/query/pagination limits, 250 MiB source cap, parser/container bounds, bounded job retries/leases, converter concurrency pool, output/time/scratch limits, streaming downloads/exports. |
 | Supply-chain substitution | Exact npm lock, digest-pinned base/provider images, immutable Debian snapshot, pinned GitHub actions, CI audits, pre-push and immutable-image scans, SBOM/provenance, signed image digests and release manifest. |
 | Backup/restore resurrection | Provider-owned backups/versioning disclosed; tested restore required; private deletion markers block external enablement until reconciled. No universal RPO/RTO claim. |
+| Secret leakage through status | Observations store a pattern-bound `code`, not prose, so no issuer URL, endpoint, bucket, host, credential or object key can be written; the response is asserted free of every configured value. |
+| Forged status | Each check has one writer, granted only to the process that runs it; the web credential writes nothing. A green check says what was tested and when, and turns stale on its own. |
+| Installation-wide download exposure | Allowing original downloads installation-wide needs a review naming the inheriting rooms and reachable documents, the typed phrase and a fresh sign-in; the 007 setter is no longer callable by the web credential. |
 
 ## Abuse cases that must remain in tests
 

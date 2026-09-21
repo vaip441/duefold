@@ -378,6 +378,16 @@ marker, a rotated 0.5rem square border used at narrow widths.
   action. The responsive account disclosure stays local because its arbitrary form
   children must exist exactly once in the DOM; it provides the same Escape,
   outside-dismissal, focus-return, and exit behavior without cloning labelled controls.
+- **Status table:** the Status section is one `df-register` table, twelve rows in
+  §20.2's order. Every state is a word — Passing, Needs attention, Failing, Not yet
+  checked, Out of date — and only Passing carries the accent. Every recorded instant is a
+  `<time>` whose `dateTime` and title hold the UTC value; rows read live say "Now". A failing
+  check stays Failing when its answer is also old, because the last known answer to it is a
+  failure. When any row fails, a problem notice leads with the count.
+- **Installation review:** the installation download default reuses `ConfirmationDialog`.
+  Both directions open on the server's review of the rooms and published documents the
+  change reaches; allowing adds the server's phrase and a fresh sign-in, denying is one
+  press, as returning a room to draft is.
 
 ### Buttons
 
@@ -599,6 +609,12 @@ a permission.
 
 **No DRM claim.** The interface makes no statement that screenshots or browser
 workarounds can be prevented, and a test asserts no catalogue string does.
+
+**Status never shows configuration.** The Status section renders codes the server
+records, translated to copy; it has no field that could show an issuer, endpoint,
+bucket, host, credential or address, and the server has none to send. What a check could
+not see is said in its copy — the storage privacy check names the public URLs it cannot
+reach.
 
 ## Build-time composition in the browser
 
