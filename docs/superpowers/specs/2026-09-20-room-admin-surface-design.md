@@ -2,7 +2,8 @@
 
 **Date:** 2026-09-20
 **Basis:** `DESIGN_SPEC.md` v2.0 §4, §8, §9, §10, §15, §17, §20
-**Status:** design approved in outline; implementation plan not yet written
+**Status:** milestone 1 implemented (`docs/superpowers/plans/2026-09-20-organization-administration.md`);
+milestone 2 planned (`docs/superpowers/plans/2026-09-21-room-administration.md`); milestone 3 not yet planned
 
 ## 1. Why this exists
 
@@ -59,10 +60,13 @@ no module-management UI (§5.2 forbids the last outright).
 
 ## 4. Data model
 
-Migrations are one global sequence across modules (001–016 today), so this adds
-017–019. All new functions are `SECURITY DEFINER`, `SET search_path=public,pg_temp`,
-owned by `duefold_migration`, executable by `duefold_runtime`, and write their
-audit row in the same transaction as their mutation (invariant 14).
+Migrations are one global sequence across modules. Milestone 1 and its review fixes
+used 017–021; milestone 2 uses 022 (`rooms-documents`) and 023
+(`participants-access`); milestone 3 takes the next free number. All new functions are `SECURITY DEFINER`, `SET search_path=public,pg_temp`,
+owned by `duefold_migration`, executable only by the credential that calls them
+(`duefold_runtime` for the web, `duefold_authenticator` for member provisioning,
+none for helpers), and write their audit row in the same transaction as their
+mutation (invariant 14).
 
 ### 4.1 Migration 017 — `core-security`, organization administration
 
@@ -80,10 +84,10 @@ Functions:
 |---|---|---|
 | `invite_member` | Owner/Admin | Creates the pending invitation, enqueues `mail.member_invitation`, audits `invitation.created`. Rejects an email already held by an active member or a pending invitation. |
 | `revoke_member_invitation` | Owner/Admin | `pending` → `revoked`. |
-| `set_member_global_role` | Owner/Admin | `'admin'` or `'member'` only. Refuses to target the Owner; ownership moves only through `transfer_ownership`. Expected-revision checked. |
+| `set_member_global_role` | Owner/Admin | `'admin'` or `'member'` only. Refuses to target the Owner; ownership moves only through `transfer_ownership`. **Refuses to target the actor themselves** (see §7.1). Promotion out of `member` supersedes that member's explicit room assignments and does not restore them on later demotion (see §7.2). Expected-revision checked. |
 | `set_member_state` | Owner/Admin | `'active'` or `'disabled'`. Refuses to disable the Owner with a clear error rather than letting the partial unique index raise. |
 | `transfer_ownership` | Owner, fresh OIDC | See §4.2. Audits `ownership.transferred`. |
-| `apply_room_assignments` | Owner/Admin | One call per member carrying both the assignments to add and the rooms to revoke. Inserts or reactivates revoked rows; revocation sets `revoked` and never deletes. Batched for the reason in §4.3. |
+| `apply_room_assignments` | Owner/Admin | One call per member carrying both the assignments to add and the rooms to revoke, at most 100 entries in total. A new assignment inserts a new active row; revocation sets `revoked` and never deletes, and a revoked row is never reactivated. A batch that changes nothing is refused, like a no-op role or state change. Batched for the reason in §4.3. |
 | `read_members` | Owner/Admin | Reader; see §4.4. |
 
 `SECURITY_EVENT_TYPES` in `modules/core-security/src/audit.ts:6` already reserves
@@ -92,12 +96,22 @@ what they were reserved for. New types added alongside: `member.role`,
 `member.state`, `room.assignment`.
 
 **Invitation acceptance changes too.** `resolveOidcMember`
-(`modules/core-security/src/auth/oidc.ts:348`) currently hardcodes
-`global_role='member'`, so inviting an Admin would mean invite → sign in →
-promote. It reads `intended_global_role` instead. The same edit closes an
-invariant-14 gap discovered here: that insert creates a member and commits with
-**no audit row at all**. Acceptance gains a `member.created` audit event in the
-same transaction.
+(`modules/core-security/src/auth/oidc.ts`) hardcoded `global_role='member'`, so
+inviting an Admin would have meant invite → sign in → promote, and its insert
+created a member with **no audit row at all**. Acceptance moves into
+`accept_member_invitation` (019), which reads the role from the invitation and
+writes `invitation.accepted` and `member.created` in the same transaction;
+first-owner bootstrap moves into `claim_first_owner`. The authenticator credential
+then holds only `SELECT` on `member`, so no application credential can author a
+member row or choose its role.
+
+**Review fixes 018–021.** 018 adds `member_subject_capabilities` (see §4.4) and
+`may_administer_organization`, and stops the ownership preview storing the
+rendered impact, which held the successor's email. 019 is the acceptance change
+above. 020 moves the room register's cursor and limit into `read_member_rooms`,
+in `rooms-documents`, which owns it. 021 makes `apply_room_assignments`
+set-based and records an `invitation.expired` lapse as a `system` event rather
+than as the re-inviting Admin's act.
 
 ### 4.2 Ownership transfer has a mandatory statement order
 
@@ -123,11 +137,14 @@ member's active sessions.
 
 Two consequences are designed for rather than discovered:
 
-1. Transferring ownership signs the outgoing Owner out mid-request. The apply
-   response is handled as "your session has ended and here is why", not as a
-   failure, and the confirmation dialog says so before the Owner commits.
+1. Transferring ownership revokes the outgoing Owner's sessions inside its own
+   transaction. The apply still answers `200` with `sessionEnded: true`, because
+   the handler has already run; only the next request is unauthenticated. The
+   surface reports "your session has ended and here is why", not a failure, and
+   the confirmation dialog says so before the Owner commits. A `401` from the
+   apply itself means the transfer never ran.
 2. Staffing a member across four rooms as four calls signs them out four times.
-   `assign_room_member` therefore accepts a **batch** of assignments and
+   `apply_room_assignments` therefore accepts a **batch** of assignments and
    revocations for one member and applies them in one transaction, producing one
    session revocation. The Members surface states that the member must sign in
    again.
@@ -139,15 +156,47 @@ so an invited person exists only as an `invitation` row and never as a `member`
 row. `read_members` returns the union of `member` rows and pending
 `kind='member'` invitations, with invitations distinctly marked as
 not-yet-accepted rather than rendered as if they were members. Each member row
-carries their global role, state, and room assignments.
+carries their global role, state, room assignments, and `capabilities`
+(`setRole`, `setState`, `assignRooms`, `transfer`): what the **acting** member may
+do to that row, computed by `member_subject_capabilities` from the same
+predicates the mutations refuse on. The surface renders a control only where its
+flag is true, so an Admin is never offered a transfer and nobody is offered
+controls on their own row. An invitation carries only withdrawal.
 
-### 4.5 Rooms — no migration needed
+### 4.5 Migration 022 — `rooms-documents`, room creation and purge safety
 
-No new SQL. `create_room` and `change_room_state` exist and are correctly
-gated — `create_room` checks `global_role IN ('owner','admin')` itself. They
-need routes, not functions.
+`create_room` and `change_room_state` exist and are correctly gated. Exposing
+them over HTTP makes four latent defects reachable, so 022 fixes them first:
 
-### 4.6 Migration 018 — `participants-access`, policy and counterparties
+- **A scheduled purge can destroy a live room.** Nothing stops an archived room
+  with a scheduled purge from returning to draft and being published again; the
+  purge job checks the purge row, not the room, and 30 days later deletes a room
+  that is back in service. A trigger pins a room to `archived` while a purge is
+  `scheduled`, `marker_pending` or `purging`. The purge must be cancelled first.
+- **A cancelled purge can never be rescheduled.** `room_purge.room_id` is
+  `UNIQUE`, so the cancelled row blocks every later schedule. It becomes a partial
+  unique index over rows that are not `cancelled`.
+- **The purge phrase cannot be typed.** `SCHEDULE PURGE FOR ROOM <32-character id>`
+  invites pasting, which defeats the friction it exists for. It becomes the
+  constant `SCHEDULE ROOM PURGE`; the room is bound by id and expected revision.
+- **The client sends the entry revision as the document revision.** They move in
+  lockstep today only because every writer bumps both. `set_document_download_policy`
+  bumps the document alone, so the first download override would make every later
+  metadata edit of that document fail as stale. `read_member_working_structure`
+  returns `document_revision` and the client sends it.
+
+Also in 022:
+
+- `create_room` refuses a whitespace-only title and control characters with
+  `22023`. Its TypeScript pre-validation threw plain errors, which the web process
+  maps to `500`.
+- `read_member_room(actor, room)` returns one register row by id, so an open room
+  never depends on which register page happens to be loaded.
+- `duefold_runtime` loses `EXECUTE` on `change_room_state`. It stays as the building
+  block the visibility functions (§4.6) call, so a typed confirmation cannot be
+  bypassed by calling it directly.
+
+### 4.6 Migration 023 — `participants-access`, settings, visibility and counterparties
 
 `set_room_download_policy`, `set_document_download_policy`,
 `set_installation_download_policy`, `dry_run_room_default_expiry` and
@@ -159,20 +208,50 @@ need routes, not functions.
 **also already exist** in migration 007, Room-Manager-gated and audited, with no
 TypeScript caller of any kind. Grants can already *target* a counterparty and
 §9.1's viewer union depends on it, so today half the grant model is unreachable
-purely for want of a route. Counterparties therefore need **no new SQL** either.
+purely for want of a route. Two pieces are missing: nothing lists a room's
+counterparties (a counterparty with no viewers is invisible to
+`read_room_participants`), and nothing removes a viewer from one.
 
-The only genuinely new function in this migration:
+New functions:
 
-- `read_room_settings(actor, room)` — Room Manager. Returns room facts,
-  retention years, default grant expiry, download policy, and the room's
-  assignments.
+- `read_room_settings(actor, room)` — Room Manager. One row: room facts, state,
+  revision, retention years, default grant expiry, room download policy, the
+  installation default it inherits, the live purge if any, and a `capabilities`
+  object (`publish`, `archive`, `returnToDraft`, `setRetention`, `schedulePurge`,
+  `cancelPurge`). Each capability mirrors exactly one function's refusals, as
+  `member_subject_capabilities` does in 018, and the surface offers a control only
+  where its capability is true.
+- `read_room_download_overrides(actor, room)` — Room Manager. The documents that
+  carry an explicit download policy.
+- `dry_run_room_visibility` / `apply_room_visibility` — Room Manager. Publishing or
+  archiving is a dry run plus typed confirmation; publishing additionally needs
+  fresh OIDC, because it is the direction that exposes content (§9.4). Returning to
+  draft is the kill switch (§10.1): no dry run, no phrase, no freshness. The dry
+  run counts the viewers who gain or lose access, which is why these live here
+  and not in `rooms-documents`.
+- `read_room_counterparties(actor, room)` and `remove_viewer_counterparty(...)` —
+  Room Manager. Removal revokes the membership row and never deletes it.
+- `set_room_download_policy` and `set_document_download_policy` are replaced with
+  the same signatures. The room setter folded authorization into its `UPDATE`, so a
+  Contributor was told `409` ("reload") instead of `403`; both now authorize first
+  and refuse a change to the value already held, since an audit row is evidence of
+  a change.
 
-**This reader belongs here, not in `rooms-documents`.** `default_grant_expires_at` and
-`download_policy` are participants-access columns on the `room` table.
-`participants-access requires rooms-documents` and not the reverse, so only this
-module may read both sides without inverting the dependency.
+The two counterparty uniqueness rules raise `23505`, which the failure mapping did
+not know, so a duplicate reached the client as `500`. `23505` maps to `409` — which
+also fixes milestone 1's duplicate-invitation refusal.
 
-### 4.7 Migration 019 — `core-security`, status observations
+**These belong here, not in `rooms-documents`.** `default_grant_expires_at` and
+`download_policy` are participants-access columns on the `room` table, and viewer
+reach is participants-access data. `participants-access requires rooms-documents`
+and not the reverse, so only this module may read both sides without inverting the
+dependency.
+
+The installation-wide download default stays with milestone 3 (§2 item 3), which
+adds the Installation tab it belongs on. Milestone 2 shows it read-only as the
+value a room inherits.
+
+### 4.7 Status observations migration — `core-security` (milestone 3, next free number)
 
 One table:
 
@@ -212,21 +291,31 @@ PostgreSQL decide Owner/Admin. Adding an audience cannot silently default-allow
 | `POST` | `/api/members/actions` | union: `invite`, `revoke-invitation`, `set-role`, `set-state`, `transfer-dry-run`, `transfer-apply`, `assign-rooms` | Owner/Admin; `transfer-apply` additionally fresh OIDC |
 | `GET` | `/api/status` | — | Owner/Admin |
 
-`assign-rooms` takes `{memberId, assign: [{roomId, roomRole}], revoke: [roomId], expectedRevision}` and applies the whole batch in one transaction (§4.3).
+`assign-rooms` takes `{memberId, assign: [{roomId, roomRole}], revoke: [roomId]}`, at most 100 entries in total, and applies the whole batch in one transaction (§4.3).
+
+`GET /api/session` answers `mayAdministerOrganization` for a member session. It
+decides only whether the Members view is offered; `read_members` and every
+mutation refuse independently.
 
 ### `rooms-documents`
 
 | Method | Path | Body / query | Authority |
 |---|---|---|---|
 | `POST` | `/api/rooms` | `{title, description}` → `201 {roomId}` | Owner/Admin, enforced by `create_room` |
-| `POST` | `/api/rooms/actions` | two new members of the existing union: `room-state-dry-run`, `room-state-apply` | Room Manager |
+| `GET` | `/api/rooms?roomId=` | one register row by id | any member who can reach the room |
 
-**Naming matters here.** The union already holds `publish-dry-run` and
-`publish-apply`, which publish the *structure*. The new members change *room
-state*, which is a different thing: §10.1 makes returning a room to draft the
-global viewer-access kill switch. The two must not read as variants of each
-other, so the new members are named `room-state-*` and their copy says
-"visibility", not "publish".
+### `participants-access` — room visibility
+
+| Method | Path | Body / query | Authority |
+|---|---|---|---|
+| `POST` | `/api/rooms/visibility` | union: `dry-run`, `apply` | Room Manager |
+
+**Naming matters here.** `/api/rooms/actions` already holds `publish-dry-run` and
+`publish-apply`, which publish the *structure*. Visibility changes *room state*,
+which is a different thing: §10.1 makes returning a room to draft the global
+viewer-access kill switch. The two must not read as variants of each other, so
+visibility has its own path and its copy says "visibility", not "publish". The path
+is declared by `participants-access` because its dry run counts viewer reach (§4.6).
 
 **Asymmetric confirmation.** Publishing or archiving a room requires dry-run
 plus typed confirmation. Returning a room to draft is the *safe* direction — it
@@ -238,9 +327,10 @@ not a kill switch.
 
 | Method | Path | Body / query | Authority |
 |---|---|---|---|
-| `GET` | `/api/rooms/settings` | `roomId` | Room Manager |
-| `POST` | `/api/policies` | union: `installation-download`, `room-download`, `document-download`, `default-expiry-dry-run`, `default-expiry-apply` | Owner/Admin for installation; Room Manager for the rest |
+| `GET` | `/api/rooms/settings` | `roomId` → `{settings, downloadOverrides}` | Room Manager |
+| `POST` | `/api/policies` | union: `room-download`, `document-download`, `default-expiry-dry-run`, `default-expiry-apply`; `installation-download` joins in milestone 3 | Room Manager |
 | `POST` | `/api/counterparties` | union: `create`, `assign-viewer`, `remove-viewer` | Room Manager |
+| `GET` | `/api/participants` | gains `counterparties: [{counterpartyId, name, revision, viewerCount}]` | Room Manager |
 
 `/api/rooms/settings` is declared by `participants-access` even though its path
 sits under `/api/rooms`, because that is where its reader can legally live
@@ -263,6 +353,12 @@ New components: `MembersPanel`, `MemberDetail`, `InstallationPanel`,
 extends the existing `ParticipantsPanel` (714 lines — the counterparty work
 splits it rather than growing it). The per-document download override is a
 control in `StructureTable`.
+
+The room Settings section owns its own state, like a contributed section: `RoomView`
+adds a tab and one render line, and does not grow a hook's worth of props. The
+Settings tab is offered only where the register row says the member holds Room
+Manager authority (`canPublish`), and each control inside it only where the
+server's `capabilities` says the call would be accepted.
 
 ### 6.2 Section tabs become a module contribution
 
@@ -320,11 +416,54 @@ offline and destructive-confirmation states. Two are specific to this work:
 | Risk | Control |
 |---|---|
 | Privilege escalation via role change | Owner/Admin gate in SQL; Owner untargetable by `set_member_global_role`; every change audited with actor, target, before and after. |
-| Self-lockout | The Owner cannot be disabled or demoted except through `transfer_ownership`; `one_active_owner` plus the deferred constraint trigger backstop it. An Admin demoting themselves is permitted and reversible by the Owner. |
+| Self-lockout | The Owner cannot be disabled or demoted except through `transfer_ownership`; `one_active_owner` plus the deferred constraint trigger backstop it. No member may change their own role or state at all (§7.1). |
 | Stale privileged session after change | Existing triggers revoke all sessions of the affected member; ownership transfer revokes the actor's own. |
 | Invitation enumeration | The member surface is Owner/Admin-only and legitimately enumerates. §8.2's neutral-response requirement binds the unauthenticated viewer OTP surface, which is untouched. |
 | Secret leakage through status | `detail` carries redacted codes only; no issuer URL, endpoint, bucket, credential or object key. Asserted by test. |
 | Assignment as a covert access grant | Assignments are Owner/Admin-only, audited, and shown per member and per room so that internal access is answerable from both directions. |
+| Purge of a room returned to service | A trigger pins a room to `archived` while its purge is live; returning it to draft requires cancelling the purge, which is Owner-only, typed, and audited. |
+| Typed confirmation bypassed by calling the building block | `duefold_runtime` has no `EXECUTE` on `change_room_state`; visibility changes reach it only through `apply_room_visibility`. |
+
+### 7.1 Self-administration is refused, not permitted
+
+This section previously said an Admin demoting themselves was "permitted and
+reversible by the Owner". The implementation refuses it — `set_member_global_role`
+and `set_member_state` both reject `p_target_id = p_actor_id` — and the refusal is
+the better rule, so the spec is corrected rather than the code.
+
+"Reversible by the Owner" is only true while an Owner is reachable. A sole Admin who
+demotes themselves in an installation whose Owner has left the company, lost their
+OIDC account, or simply never signs in has locked the organization out of member
+administration entirely, and recovery then needs the CLI and database access. The
+reversibility the old wording relied on is an assumption about staffing, not a
+property of the system.
+
+Refusing costs nothing: an Admin who should no longer be one is demoted by the Owner
+or by another Admin, which is the same outcome through a path that cannot strand the
+installation. Self-disabling is refused for the same reason and additionally because
+it would revoke the actor's own sessions mid-request.
+
+The Owner is separately untargetable by both functions, so ownership moves only
+through `transfer_ownership`, which demotes the outgoing Owner to `admin` as part of
+one audited transaction. Ownership therefore remains transferable without exception.
+
+### 7.2 A superseded assignment is not restored by demotion
+
+An Admin or Owner reaches every room by role, so promoting a plain Member out of
+`member` makes their explicit `room_assignment` rows redundant.
+`supersede_room_assignments_for_role` revokes them and audits the set as
+`ROOM_ASSIGNMENTS_SUPERSEDED`. Demoting that member back to `member` does **not**
+reinstate them; they return with no room access until someone staffs them again.
+
+This is deliberate. Restoring on demotion would grant room access as a side effect of
+a role change, in a request that named no room — against invariant 7, allow-only
+grants. The superseding audit row names every revoked room, so the previous set is
+recoverable as an intentional, audited assignment batch rather than as an implicit
+consequence of demotion.
+
+The asymmetry is the safe direction: the failure mode of not restoring is a member
+who must ask for access, and the failure mode of restoring is a member who silently
+regains access to a room they were removed from while promoted.
 
 ## 8. Verification
 
@@ -357,13 +496,13 @@ offline and destructive-confirmation states. Two are specific to this work:
 
 ## 10. Milestones
 
-1. **Organization administration** (017) — invite, roles, states, assignments,
-   ownership transfer, member-invitation mail, Members tab. Unblocks everything
-   else, since a room without staff is not usable.
-2. **Room administration** (018) — create room, room state, Settings
+1. **Organization administration** (017; review fixes 018–021) — invite, roles,
+   states, assignments, ownership transfer, member-invitation mail, Members tab.
+   Unblocks everything else, since a room without staff is not usable.
+2. **Room administration** (022, 023) — create room, room state, Settings
    section, retention and purge UI, counterparties, download overrides.
-3. **Installation status** (019) — observations table, worker job, CLI writes,
-   Installation and Status tabs.
+3. **Installation status** (next free number) — observations table, worker job,
+   CLI writes, Installation and Status tabs, installation download default.
 
 The client split (§6.1) and the section contribution (§6.2) land with
 milestone 1, because that is the milestone that first adds a top-level tab.

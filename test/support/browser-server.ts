@@ -223,6 +223,8 @@ export interface TestServer {
   }): Promise<{
     readonly cookies: readonly { name: string; value: string; url: string }[];
     readonly memberId: string;
+    /** This member's own address, so a test can name their row exactly. */
+    readonly emailDisplay: string;
     readonly roomId: string | null;
     /** Seeded colleagues, in the order requested. */
     readonly colleagueIds: readonly string[];
@@ -783,6 +785,7 @@ export async function startTestServer(
       );
       return {
         memberId,
+        emailDisplay: `${local}@member.invalid`,
         roomId,
         colleagueIds,
         cookies: [

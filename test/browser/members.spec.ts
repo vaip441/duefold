@@ -1,30 +1,7 @@
-/**
- * The Members surface in a real browser.
- *
- * Everything asserted here needs a live DOM and cannot be reached by server-rendered
- * markup, which is why the unit suite deliberately stops short of it: the assignment
- * dialog is a Base UI portal that renders nothing on the server, so its pending label,
- * dismissal suppression, draft survival, focus return, and the CSS-generated stacked labels
- * were all claims no test could check.
- *
- * Every session is genuinely server-issued and every seeded colleague, invitation and
- * assignment is created through the audited SECURITY DEFINER functions the product uses, so
- * a passing case says something about what the server actually permits rather than about
- * what the client chose to render.
- *
- * The properties under test are the ones an administrator's decisions depend on:
- *   - a refused batch keeps the dialog OPEN with the draft intact, because a multi-room
- *     choice must not have to be reconstructed from memory;
- *   - the dialog cannot be dismissed while the batch is in flight, because closing
- *     mid-request would leave a sign-out unreported;
- *   - a committed batch closes it and returns focus to the row control that opened it;
- *   - a failure from one operation never appears inside another operation's dialog;
- *   - at 320 CSS pixels the stacked tables label every cell and nothing overflows.
- */
-
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { startTestServer, type TestServer } from '../support/browser-server.ts';
+import { settleTheme } from './theme.ts';
 
 let server: TestServer;
 
@@ -36,7 +13,6 @@ test.afterAll(async () => {
   await server.close();
 });
 
-/** Signs in an Owner and opens the Members workbench. */
 async function openMembers(
   page: Page,
   options: Parameters<TestServer['signInMember']>[0] = {},
@@ -51,13 +27,10 @@ async function openMembers(
   );
   await page.goto(server.baseUrl);
   await page.getByRole('button', { name: 'Members', exact: true }).click();
-  /* The section heading, not the frame title: both read "Members" once the workbench is
-     open, which is correct — the frame names the surface and the section names itself. */
   await expect(page.getByRole('heading', { level: 2, name: 'Members' })).toBeVisible();
   return seeded;
 }
 
-/** The populated fixture: two colleagues, a pending invitation, several rooms. */
 const POPULATED: Parameters<TestServer['signInMember']>[0] = {
   globalRole: 'owner',
   roomTitle: 'Series A',
@@ -68,12 +41,97 @@ const POPULATED: Parameters<TestServer['signInMember']>[0] = {
   },
 };
 
+test.describe('inviting a member', () => {
+  /*
+   * THE JOURNEY, END TO END, THROUGH THE REAL FORM.
+   *
+   * The invitation's role is chosen HERE, in this form, and the server records it on the
+   * invitation so acceptance grants exactly what was authorized. Nothing below asserts SQL:
+   * what needs proving in a browser is that the typed address and the chosen role reach the
+   * server together, that the new row appears as an invitation rather than as a member, and
+   * that the form clears so a second invitation does not inherit the first one's address.
+   */
+  test('invites an address as an Admin and shows it as invited, not as a member', async ({
+    page,
+  }) => {
+    await openMembers(page);
+    await page.getByLabel('Email address').fill('newcomer@example.com');
+    await page.getByLabel('Role on arrival').selectOption('admin');
+    await page.getByRole('button', { name: 'Invite member' }).click();
+
+    /* The status region, not a redirect: the administrator stays where they are and the
+       register updates underneath them. */
+    await expect(page.getByRole('status')).toContainText('Invitation sent');
+    const invited = page.getByRole('row', { name: /newcomer@example\.com/u });
+    await expect(invited).toBeVisible();
+    /* An invited person has not signed in, so the row must not read like access. */
+    await expect(invited).toContainText('Invited, not yet signed in');
+    await expect(invited.getByRole('button', { name: /^Withdraw invitation/u })).toBeVisible();
+    await expect(invited.getByRole('button', { name: /^Staff into rooms/u })).toHaveCount(0);
+
+    /* Cleared, so the next invitation starts empty rather than re-sending this address. */
+    await expect(page.getByLabel('Email address')).toHaveValue('');
+  });
+
+  /* An already-invited address is refused by the database as a duplicate. It reaches the
+     Admin as a conflict they can act on; it used to arrive as HTTP 500. */
+  test('reports an address that is already invited without claiming a fault', async ({
+    page,
+  }) => {
+    await openMembers(page);
+    /* Invited HERE rather than read off the seeded register: the suite shares one database,
+       so a row matched by its label could belong to any earlier test. This owns both halves
+       of the duplicate, so the refusal is provably about the address just used. */
+    const address = `duplicate-${Date.now()}@example.com`;
+    await page.getByLabel('Email address').fill(address);
+    await page.getByRole('button', { name: 'Invite member' }).click();
+    await expect(page.getByRole('status')).toContainText('Invitation sent');
+
+    await page.getByLabel('Email address').fill(address);
+    await page.getByRole('button', { name: 'Invite member' }).click();
+
+    const alert = page.getByRole('alert').first();
+    await expect(alert).toBeVisible();
+    /* The designed conflict copy, and no SQLSTATE or database wording. Also NOT room copy:
+       this surface has no room, and the shared 409 message used to say one had changed. */
+    await expect(alert).toContainText('Reload to see the current state');
+    await expect(alert).not.toContainText('room');
+    await expect(alert).not.toContainText('23505');
+  });
+
+  test('explains an address that is not an email instead of sending it', async ({ page }) => {
+    await openMembers(page);
+    const email = page.getByLabel('Email address');
+    await email.fill('not-an-address');
+
+    /*
+     * The control stays ENABLED and explains on attempt. A button that silently disables
+     * itself gives a keyboard or screen-reader user nothing to act on: they reach a dead
+     * control with no stated reason. Pressing it names the problem and marks the field.
+     */
+    const submit = page.getByRole('button', { name: 'Invite member' });
+    await expect(submit).toBeEnabled();
+    await submit.click();
+
+    await expect(page.getByText('Enter an email address')).toBeVisible();
+    await expect(email).toHaveAttribute('aria-invalid', 'true');
+    /* Not sent, so nothing was invited and the typed value survives for correction. */
+    await expect(page.getByRole('status')).not.toContainText('Invitation sent');
+    await expect(email).toHaveValue('not-an-address');
+  });
+});
+
 test.describe('the member register', () => {
   test('names an invitation as invited and offers only withdrawal', async ({ page }) => {
     await openMembers(page, POPULATED);
-    const invited = page.getByRole('row', { name: /Invited, not yet signed in/u });
+    /*
+     * `.first()`, because the register is one page of 50 subjects ordered newest-first and
+     * this suite shares a database: any earlier test that invited someone also has a row
+     * matching this label. Asserting a single match made the case depend on how many
+     * invitations happened to exist, which is not what it is testing.
+     */
+    const invited = page.getByRole('row', { name: /Invited, not yet signed in/u }).first();
     await expect(invited).toBeVisible();
-    /* An invitation holds nothing, so no role, access, or room control may act on it. */
     await expect(invited.getByRole('button', { name: /^Withdraw invitation/u })).toBeVisible();
     await expect(invited.getByRole('button', { name: /^Staff into rooms/u })).toHaveCount(0);
     await expect(invited.getByRole('button', { name: /^Disable/u })).toHaveCount(0);
@@ -82,10 +140,7 @@ test.describe('the member register', () => {
   test('offers the Owner no role, access, or transfer control on their own row', async ({
     page,
   }) => {
-    // Ownership moves only through the audited transfer and the Owner cannot be disabled.
     await openMembers(page, POPULATED);
-    /* Located by the Owner's own role explanation. A bare /Owner/ would also match an
-       Admin row, which carries "Owners and Admins already reach every room". */
     const owner = page.getByRole('row', {
       name: /is the only role that can transfer ownership/u,
     });
@@ -95,8 +150,69 @@ test.describe('the member register', () => {
   });
 });
 
+test.describe('an Admin', () => {
+  async function openAsAdmin(page: Page): Promise<string> {
+    const seeded = await openMembers(page, {
+      globalRole: 'admin',
+      roomTitle: 'Series A',
+      withColleagues: {
+        members: [{ globalRole: 'member', staffAs: 'contributor' }, { globalRole: 'admin' }],
+        invitation: { intendedRole: 'member' },
+      },
+    });
+    return seeded.emailDisplay;
+  }
+
+  test('is offered no ownership transfer anywhere, because transfer is Owner-only', async ({
+    page,
+  }) => {
+    await openAsAdmin(page);
+    await expect(page.getByRole('button', { name: /^Transfer ownership/u })).toHaveCount(0);
+  });
+
+  test('is offered no role, state, or rooms control on their own row', async ({ page }) => {
+    const own = await openAsAdmin(page);
+    const ownRow = page.getByRole('row', { name: new RegExp(own, 'u') });
+    await expect(ownRow).toBeVisible();
+    for (const control of [/^Make Member/u, /^Make Admin/u, /^Disable/u, /^Staff into rooms/u])
+      await expect(ownRow.getByRole('button', { name: control })).toHaveCount(0);
+  });
+
+  test('can still administer a plain Member', async ({ page }) => {
+    await openAsAdmin(page);
+    const member = page
+      .getByRole('row', { name: /Reaches only the rooms they are staffed into/u })
+      .first();
+    await expect(member.getByRole('button', { name: /^Staff into rooms/u })).toBeVisible();
+    await expect(member.getByRole('button', { name: /^Disable/u })).toBeVisible();
+    await expect(member.getByRole('button', { name: /^Transfer ownership/u })).toHaveCount(0);
+  });
+
+  test('has no accessibility violations on the Members surface', async ({ page }) => {
+    await openAsAdmin(page);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });
+});
+
+test.describe('a plain Member', () => {
+  test('is offered no Members destination at all', async ({ page }) => {
+    const seeded = await server.signInMember({ globalRole: 'member', roomTitle: 'Series A' });
+    await page.context().addCookies(
+      seeded.cookies.map((cookie) => ({
+        name: cookie.name,
+        value: cookie.value,
+        url: cookie.url,
+      })),
+    );
+    await page.goto(server.baseUrl);
+    await expect(page.getByRole('heading', { level: 1, name: 'Rooms' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Members', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: /views/iu })).toHaveCount(0);
+  });
+});
+
 test.describe('the room assignment dialog', () => {
-  /** Opens the assignment dialog for the staffed plain Member. */
   async function openAssignment(page: Page): Promise<void> {
     await page
       .getByRole('button', { name: /^Staff into rooms/u })
@@ -111,8 +227,6 @@ test.describe('the room assignment dialog', () => {
     await trigger.click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    /* Cancel takes initial focus: the panel opens on a task that signs someone out, so
-       the first control should be the one that leaves it. */
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
@@ -124,7 +238,6 @@ test.describe('the room assignment dialog', () => {
     await openAssignment(page);
     const dialog = page.getByRole('dialog');
 
-    // A multi-room draft, which is exactly what a premature close would discard.
     const selects = dialog.locator('select');
     await selects.nth(0).selectOption('manager');
     await selects.nth(1).selectOption('contributor');
@@ -144,16 +257,10 @@ test.describe('the room assignment dialog', () => {
     );
     await dialog.getByRole('button', { name: 'Save rooms' }).click();
 
-    /* Open, with the refusal reported INSIDE it and both choices still selected. The
-       dialog used to close on submit, so a refusal dropped the administrator back to the
-       table having lost a draft they would have to rebuild from memory. */
     await expect(dialog).toBeVisible();
-    /* The surface's own designed copy, not the server's wording: a 409 on a batch means
-       someone else changed the room while this draft was being made. */
-    await expect(dialog.getByRole('alert')).toContainText('Someone else changed this room');
+    await expect(dialog.getByRole('alert')).toContainText('Someone else changed this');
     await expect(selects.nth(0)).toHaveValue('manager');
     await expect(selects.nth(1)).toHaveValue('contributor');
-    // Still submittable, so the same draft can be retried rather than re-entered.
     await expect(dialog.getByRole('button', { name: 'Save rooms' })).toBeEnabled();
   });
 
@@ -163,7 +270,6 @@ test.describe('the room assignment dialog', () => {
     const dialog = page.getByRole('dialog');
     await dialog.locator('select').first().selectOption('manager');
 
-    // Held open so the pending state is observable rather than a render that never paints.
     let release = (): void => undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -174,12 +280,9 @@ test.describe('the room assignment dialog', () => {
     });
     await dialog.getByRole('button', { name: 'Save rooms' }).click();
 
-    // The pending label, which could never be observed while the dialog closed on submit.
     await expect(dialog.getByRole('button', { name: 'Saving rooms…' })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
 
-    /* Escape and an outside click are both suppressed: closing mid-request would leave an
-       irreversible sign-out unreported. */
     await page.keyboard.press('Escape');
     await expect(dialog).toBeVisible();
     await page.mouse.click(2, 2);
@@ -197,20 +300,12 @@ test.describe('the room assignment dialog', () => {
     await dialog.locator('select').first().selectOption('manager');
     await dialog.getByRole('button', { name: 'Save rooms' }).click();
 
-    /* Closed only by a CONFIRMED batch. Focus returns explicitly, because a programmatic
-       close unmounts the popup while focus is inside it, which would otherwise drop focus
-       to the document and make a keyboard user restart from the top of the page. */
     await expect(dialog).toBeHidden();
     await expect(page.getByRole('status')).toContainText('Rooms updated');
     await expect(trigger).toBeFocused();
   });
 
   test('does not open holding a failure from a different operation', async ({ page }) => {
-    /*
-     * `changeFailure` is shared by role, state and assignment operations. Passing it
-     * through unconditionally meant a failed role change appeared inside a freshly opened
-     * assignment dialog, as though the draft on screen had been rejected.
-     */
     await openMembers(page, POPULATED);
     await page.route('**/api/members/actions', (route) =>
       route.fulfill({
@@ -225,14 +320,11 @@ test.describe('the room assignment dialog', () => {
         }),
       }),
     );
-    // Fail a ROLE change, which reports at the table.
     await page
       .getByRole('button', { name: /^Make Admin/u })
       .first()
       .click();
-    await expect(page.getByRole('alert').first()).toContainText(
-      'Someone else changed this room',
-    );
+    await expect(page.getByRole('alert').first()).toContainText('Someone else changed this');
 
     await page.unroute('**/api/members/actions');
     await page
@@ -241,18 +333,12 @@ test.describe('the room assignment dialog', () => {
       .click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    // The dialog carries no alert: that refusal was not about this draft.
     await expect(dialog.getByRole('alert')).toHaveCount(0);
   });
 
   test('says when the room list is partial and offers the rest inside the dialog', async ({
     page,
   }) => {
-    /*
-     * The register is paged. It used to be walked to a 100-page cap and stored as terminal,
-     * so this caveat named a limitation with no way past it and rooms beyond the cap could
-     * not be staffed at all.
-     */
     await page.route('**/api/rooms*', async (route) => {
       const response = await route.fetch();
       const body = (await response.json()) as {
@@ -277,7 +363,6 @@ test.describe('the room assignment dialog', () => {
       .click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Only part of the room list loaded');
-    // The action that resolves the caveat, beside the caveat itself.
     await expect(dialog.getByRole('button', { name: 'Load more rooms' })).toBeVisible();
   });
 });
@@ -286,8 +371,6 @@ test.describe('the register continues past the first page', () => {
   test('offers and follows a continuation rather than stopping at a prefix', async ({
     page,
   }) => {
-    /* One room per page, so the continuation is exercised rather than asserted against a
-       collection that fits in a single response. */
     let request = 0;
     await page.route('**/api/rooms*', async (route) => {
       const response = await route.fetch();
@@ -319,14 +402,12 @@ test.describe('the register continues past the first page', () => {
     );
     await page.goto(server.baseUrl);
 
-    // A prefix says it is one, and offers the request that completes it.
     await expect(
       page.getByRole('status').filter({ hasText: 'part of your rooms' }),
     ).toBeVisible();
     const more = page.getByRole('button', { name: 'Load more rooms' });
     await expect(more).toBeVisible();
     await more.click();
-    // The next page is appended; the rooms already read are not discarded.
     await expect(page.getByRole('row')).toHaveCount(3);
   });
 });
@@ -336,11 +417,6 @@ test.describe('at 320 CSS pixels', () => {
 
   test('labels every stacked cell and keeps the real column headers', async ({ page }) => {
     await openMembers(page, POPULATED);
-    /*
-     * The stacked layout's labels are CSS-generated content from `data-label`, which only
-     * a real browser resolves. The `<th scope="col">` headers stay in the DOM, visually
-     * hidden rather than `display:none`, so the programmatic association survives.
-     */
     const headers = page.locator('table thead th');
     await expect(headers.first()).toBeAttached();
     const labels = await page.evaluate(() => {
@@ -353,15 +429,12 @@ test.describe('at 320 CSS pixels', () => {
     expect(labels.length).toBeGreaterThan(4);
     for (const { label, generated } of labels) {
       expect(label).not.toBe('');
-      // The column name is actually painted, not merely present as an attribute.
       expect(generated).toContain(label);
     }
   });
 
   test('does not overflow the viewport horizontally', async ({ page }) => {
     await openMembers(page, POPULATED);
-    /* A horizontally scrolling table would put the row action buttons off-screen at this
-       width, which is why the register stacks instead. */
     const overflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -371,8 +444,6 @@ test.describe('at 320 CSS pixels', () => {
 
   test('keeps the transfer preview table readable and labelled', async ({ page }) => {
     await openMembers(page, POPULATED);
-    /* The transfer dialog is where an Owner approves an irreversible privilege loss, and it
-       stacks like every other register at this width. */
     await page
       .getByRole('button', { name: /^Transfer ownership/u })
       .first()
@@ -416,5 +487,34 @@ test.describe('at 320 CSS pixels', () => {
         nodes: violation.nodes.length,
       })),
     ).toEqual([]);
+  });
+
+  /*
+   * DARK THEME IS A SEPARATE RUN, NOT AN ASSUMPTION.
+   *
+   * Every colour pair is different here, so contrast is the one class of violation the light
+   * run cannot speak to — and this surface is unusually dependent on it: role and state are
+   * carried by badges, a busy row is dimmed, and a refusal is a tinted notice. The dialog is
+   * opened in the same pass because its overlay and surface sit on different tokens again.
+   */
+  test('reports zero axe violations on the populated surface in dark theme', async ({
+    page,
+  }) => {
+    await settleTheme(page, 'dark');
+    await openMembers(page, POPULATED);
+    const table = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(table.violations.map((violation) => violation.id)).toEqual([]);
+
+    await page
+      .getByRole('button', { name: /^Staff into rooms/u })
+      .first()
+      .click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(dialog.violations.map((violation) => violation.id)).toEqual([]);
   });
 });
