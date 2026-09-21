@@ -156,6 +156,8 @@ const ROUTE_FACTORIES = {
   'organization.members.actions': memberFactory('organization.members.actions'),
   'installation.status.read': memberFactory('installation.status.read'),
   'installation.content.read': memberFactory('installation.content.read'),
+  'installation.settings.read': memberFactory('installation.settings.read'),
+  'installation.download-policy': memberFactory('installation.download-policy'),
   'branding.asset.upload': memberFactory('branding.asset.upload'),
   'branding.configuration': memberFactory('branding.configuration'),
   'branding.asset.delete': memberFactory('branding.asset.delete'),
@@ -201,6 +203,8 @@ function memberFactory(
     | 'organization.members.actions'
     | 'installation.status.read'
     | 'installation.content.read'
+    | 'installation.settings.read'
+    | 'installation.download-policy'
     | 'branding.asset.upload'
     | 'branding.configuration'
     | 'branding.asset.delete',

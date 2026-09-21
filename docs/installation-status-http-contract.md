@@ -50,3 +50,31 @@ as `UPDATE_CURRENT`.
 
 `failedCount` counts versions in `processing_failed`. `recovery` is `operational_recovery_status`
 as `backup-status acknowledge` and `restore drill` leave it.
+
+## `GET /api/installation`
+
+```
+200 {settings: {downloadPolicy: allow|deny, revision, inheritingRoomCount}}
+```
+
+`inheritingRoomCount` counts rooms without their own download policy.
+
+## `POST /api/installation/download-policy`
+
+```
+{action: 'dry-run', policy}                                                →  200 {impact}
+{action: 'apply', policy: 'allow', expectedRevision, confirmation}         →  200 {revision}
+{action: 'apply', policy: 'deny',  expectedRevision}                       →  200 {revision}
+
+impact = {currentPolicy, proposedPolicy, inheritingRoomCount, affectedDocumentCount,
+          requiresFreshAuthentication, expectedRevision, confirmation: string | null}
+```
+
+`affectedDocumentCount` counts published documents in published rooms where neither the room
+nor the document sets its own policy: what viewers can open today whose download changes.
+Allowing needs the phrase `ALLOW ORIGINAL DOWNLOADS` and a sign-in within fifteen minutes
+(`403 FRESH_AUTHENTICATION_REQUIRED` otherwise); denying needs neither, and a deny carrying a
+phrase is `400`. Reviewing or applying the value already held is `409`, as is a stale
+`expectedRevision`. The change writes one `download.policy` audit row with reason
+`INSTALLATION_DOWNLOAD_POLICY_CHANGED`.
+
