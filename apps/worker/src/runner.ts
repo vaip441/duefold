@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { generatedJobs } from '../../../.duefold/generated/jobs.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { RequiredMailDeliveryDependencies } from '../../../modules/core-security/src/jobs/required-mail-delivery.ts';
+import type { MemberInvitationMailDependencies } from '../../../modules/core-security/src/jobs/member-invitation-mail.ts';
 import type { OtpDeliveryDependencies } from '../../../modules/core-security/src/jobs/otp-delivery.ts';
 import type { SourceValidationDependencies } from '../../../modules/rooms-documents/src/jobs/source-validation.ts';
 import type { RetentionSweepDependencies } from '../../../modules/rooms-documents/src/jobs/retention-sweep.ts';
@@ -38,7 +39,9 @@ export interface JobContext {
 }
 export type JobHandler = (job: LeasedJob, context: JobContext) => Promise<void>;
 export interface JobHandlerDependencies {
-  readonly coreSecurity: OtpDeliveryDependencies & RequiredMailDeliveryDependencies;
+  readonly coreSecurity: OtpDeliveryDependencies &
+    RequiredMailDeliveryDependencies &
+    MemberInvitationMailDependencies;
   readonly roomsDocuments: SourceValidationDependencies &
     MultipartReapDependencies &
     RetentionSweepDependencies &
@@ -53,7 +56,9 @@ export interface JobHandlerDependencies {
 }
 type JobHandlerFactory = (
   dependencies:
-    | (OtpDeliveryDependencies & RequiredMailDeliveryDependencies)
+    | (OtpDeliveryDependencies &
+        RequiredMailDeliveryDependencies &
+        MemberInvitationMailDependencies)
     | (SourceValidationDependencies &
         MultipartReapDependencies &
         RetentionSweepDependencies &

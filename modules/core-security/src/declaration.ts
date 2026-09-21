@@ -107,6 +107,12 @@ export const moduleDeclaration: ModuleDeclaration = {
       service: 'worker',
     },
     {
+      id: 'mail.member_invitation',
+      handler: 'jobs/member-invitation-mail.ts',
+      handlerFactoryExport: 'createHandler',
+      service: 'worker',
+    },
+    {
       id: 'auth.otp.deliver',
       handler: 'jobs/otp-delivery.ts',
       handlerFactoryExport: 'createHandler',

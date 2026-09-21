@@ -14,8 +14,32 @@ export interface OutboundMail {
   readonly text: string;
   readonly headers?: Readonly<Record<string, string>>;
 }
+/**
+ * Per-request delivery instructions that are not part of the message content.
+ *
+ * These are transport concerns: a provider that understands them applies them,
+ * and one that does not is not told a different story in the message body.
+ */
+export interface MailDelivery {
+  /**
+   * Provider request idempotency key for an at-least-once retry of the same
+   * mail. Resend accepts it as the `Idempotency-Key` request header on
+   * `POST /emails` and returns the original response instead of sending again
+   * for the 24 hours it documents as the key's retention window.
+   *
+   * That suppression is bounded, not permanent: a retry after the window lapses
+   * is a new request and can deliver a second copy. Generic SMTP has no
+   * equivalent at all, so the SMTP transport ignores this key -- once a remote
+   * MTA has returned acceptance there is no request to replay and no way for the
+   * client to retract or collapse a later duplicate.
+   *
+   * Mail carrying this key is therefore still at-least-once. Callers must keep a
+   * duplicate harmless rather than assume it cannot happen.
+   */
+  readonly idempotencyKey?: string;
+}
 export interface MailTransport {
-  send(message: OutboundMail): Promise<void>;
+  send(message: OutboundMail, delivery?: MailDelivery): Promise<void>;
   close(): void;
 }
 export interface OtpMailer {
@@ -33,6 +57,12 @@ export interface RequiredMailer extends OtpMailer {
     readonly emailDisplay: string;
     readonly authenticatedLink: string;
     readonly occurredAt: Date;
+    /**
+     * See `MailDelivery.idempotencyKey`. It must be identical across attempts
+     * for one invitation and must contain no secret, because it travels as a
+     * provider request header and may be retained by the provider.
+     */
+    readonly idempotencyKey: string;
   }): Promise<void>;
   deliverSecurityNotice(input: SecurityNoticeInput): Promise<void>;
 }
@@ -68,6 +98,16 @@ function authenticatedHttpsLink(raw: string): string {
 }
 function safeLine(value: string, code: string): string {
   if (value === '' || value.length > 200 || /[\r\n\0]/u.test(value)) throw new Error(code);
+  return value;
+}
+/**
+ * Bounded to the 1–256 printable characters a Resend `Idempotency-Key` request
+ * header accepts. Validated for every adapter, so a malformed key is refused
+ * identically under SMTP rather than only where the provider would reject it.
+ */
+function safeIdempotencyKey(value: string): string {
+  if (value === '' || value.length > 256 || /[^\u0021-\u007e]/u.test(value))
+    throw new Error('MAIL_IDEMPOTENCY_KEY_INVALID');
   return value;
 }
 export async function renderRoomSecurityNotice(input: {
@@ -121,6 +161,12 @@ export function createSmtpTransport(input: {
     disableUrlAccess: true,
   });
   return {
+    /*
+     * `MailDelivery` is deliberately unused. SMTP submission offers no
+     * request-level idempotency, and inventing a custom message header would
+     * claim deduplication that no generic MTA performs, so the at-least-once
+     * duplicate risk is left visible instead of being disguised.
+     */
     async send(message) {
       await transport.sendMail(message);
     },
@@ -137,12 +183,18 @@ export function createResendTransport(input: {
   if (input.apiKey === '') throw new Error('MAIL_RESEND_CONFIG_INVALID');
   const request = input.fetch ?? globalThis.fetch;
   return {
-    async send(message) {
+    async send(message, delivery) {
       const response = await request('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
           authorization: `Bearer ${input.apiKey}`,
           'content-type': 'application/json',
+          /* Resend collapses a repeated request carrying this header for 24
+           * hours. It is a request header rather than a body field or message
+           * header, so it never reaches the recipient's mailbox. */
+          ...(delivery?.idempotencyKey === undefined
+            ? {}
+            : { 'idempotency-key': delivery.idempotencyKey }),
         },
         body: JSON.stringify(message),
       });
@@ -158,15 +210,22 @@ export function createRequiredMailer(input: {
 }): RequiredMailer {
   const rawFrom = safeLine(input.from, 'MAIL_FROM_INVALID');
   const from = rawFrom.includes('<') ? rawFrom : `Duefold <${rawFrom}>`;
-  const sendSecurity = async (notice: SecurityNoticeInput): Promise<void> => {
+  const sendSecurity = async (
+    notice: SecurityNoticeInput,
+    delivery?: MailDelivery,
+  ): Promise<void> => {
     const rendered = renderSecurityNotice(notice);
-    await input.transport.send({
-      to: notice.recipient,
-      from,
-      subject: rendered.subject,
-      text: rendered.text,
-      headers: { 'X-Duefold-Brand': 'Duefold' },
-    });
+    const key = delivery?.idempotencyKey;
+    await input.transport.send(
+      {
+        to: notice.recipient,
+        from,
+        subject: rendered.subject,
+        text: rendered.text,
+        headers: { 'X-Duefold-Brand': 'Duefold' },
+      },
+      key === undefined ? {} : { idempotencyKey: safeIdempotencyKey(key) },
+    );
   };
   return {
     async deliver(message) {
@@ -188,15 +247,18 @@ export function createRequiredMailer(input: {
       });
     },
     deliverOnboarding(message) {
-      return sendSecurity({
-        recipient: message.emailDisplay,
-        roomAlias: 'internal',
-        eventClass: 'internal-onboarding',
-        occurredAt: message.occurredAt,
-        authenticatedLink: message.authenticatedLink,
-      });
+      return sendSecurity(
+        {
+          recipient: message.emailDisplay,
+          roomAlias: 'internal',
+          eventClass: 'internal-onboarding',
+          occurredAt: message.occurredAt,
+          authenticatedLink: message.authenticatedLink,
+        },
+        { idempotencyKey: message.idempotencyKey },
+      );
     },
-    deliverSecurityNotice: sendSecurity,
+    deliverSecurityNotice: (notice) => sendSecurity(notice),
     close() {
       input.transport.close();
     },

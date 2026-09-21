@@ -124,6 +124,109 @@ describe('mail policy', () => {
     expect(messages[1]?.headers?.['X-Duefold-Challenge']).toBe('chal_abc123');
   });
 
+  it('carries an onboarding idempotency key as a Resend request header, not in the message', async () => {
+    const requests: { readonly headers: Record<string, string>; readonly body: string }[] = [];
+    const transport = createResendTransport({
+      apiKey: 'test-key',
+      fetch: (_url, init) => {
+        if (typeof init?.body !== 'string') throw new Error('test body absent');
+        requests.push({
+          headers: Object.fromEntries(new Headers(init.headers).entries()),
+          body: init.body,
+        });
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      },
+    });
+    const mailer = createRequiredMailer({ from: 'mail@example.test', transport });
+    const occurredAt = new Date('2027-04-05T06:07:08.000Z');
+    /* Onboarding mail is at-least-once. Resend returns the original result for a
+     * repeated request carrying this key within the 24 hours it retains the key,
+     * so a prompt reclaim does not mail the invitee twice. Suppression ends with
+     * that window; test/integration/member-invitation-mail.test.ts covers both
+     * sides of the bound. */
+    await mailer.deliverOnboarding({
+      emailDisplay: 'joiner@example.test',
+      authenticatedLink: 'https://duefold.example/',
+      occurredAt,
+      idempotencyKey: 'member-invitation:abc',
+    });
+    expect(requests[0]?.headers['idempotency-key']).toBe('member-invitation:abc');
+    /* The key is provider request metadata. It must not reach the recipient's
+     * mailbox as a message header, and it must not be mistaken for content. */
+    const sent: unknown = JSON.parse(requests[0]?.body ?? 'null');
+    /* Asserted exactly, because a repeat of this message is tolerated on the
+     * grounds that it discloses nothing: the authenticated application link, the
+     * event class, and a timestamp. No role, no real room, no inviter, no
+     * one-time code. `roomAlias` is the literal 'internal', not a room identity. */
+    expect(sent).toEqual({
+      to: 'joiner@example.test',
+      from: 'Duefold <mail@example.test>',
+      subject: 'Duefold security event: internal-onboarding',
+      text:
+        'Room alias: internal\nEvent class: internal-onboarding\n' +
+        'UTC time: 2027-04-05T06:07:08.000Z\nDuefold link: https://duefold.example/',
+      headers: { 'X-Duefold-Brand': 'Duefold' },
+    });
+
+    /* Viewer invitation mail supplies no key, so no idempotency header is sent at
+     * all rather than an empty or invented one. */
+    await mailer.deliverInvitation({
+      emailDisplay: 'viewer@example.test',
+      roomAlias: 'ROOM-ABC',
+      authenticatedLink: 'https://duefold.example/read',
+      occurredAt,
+    });
+    expect(requests[1]?.headers).not.toHaveProperty('idempotency-key');
+  });
+
+  /*
+   * SMTP submission has no request-level idempotency, so the transport adds
+   * nothing: no custom header may imply deduplication that no generic MTA
+   * performs. Onboarding mail is byte-identical to the same mail sent without a
+   * key, which is what makes a duplicate redundant rather than harmful.
+   */
+  it('adds no deduplication header to SMTP onboarding mail', async () => {
+    const messages: OutboundMail[] = [];
+    const mailer = createRequiredMailer({
+      from: 'mail@example.test',
+      transport: createSmtpTransport({
+        smtpUrl: 'smtp://localhost',
+        send: (message) => Promise.resolve(void messages.push(message)),
+      }),
+    });
+    await mailer.deliverOnboarding({
+      emailDisplay: 'joiner@example.test',
+      authenticatedLink: 'https://duefold.example/',
+      occurredAt: new Date('2027-04-05T06:07:08.000Z'),
+      idempotencyKey: 'member-invitation:abc',
+    });
+    expect(messages[0]?.headers).toEqual({ 'X-Duefold-Brand': 'Duefold' });
+    expect(JSON.stringify(messages[0])).not.toContain('member-invitation:abc');
+  });
+
+  it('rejects an idempotency key the provider contract cannot carry', async () => {
+    const mailer = createRequiredMailer({
+      from: 'mail@example.test',
+      transport: { send: () => Promise.resolve(), close: () => undefined },
+    });
+    const onboarding = {
+      emailDisplay: 'joiner@example.test',
+      authenticatedLink: 'https://duefold.example/',
+      occurredAt: new Date('2027-04-05T06:07:08.000Z'),
+    };
+    /* A header-splitting key must fail here rather than be handed to `fetch`, and
+     * it must fail identically under SMTP, where nothing would reject it. */
+    await expect(
+      mailer.deliverOnboarding({ ...onboarding, idempotencyKey: 'ok\nBcc: attacker@x.test' }),
+    ).rejects.toThrow('MAIL_IDEMPOTENCY_KEY_INVALID');
+    await expect(
+      mailer.deliverOnboarding({ ...onboarding, idempotencyKey: 'a'.repeat(257) }),
+    ).rejects.toThrow('MAIL_IDEMPOTENCY_KEY_INVALID');
+    await expect(
+      mailer.deliverOnboarding({ ...onboarding, idempotencyKey: '' }),
+    ).rejects.toThrow('MAIL_IDEMPOTENCY_KEY_INVALID');
+  });
+
   it('rejects credential-bearing, non-HTTPS, and line-breaking security fields', () => {
     expect(() =>
       renderSecurityNotice({
