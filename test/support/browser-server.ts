@@ -199,10 +199,33 @@ export interface TestServer {
       readonly state: 'quarantine' | 'processing_failed' | 'rejected' | 'malware_quarantined';
       readonly manualRetryCount?: number;
     }[];
+    /**
+     * Seeds colleagues and a pending invitation, so the Members surface has a populated
+     * table rather than only an empty state.
+     *
+     * Every row is created through the audited SECURITY DEFINER functions the product
+     * uses — `invite_member` for the invitation, `apply_room_assignments` for staffing —
+     * so the fixture exercises the same eligibility rules a real administrator does and a
+     * passing test says something about what the server actually permits.
+     */
+    readonly withColleagues?: {
+      /** Additional provisioned members, optionally staffed into `roomTitle`. */
+      readonly members?: readonly {
+        readonly globalRole: 'admin' | 'member';
+        readonly state?: 'active' | 'disabled';
+        readonly staffAs?: 'manager' | 'contributor';
+      }[];
+      /** A real pending invitation, which has no member row and holds nothing. */
+      readonly invitation?: { readonly intendedRole: 'admin' | 'member' };
+      /** Extra rooms, so the register and the staffing dialog have several to choose. */
+      readonly extraRooms?: readonly string[];
+    };
   }): Promise<{
     readonly cookies: readonly { name: string; value: string; url: string }[];
     readonly memberId: string;
     readonly roomId: string | null;
+    /** Seeded colleagues, in the order requested. */
+    readonly colleagueIds: readonly string[];
   }>;
   /**
    * Seeds an active viewer holding a real grant on a published room containing one
@@ -441,6 +464,20 @@ export async function startTestServer(
       const client = await migrationPool.connect();
       try {
         await client.query('BEGIN');
+        /*
+         * An existing active Owner is DEMOTED first when this member will be one.
+         *
+         * `one_active_owner` is a partial unique index: exactly one active Owner per
+         * installation (§4.1), which is the invariant, not a fixture inconvenience. Several
+         * cases in a file each need an Owner session, so rather than relaxing the rule the
+         * previous holder becomes an Admin — the same end state `transfer_ownership`
+         * produces. Demoting before inserting keeps the index satisfied at every moment,
+         * because a partial unique index is checked per statement and not at commit.
+         */
+        if (globalRole === 'owner')
+          await client.query(
+            "UPDATE member SET global_role='admin' WHERE global_role='owner' AND state='active'",
+          );
         await client.query(
           `INSERT INTO member (id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state)
            VALUES ($1,$2,$2,'https://issuer.example',$1,$3,'active')`,
@@ -482,9 +519,24 @@ export async function startTestServer(
           createCorrelationId(),
         ]);
         if (input.roomRole !== undefined)
+          /*
+           * Staffed through the audited function, not by inserting the row.
+           * `duefold_runtime` holds SELECT alone on `room_assignment`, because a
+           * credential that could grant a room privilege with no administrator check
+           * and no audit row would make that boundary bypassable. Seeding the way the
+           * product does also means this fixture exercises the same eligibility rules
+           * a real staffing action does.
+           */
           await runtimePool.query(
-            'INSERT INTO room_assignment (id,room_id,member_id,room_role) VALUES ($1,$2,$3,$4)',
-            [createOpaqueId(), roomId, memberId, input.roomRole],
+            'SELECT apply_room_assignments($1,$2::jsonb,$3::jsonb,$4,$5,$6)',
+            [
+              memberId,
+              JSON.stringify([{ roomId, roomRole: input.roomRole }]),
+              '[]',
+              ownerId,
+              createOpaqueId(),
+              createCorrelationId(),
+            ],
           );
 
         /*
@@ -631,6 +683,94 @@ export async function startTestServer(
         }
       }
 
+      /*
+       * Colleagues, a pending invitation, and extra rooms for the Members surface.
+       *
+       * Seeded through the audited functions rather than by inserting rows: migration 017
+       * leaves `duefold_runtime` with no INSERT on `invitation` and SELECT alone on
+       * `room_assignment`, so a fixture that wrote them directly would be exercising a
+       * privilege the product does not have. The acting administrator is a seeded Owner,
+       * because these functions authorize their caller.
+       */
+      const colleagueIds: string[] = [];
+      if (input.withColleagues !== undefined) {
+        /*
+         * The ACTING administrator is this member when they are an Owner or Admin, because
+         * these functions authorize their caller and `one_active_owner` admits only one
+         * active Owner. A separate seeding Owner would collide with it.
+         */
+        const seedOwnerId =
+          globalRole === 'owner' || globalRole === 'admin' ? memberId : createOpaqueId();
+        if (seedOwnerId !== memberId) {
+          const seedOwnerLocal = `a${seedOwnerId.slice(0, 10).toLowerCase()}`;
+          await migrationPool.query(
+            `INSERT INTO member (id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state)
+             VALUES ($1,$2,$2,'https://issuer.example',$1,'admin','active')`,
+            [seedOwnerId, `${seedOwnerLocal}@member.invalid`],
+          );
+        }
+
+        for (const room of input.withColleagues.extraRooms ?? [])
+          await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+            createOpaqueId(),
+            room,
+            '',
+            seedOwnerId,
+            createOpaqueId(),
+            createCorrelationId(),
+          ]);
+
+        for (const colleague of input.withColleagues.members ?? []) {
+          const colleagueId = createOpaqueId();
+          const colleagueLocal = `c${colleagueId.slice(0, 10).toLowerCase()}`;
+          await migrationPool.query(
+            `INSERT INTO member (id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state)
+             VALUES ($1,$2,$2,'https://issuer.example',$1,$3,'active')`,
+            [colleagueId, `${colleagueLocal}@member.invalid`, colleague.globalRole],
+          );
+          /* Staffed while still active and a plain Member, which is the only state
+             `apply_room_assignments` accepts as a target. */
+          if (colleague.staffAs !== undefined && roomId !== null)
+            await runtimePool.query(
+              'SELECT apply_room_assignments($1,$2::jsonb,$3::jsonb,$4,$5,$6)',
+              [
+                colleagueId,
+                JSON.stringify([{ roomId, roomRole: colleague.staffAs }]),
+                '[]',
+                seedOwnerId,
+                createOpaqueId(),
+                createCorrelationId(),
+              ],
+            );
+          /* Disabled last, so staffing above ran against an eligible target. */
+          if (colleague.state === 'disabled')
+            await runtimePool.query('SELECT set_member_state($1,$2,$3,$4,$5,$6)', [
+              colleagueId,
+              'disabled',
+              seedOwnerId,
+              1,
+              createOpaqueId(),
+              createCorrelationId(),
+            ]);
+          colleagueIds.push(colleagueId);
+        }
+
+        if (input.withColleagues.invitation !== undefined) {
+          const invitedId = createOpaqueId();
+          const invitedLocal = `i${invitedId.slice(0, 10).toLowerCase()}`;
+          await runtimePool.query('SELECT invite_member($1,$2,$3,$4,$5,$6,$7,$8)', [
+            invitedId,
+            `${invitedLocal}@member.invalid`,
+            `${invitedLocal}@member.invalid`,
+            input.withColleagues.invitation.intendedRole,
+            seedOwnerId,
+            createOpaqueId(),
+            createOpaqueId(),
+            createCorrelationId(),
+          ]);
+        }
+      }
+
       const session = await issueSession(
         authPool,
         // oidcAuthenticatedAt is what the fresh-OIDC gate on publication reads, so
@@ -644,6 +784,7 @@ export async function startTestServer(
       return {
         memberId,
         roomId,
+        colleagueIds,
         cookies: [
           {
             name: SESSION_COOKIE,
