@@ -26,10 +26,11 @@ export const bootstrapPool = new Pool({
   database: 'duefold_test',
   max: 4,
 });
+export const migrationDatabaseUrl =
+  process.env['DUEFOLD_TEST_MIGRATION_DATABASE_URL'] ??
+  'postgresql://duefold_migration:duefold_local_migration@127.0.0.1:5432/duefold_test';
 export const migrationPool = new Pool({
-  connectionString:
-    process.env['DUEFOLD_TEST_MIGRATION_DATABASE_URL'] ??
-    'postgresql://duefold_migration:duefold_local_migration@127.0.0.1:5432/duefold_test',
+  connectionString: migrationDatabaseUrl,
   max: 4,
 });
 /** The web process's credential: SELECT plus EXECUTE on the mutation functions. */

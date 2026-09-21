@@ -1223,7 +1223,7 @@ The job is declared by `rooms-documents` because it needs the worker's storage c
 
 The seed waits an hour, as the ownership preview sweep's does (017). A seed that was due at once would be the earliest pending row in every freshly migrated test database, and any `JobRunner` built for another job would claim it first and fail it as `UNKNOWN_JOB_TYPE`.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Create `modules/rooms-documents/src/storage/status-probe.unit.test.ts`:
 
@@ -1367,7 +1367,7 @@ describe('scannerObservation', () => {
 });
 ```
 
-- [ ] **Step 2: Write the failing integration test**
+- [x] **Step 2: Write the failing integration test**
 
 Create `test/integration/status-observation.test.ts`:
 
@@ -1543,7 +1543,7 @@ describe('the status observation job', () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 status-probe status-observe
@@ -1552,7 +1552,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project integration 
 
 Expected: FAIL — `status-probe.ts` and `status-observe.ts` do not exist; `status.observe` is not declared.
 
-- [ ] **Step 4: Give the scanner client an unjudged read**
+- [x] **Step 4: Give the scanner client an unjudged read**
 
 In `modules/rooms-documents/src/scanning/clamav.ts`, add after `MAX_SIGNATURE_AGE_MILLISECONDS`:
 
@@ -1604,7 +1604,7 @@ Replace `checkReady` inside `createClamAvClient` with the pair below, and return
           Promise.resolve({ signatureVersion: 'fixture', signatureDate: new Date() }),
 ```
 
-- [ ] **Step 5: Write the storage probe**
+- [x] **Step 5: Write the storage probe**
 
 In `modules/rooms-documents/src/storage/s3-compatible.ts`, rename `function createClient(config: StorageConfig): S3Client` to `export function createStorageClient(config: StorageConfig): S3Client` and update its three callers in that file (`createWebStorage`, `createDeliveryStorage`, `createWorkerStorage`). `git grep -n "createClient(" modules/rooms-documents/src/storage` must return nothing afterwards.
 
@@ -1723,7 +1723,7 @@ export function createStorageStatusProbe(
 }
 ```
 
-- [ ] **Step 6: Write the job and declare it**
+- [x] **Step 6: Write the job and declare it**
 
 Create `modules/rooms-documents/src/jobs/status-observe.ts`:
 
@@ -1818,7 +1818,7 @@ In `modules/rooms-documents/src/declaration.ts`, add after the `export.cleanup` 
     },
 ```
 
-- [ ] **Step 7: Wire the worker**
+- [x] **Step 7: Wire the worker**
 
 In `apps/worker/src/runner.ts`, import the dependency type and add it to both `rooms-documents` intersections (`JobHandlerDependencies.roomsDocuments` and the second member of `JobHandlerFactory`'s union):
 
@@ -1858,7 +1858,7 @@ and in `roomsDocuments`:
       storageProbe: createStorageStatusProbe(storageConfig),
 ```
 
-- [ ] **Step 8: Let the S3 double answer versioning**
+- [x] **Step 8: Let the S3 double answer versioning**
 
 In `test/support/s3-endpoint.ts`, give `startS3TestEndpoint` an options parameter:
 
@@ -1895,7 +1895,7 @@ and answer the bucket-level request immediately after the `authorized(...)` refu
 
 Existing callers pass no options and behave as before.
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -1941,7 +1941,7 @@ git commit -m "Observe storage privacy, versioning and scanner signatures hourly
 
 The status route answers what this process was built from, so it needs the composed manifest and migration registry. A module never imports the generated registries; the web entry point already does, so it builds `DeploymentFacts` once and hands them over through `WebRuntime`, as it does the readiness checks. The entry point also knows when OIDC discovery passed: `discoverOidc` runs before anything is served, so the instant just after it returns is the conformance time the surface reports.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/authz/installation-status-routes.test.ts`:
 
@@ -2151,7 +2151,7 @@ describe('GET /api/status/content', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxWorkers=2 test/authz/installation-status-routes.test.ts
@@ -2159,7 +2159,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project authz --maxW
 
 Expected: FAIL — `/api/status` and `/api/status/content` are 404.
 
-- [ ] **Step 3: Hand the web process its build facts**
+- [x] **Step 3: Hand the web process its build facts**
 
 Create `apps/web/src/deployment-facts.ts`:
 
@@ -2196,7 +2196,7 @@ In `apps/web/src/main.ts`, capture the instant discovery passed immediately afte
 
 and add `deployment: composedDeploymentFacts(oidcDiscoveryConformedAt),` to the runtime object after `authPool`. In `testWebRuntime` (`test/support/web-runtime.ts`, before `...overrides`) and in `test/support/browser-server.ts` (after `authPool`) add `deployment: composedDeploymentFacts(new Date()),`. Each file imports `composedDeploymentFacts` from `apps/web/src/deployment-facts.ts`; `browser-server.ts` grows by exactly these two lines.
 
-- [ ] **Step 4: Add the routes**
+- [x] **Step 4: Add the routes**
 
 Create `modules/core-security/src/routes/deployment-status.ts`:
 
@@ -2392,7 +2392,7 @@ In `apps/web/src/app.ts`, add both ids to `ROUTE_FACTORIES` and to `memberFactor
     | 'installation.content.read'
 ```
 
-- [ ] **Step 5: Start the contract and the maps**
+- [x] **Step 5: Start the contract and the maps**
 
 Create `docs/installation-status-http-contract.md`:
 
@@ -2481,7 +2481,7 @@ and add the contract to `## Canonical documents`:
 - [Installation status HTTP contract](docs/installation-status-http-contract.md)
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 ```bash
 npm run compose
@@ -2519,7 +2519,7 @@ git commit -m "Serve the deployment and content status to Owners and Admins"
 
 `updates check-file` already runs through the `migrate` service with the migration credential (`docs/self-hosting.md`, Upgrade), which is the credential `record_update_observation` accepts. A manifest that fails verification is recorded as unverified and fails the command, as today it fails it by throwing; a newer release carrying a security advisory also fails the command, so a deployment gate stops on it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `apps/cli/src/lifecycle.unit.test.ts` (and add `updateObservation` to its import from `./lifecycle.ts`):
 
@@ -2708,7 +2708,7 @@ describe('updates check-file', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 lifecycle
@@ -2717,7 +2717,7 @@ node --env-file=.env ./node_modules/vitest/vitest.mjs run --project integration 
 
 Expected: FAIL — `updateObservation` is not exported; the command records nothing.
 
-- [ ] **Step 3: Classify a manifest against the running release**
+- [x] **Step 3: Classify a manifest against the running release**
 
 In `apps/cli/src/lifecycle.ts`, import `compareReleaseVersions` from `'../../../modules/core-security/src/release.ts'` and `type UpdateObservation` from `'../../../modules/core-security/src/status-observations.ts'`, and add after `verifyReleaseManifest`:
 
@@ -2757,7 +2757,7 @@ export function updateObservation(
 
 A public key that cannot be read still throws: that is the operator's configuration, not the release's answer.
 
-- [ ] **Step 4: Record it from the command**
+- [x] **Step 4: Record it from the command**
 
 In `apps/cli/src/main.ts`, replace `verifyReleaseManifest` with `updateObservation` in the import from `./lifecycle.ts`, add
 
@@ -2798,7 +2798,7 @@ and replace the `updates check-file` command with:
   },
 ```
 
-- [ ] **Step 5: Tell operators**
+- [x] **Step 5: Tell operators**
 
 In `docs/self-hosting.md`, change the `updates check-file <manifest>` row to:
 
@@ -2812,7 +2812,7 @@ and replace the sentence after the Upgrade command block with:
 The command exits non-zero if the signature, payload, or public key does not verify, or if the manifest offers a newer release that carries a security advisory. It records its answer for the **Status** section, where it reads as stale after thirty days: run it whenever a release is published. After it succeeds, confirm a current tested backup, set `DUEFOLD_IMAGE_TAG` to the new version, then run:
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 lifecycle

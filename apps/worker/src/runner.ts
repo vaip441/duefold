@@ -15,6 +15,7 @@ import type { PreviewInactivityDependencies } from '../../../modules/rooms-docum
 import type { DownloadFinalizerDependencies } from '../../../modules/rooms-documents/src/jobs/download-finalizer.ts';
 import type { MultipartReapDependencies } from '../../../modules/rooms-documents/src/jobs/multipart-reap.ts';
 import type { RoomPurgeDependencies } from '../../../modules/rooms-documents/src/jobs/room-purge.ts';
+import type { StatusObserveDependencies } from '../../../modules/rooms-documents/src/jobs/status-observe.ts';
 import type { ExportGenerationDependencies } from '../../../modules/rooms-documents/src/jobs/export-generation.ts';
 import type { ExportCleanupDependencies } from '../../../modules/rooms-documents/src/jobs/export-cleanup.ts';
 import type { Pool } from 'pg';
@@ -54,7 +55,8 @@ export interface JobHandlerDependencies {
     DownloadFinalizerDependencies &
     ExportCleanupDependencies &
     ExportGenerationDependencies &
-    RoomPurgeDependencies;
+    RoomPurgeDependencies &
+    StatusObserveDependencies;
 }
 type JobHandlerFactory = (
   dependencies:
@@ -72,7 +74,8 @@ type JobHandlerFactory = (
         DownloadFinalizerDependencies &
         ExportCleanupDependencies &
         ExportGenerationDependencies &
-        RoomPurgeDependencies),
+        RoomPurgeDependencies &
+        StatusObserveDependencies),
 ) => JobHandler;
 function isJobHandlerFactory(value: unknown): value is JobHandlerFactory {
   return typeof value === 'function';

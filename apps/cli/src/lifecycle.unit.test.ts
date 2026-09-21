@@ -1,7 +1,12 @@
 import { createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { deploymentPlan, restoreDrillOutcome, verifyReleaseManifest } from './lifecycle.ts';
+import {
+  deploymentPlan,
+  restoreDrillOutcome,
+  updateObservation,
+  verifyReleaseManifest,
+} from './lifecycle.ts';
 import { viewerEvidenceReference } from '../../../modules/rooms-documents/src/jobs/room-purge.ts';
 
 describe('CLI lifecycle pure contracts', () => {
@@ -82,5 +87,65 @@ describe('CLI lifecycle pure contracts', () => {
     );
     expect(deploymentPlan('rollback', digest)).toMatchObject({ action: 'rollback' });
     expect(() => deploymentPlan('upgrade', 'latest')).toThrow('TARGET_DIGEST_INVALID');
+  });
+});
+
+describe('updateObservation', () => {
+  const keys = generateKeyPairSync('ed25519');
+  const publicKey = keys.publicKey.export({ format: 'pem', type: 'spki' });
+  const signed = (version: string, securityAdvisory = false): string => {
+    const payload = {
+      version,
+      webImageDigest: `sha256:${'a'.repeat(64)}`,
+      workerImageDigest: `sha256:${'b'.repeat(64)}`,
+      securityAdvisory,
+    };
+    const signature = sign(
+      null,
+      Buffer.from(JSON.stringify(payload)),
+      keys.privateKey,
+    ).toString('base64url');
+    return JSON.stringify({ ...payload, signature });
+  };
+
+  it('is current when the manifest offers this release or an older one', () => {
+    expect(updateObservation(signed('1.4.0'), publicKey, '1.4.0')).toStrictEqual({
+      code: 'UPDATE_CURRENT',
+      offeredVersion: null,
+    });
+    expect(updateObservation(signed('1.3.9'), publicKey, '1.4.0').code).toBe('UPDATE_CURRENT');
+  });
+
+  it('names a newer release', () => {
+    expect(updateObservation(signed('1.5.0'), publicKey, '1.4.0')).toStrictEqual({
+      code: 'UPDATE_AVAILABLE',
+      offeredVersion: '1.5.0',
+    });
+  });
+
+  it('marks a newer release that carries a security advisory', () => {
+    expect(updateObservation(signed('1.5.0', true), publicKey, '1.4.0')).toStrictEqual({
+      code: 'SECURITY_ADVISORY',
+      offeredVersion: '1.5.0',
+    });
+  });
+
+  it('records a tampered or unreadable manifest as unverified rather than trusting it', () => {
+    const original = JSON.parse(signed('1.5.0')) as Record<string, unknown>;
+    const tampered = JSON.stringify({ ...original, version: '9.0.0' });
+    expect(updateObservation(tampered, publicKey, '1.4.0')).toStrictEqual({
+      code: 'UPDATE_MANIFEST_UNVERIFIED',
+      offeredVersion: null,
+    });
+    expect(updateObservation('not a manifest', publicKey, '1.4.0').code).toBe(
+      'UPDATE_MANIFEST_UNVERIFIED',
+    );
+  });
+
+  it('does not order a release it cannot read', () => {
+    expect(updateObservation(signed('2.0.0-rc.1'), publicKey, '1.4.0')).toStrictEqual({
+      code: 'UPDATE_VERSION_UNRECOGNIZED',
+      offeredVersion: null,
+    });
   });
 });

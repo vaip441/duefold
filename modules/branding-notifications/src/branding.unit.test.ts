@@ -72,6 +72,8 @@ describe('constrained branding', () => {
   it('scans before using the shared credential-free sandbox and returns only a fresh bounded PNG', async () => {
     const order: string[] = [];
     const scanner = {
+      readSignatures: () =>
+        Promise.resolve({ signatureVersion: 'test', signatureDate: new Date() }),
       checkReady: () =>
         Promise.resolve({ signatureVersion: 'test', signatureDate: new Date() }),
       scan: vi.fn(() => {

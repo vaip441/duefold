@@ -56,7 +56,7 @@ docker compose run --rm migrate <command>
 | `backup-status`                                       | Shows the recorded backup and restore-drill status.                                                |
 | `backup-status acknowledge <retention> <expectation>` | Records the backup retention and recovery expectation you verified with your provider.             |
 | `restore drill`                                       | Checks a restored database and records the result.                                                 |
-| `updates check-file <manifest>`                       | Verifies a release manifest's signature. See [Upgrade](#upgrade).                                  |
+| `updates check-file <manifest>`                       | Verifies a release manifest against the running release and records the answer for Status. See [Upgrade](#upgrade). |
 
 Duefold does not create backups. Enable provider-native database backups and object versioning, and prove restoration in an isolated environment before using real data. Database migrations move forward; rollback across a migration requires a tested database restore and matching object-store version.
 
@@ -71,7 +71,7 @@ docker compose run --rm \
   migrate updates check-file /tmp/release-manifest.json
 ```
 
-The command exits non-zero if the signature, payload, or public key does not verify. After it succeeds, confirm a current tested backup, set `DUEFOLD_IMAGE_TAG` to the new version, then run:
+The command exits non-zero if the signature, payload, or public key does not verify, or if the manifest offers a newer release that carries a security advisory. It records its answer for the **Status** section, where it reads as stale after thirty days: run it whenever a release is published. After it succeeds, confirm a current tested backup, set `DUEFOLD_IMAGE_TAG` to the new version, then run:
 
 ```sh
 docker compose pull

@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { generatedMigrations } from '../../../.duefold/generated/migrations.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { Pool } from 'pg';
+import { compareReleaseVersions } from '../../../modules/core-security/src/release.ts';
+import type { UpdateObservation } from '../../../modules/core-security/src/status-observations.ts';
 
 export interface SupportBundle {
   readonly formatVersion: 1;
@@ -107,6 +109,38 @@ export function verifyReleaseManifest(raw: string, publicKeyPem: string): Releas
   );
   if (!ok) throw new Error('UPDATE_MANIFEST_SIGNATURE_INVALID');
   return manifest;
+}
+
+/**
+ * What a signed release manifest says about the running release. A manifest that fails
+ * verification is unverified, never trusted or ignored; a release this cannot order is
+ * unrecognized, never guessed at.
+ */
+export function updateObservation(
+  raw: string,
+  publicKeyPem: string,
+  runningVersion: string,
+): UpdateObservation {
+  let manifest: ReleaseManifest;
+  try {
+    manifest = verifyReleaseManifest(raw, publicKeyPem);
+  } catch (error: unknown) {
+    if (
+      error instanceof SyntaxError ||
+      (error instanceof Error &&
+        (error.message === 'UPDATE_MANIFEST_INVALID' ||
+          error.message === 'UPDATE_MANIFEST_SIGNATURE_INVALID'))
+    )
+      return { code: 'UPDATE_MANIFEST_UNVERIFIED', offeredVersion: null };
+    throw error;
+  }
+  const order = compareReleaseVersions(manifest.version, runningVersion);
+  if (order === null) return { code: 'UPDATE_VERSION_UNRECOGNIZED', offeredVersion: null };
+  if (order <= 0) return { code: 'UPDATE_CURRENT', offeredVersion: null };
+  return {
+    code: manifest.securityAdvisory ? 'SECURITY_ADVISORY' : 'UPDATE_AVAILABLE',
+    offeredVersion: manifest.version,
+  };
 }
 
 export async function backupStatus(pool: Pool): Promise<Readonly<Record<string, unknown>>> {

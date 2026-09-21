@@ -9,6 +9,7 @@ import {
   createWorkerStorage,
   workerStorageConfig,
 } from '../../../modules/rooms-documents/src/storage/s3-compatible.ts';
+import { createStorageStatusProbe } from '../../../modules/rooms-documents/src/storage/status-probe.ts';
 import { JobRunner } from './runner.ts';
 import { createClamAvClient } from '../../../modules/rooms-documents/src/scanning/clamav.ts';
 import {
@@ -95,6 +96,17 @@ try {
       ? { resendApiKey: config['DUEFOLD_RESEND_API_KEY'] }
       : {}),
   });
+  const storageConfig = workerStorageConfig({
+    endpoint: stringConfig(config, 'DUEFOLD_STORAGE_ENDPOINT'),
+    region: stringConfig(config, 'DUEFOLD_STORAGE_REGION'),
+    bucket: stringConfig(config, 'DUEFOLD_STORAGE_BUCKET'),
+    credentials: {
+      accessKeyId: stringConfig(config, 'DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID'),
+      secretAccessKey: stringConfig(config, 'DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY'),
+    },
+    pathStyle: config['DUEFOLD_STORAGE_PATH_STYLE'] === true,
+    checksumSupport: config['DUEFOLD_STORAGE_CHECKSUM_SUPPORT'] === true,
+  });
   const runner = new JobRunner(pool, {
     coreSecurity: {
       pool,
@@ -105,19 +117,8 @@ try {
     },
     roomsDocuments: {
       pool,
-      storage: createWorkerStorage(
-        workerStorageConfig({
-          endpoint: stringConfig(config, 'DUEFOLD_STORAGE_ENDPOINT'),
-          region: stringConfig(config, 'DUEFOLD_STORAGE_REGION'),
-          bucket: stringConfig(config, 'DUEFOLD_STORAGE_BUCKET'),
-          credentials: {
-            accessKeyId: stringConfig(config, 'DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID'),
-            secretAccessKey: stringConfig(config, 'DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY'),
-          },
-          pathStyle: config['DUEFOLD_STORAGE_PATH_STYLE'] === true,
-          checksumSupport: config['DUEFOLD_STORAGE_CHECKSUM_SUPPORT'] === true,
-        }),
-      ),
+      storage: createWorkerStorage(storageConfig),
+      storageProbe: createStorageStatusProbe(storageConfig),
       piiHmacKey: stringConfig(config, 'DUEFOLD_PII_HMAC_KEY'),
       scanner: createClamAvClient({
         socket: {

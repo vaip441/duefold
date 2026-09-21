@@ -214,7 +214,15 @@ function keyFrom(url: URL, bucket: string): string | undefined {
     : undefined;
 }
 
-export async function startS3TestEndpoint(): Promise<S3TestEndpoint> {
+export interface S3TestEndpointOptions {
+  /** What `GetBucketVersioning` answers. A bucket with versioning enabled by default. */
+  readonly versioning?: 'Enabled' | 'Suspended' | 'absent' | 'not-implemented';
+}
+
+export async function startS3TestEndpoint(
+  options: S3TestEndpointOptions = {},
+): Promise<S3TestEndpoint> {
+  const versioning = options.versioning ?? 'Enabled';
   const bucket = 'duefold-test';
   const accessKeyId = 'test-access-key';
   const secretAccessKey = 'test-secret-key-which-is-long-enough';
@@ -225,6 +233,20 @@ export async function startS3TestEndpoint(): Promise<S3TestEndpoint> {
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
       if (!authorized(request, url, accessKeyId, secretAccessKey)) {
         xml(response, 403, '<Error><Code>SignatureDoesNotMatch</Code></Error>');
+        return;
+      }
+      if (request.method === 'GET' && url.searchParams.has('versioning')) {
+        if (versioning === 'not-implemented') {
+          xml(response, 501, '<Error><Code>NotImplemented</Code></Error>');
+          return;
+        }
+        xml(
+          response,
+          200,
+          versioning === 'absent'
+            ? '<VersioningConfiguration></VersioningConfiguration>'
+            : `<VersioningConfiguration><Status>${versioning}</Status></VersioningConfiguration>`,
+        );
         return;
       }
       const key = keyFrom(url, bucket);

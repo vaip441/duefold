@@ -315,6 +315,12 @@ export const moduleDeclaration: ModuleDeclaration = {
       handlerFactoryExport: 'createHandler',
       service: 'worker',
     },
+    {
+      id: 'status.observe',
+      handler: 'jobs/status-observe.ts',
+      handlerFactoryExport: 'createHandler',
+      service: 'worker',
+    },
   ],
   config: [
     {

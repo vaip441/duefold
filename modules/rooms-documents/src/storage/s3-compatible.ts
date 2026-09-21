@@ -162,7 +162,7 @@ function metadataRecord(
 ): Readonly<Record<string, string>> {
   return value ?? {};
 }
-function createClient(config: StorageConfig): S3Client {
+export function createStorageClient(config: StorageConfig): S3Client {
   endpointUrl(config.endpoint);
   if (config.region === '' || config.bucket === '') throw new Error('STORAGE_CONFIG_INVALID');
   return new S3Client({
@@ -176,7 +176,7 @@ function createClient(config: StorageConfig): S3Client {
 /** One S3-compatible implementation. Capability interfaces, not provider forks,
  * enforce that the web credential cannot read quarantine bytes. */
 export function createWebStorage(config: WebStorageConfig): WebStorage {
-  const client = createClient(config);
+  const client = createStorageClient(config);
   return {
     checksumSupport: config.checksumSupport,
     async checkReady(): Promise<void> {
@@ -267,7 +267,7 @@ export function createWebStorage(config: WebStorageConfig): WebStorage {
 }
 
 export function createDeliveryStorage(config: WebStorageConfig): DeliveryStorage {
-  const client = createClient(config);
+  const client = createStorageClient(config);
   return {
     async getObjectBytes(key, range): Promise<Uint8Array> {
       if (
@@ -360,7 +360,7 @@ export function createWorkerStorage(config: WorkerStorageConfig): WorkerStorage 
     },
     [WEB_CONFIG_ROLE]: true,
   });
-  const client = createClient(config);
+  const client = createStorageClient(config);
   return {
     ...web,
     async streamObject(key): Promise<AsyncIterable<Uint8Array>> {

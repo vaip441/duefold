@@ -24,3 +24,10 @@ END $$;
 REVOKE ALL ON FUNCTION read_content_status(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION read_content_status(text) TO duefold_runtime;
 ALTER FUNCTION read_content_status(text) OWNER TO duefold_migration;
+
+-- The status observation job, seeded once and due an hour after migration; each run queues
+-- the next under its own lease.
+INSERT INTO job_queue(id,job_type,idempotency_key,payload,available_at,max_attempts)
+VALUES(replace(gen_random_uuid()::text,'-',''),'status.observe','status-observe:initial',
+       '{}'::jsonb,statement_timestamp()+interval '1 hour',10);
+

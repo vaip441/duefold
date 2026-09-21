@@ -1,6 +1,16 @@
 import { connect } from 'node:net';
 
 export const MAX_SIGNATURE_AGE_MILLISECONDS = 24 * 60 * 60 * 1_000;
+
+/** Whether signatures built at `signatureDate` are young enough to scan with. */
+export function signaturesCurrent(
+  signatureDate: Date,
+  now: Date,
+  maximumAgeMilliseconds: number = MAX_SIGNATURE_AGE_MILLISECONDS,
+): boolean {
+  const age = now.getTime() - signatureDate.getTime();
+  return age >= 0 && age <= maximumAgeMilliseconds;
+}
 export interface ClamAvClientOptions {
   readonly socket: Readonly<{ host: string; port: number }>;
   readonly timeoutMilliseconds: number;
@@ -88,17 +98,29 @@ function version(line: string): { readonly signatureVersion: string; readonly da
 
 /** Real ClamAV zINSTREAM protocol client. Scanner errors and stale signatures fail closed. */
 export function createClamAvClient(options: ClamAvClientOptions) {
-  async function checkReady(): Promise<{
+  /** The signatures clamd reports, without judging their age. */
+  async function readSignatures(): Promise<{
     readonly signatureVersion: string;
     readonly signatureDate: Date;
   }> {
     const result = version(await command(options, Buffer.from('zVERSION\0')));
-    const now = (options.now ?? (() => new Date()))();
-    const maximumAge =
-      options.maximumSignatureAgeMilliseconds ?? MAX_SIGNATURE_AGE_MILLISECONDS;
-    const age = now.getTime() - result.date.getTime();
-    if (age < 0 || age > maximumAge) throw new Error('SCANNER_SIGNATURES_STALE');
     return { signatureVersion: result.signatureVersion, signatureDate: result.date };
+  }
+  async function checkReady(): Promise<{
+    readonly signatureVersion: string;
+    readonly signatureDate: Date;
+  }> {
+    const signatures = await readSignatures();
+    const now = (options.now ?? (() => new Date()))();
+    if (
+      !signaturesCurrent(
+        signatures.signatureDate,
+        now,
+        options.maximumSignatureAgeMilliseconds ?? MAX_SIGNATURE_AGE_MILLISECONDS,
+      )
+    )
+      throw new Error('SCANNER_SIGNATURES_STALE');
+    return signatures;
   }
   const scan = async (bytes: Uint8Array): Promise<ScanResult> => {
     const versionResult = await checkReady();
@@ -126,7 +148,7 @@ export function createClamAvClient(options: ClamAvClientOptions) {
     if (/^stream: .+ ERROR$/u.test(result)) throw new Error('SCANNER_SCAN_ERROR');
     throw new Error('SCANNER_RESPONSE_MALFORMED');
   };
-  return { checkReady, scan };
+  return { checkReady, readSignatures, scan };
 }
 export type ClamAvClient = ReturnType<typeof createClamAvClient>;
 

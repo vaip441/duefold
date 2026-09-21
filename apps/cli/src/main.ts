@@ -18,8 +18,13 @@ import {
   deploymentPlan,
   reconcileDeletionMarker,
   restoreDrill,
-  verifyReleaseManifest,
+  updateObservation,
 } from './lifecycle.ts';
+import { applicationVersion } from '../../../modules/core-security/src/release.ts';
+import {
+  observationResult,
+  recordUpdateObservation,
+} from '../../../modules/core-security/src/status-observations.ts';
 import {
   createWorkerStorage,
   workerStorageConfig,
@@ -174,25 +179,30 @@ const COMMANDS: readonly CommandDefinition[] = [
     },
   },
   {
+    /**
+     * Verifies a signed release manifest against the running release and records the answer
+     * for the status surface. An unverified manifest, or a newer release carrying a security
+     * advisory, fails the command so a deployment gate stops on it.
+     */
     matches: ([group, command, file, extra]) =>
       group === 'updates' &&
       command === 'check-file' &&
       file !== undefined &&
       extra === undefined,
-    configKeys: ['DUEFOLD_UPDATE_PUBLIC_KEY_PATH'],
-    database: false,
+    configKeys: [MIGRATION_URL, 'DUEFOLD_UPDATE_PUBLIC_KEY_PATH'],
+    database: true,
     run: async (context) => {
-      console.log(
-        JSON.stringify(
-          verifyReleaseManifest(
-            await readFile(argument(context, 2), 'utf8'),
-            await readFile(
-              requiredString(context.config, 'DUEFOLD_UPDATE_PUBLIC_KEY_PATH'),
-              'utf8',
-            ),
-          ),
+      const observation = updateObservation(
+        await readFile(argument(context, 2), 'utf8'),
+        await readFile(
+          requiredString(context.config, 'DUEFOLD_UPDATE_PUBLIC_KEY_PATH'),
+          'utf8',
         ),
+        applicationVersion(),
       );
+      await recordUpdateObservation(database(context), observation);
+      console.log(JSON.stringify({ check: 'updates', ...observation }));
+      if (observationResult(observation.code) === 'fail') process.exitCode = 1;
     },
   },
   ...(['upgrade', 'rollback'] as const).map((kind): CommandDefinition => ({

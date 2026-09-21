@@ -123,6 +123,8 @@ describe('branding quarantine lifecycle', () => {
       pool: workerPool,
       storage,
       scanner: {
+        readSignatures: () =>
+          Promise.resolve({ signatureVersion: 'fixture', signatureDate: new Date() }),
         checkReady: () =>
           Promise.resolve({ signatureVersion: 'fixture', signatureDate: new Date() }),
         scan: () =>
