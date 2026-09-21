@@ -31,10 +31,9 @@ export function useMemberMutations(input: {
   /**
    * Runs one mutation and RETURNS its refusal rather than deciding where to show it.
    *
-   * This took a `reportAtTable` boolean, which meant one function held two surfaces'
-   * presentation rules and every caller had to pass the right one. Where a refusal belongs
-   * is the caller's own business: `actAtTable` puts it on the table, and the assignment
-   * dialog keeps its own beside the draft that caused it.
+   * Where a refusal belongs is the caller's own business: `actAtTable` puts it on the table,
+   * and the assignment dialog keeps its own beside the draft that caused it. One helper
+   * deciding for both would hold two surfaces' presentation rules.
    */
   const act = (
     subjectId: string,

@@ -140,6 +140,22 @@ export const messages = {
   'rooms.columns.room': 'Room',
   'rooms.columns.state': 'State',
   'rooms.columns.access': 'Your access',
+  'rooms.new': 'New room',
+  'rooms.new.title': 'Create a room',
+  'rooms.new.explain':
+    'The room starts as a draft. Viewers cannot reach anything in it until it is published.',
+  'rooms.new.titleLabel': 'Room title',
+  'rooms.new.descriptionLabel': 'Description',
+  'rooms.new.descriptionHelp':
+    'Optional. Plain text that readers see once the room is published.',
+  'rooms.new.submit': 'Create room',
+  'rooms.new.pending': 'Creating room…',
+  'rooms.new.created': 'Room {title} created.',
+  'rooms.unavailable': 'This room is not available to you.',
+  'rooms.opening': 'Opening room…',
+  'rooms.backToRegister': 'Back to all rooms',
+  'failure.signInAgain': 'Sign in again',
+  'failure.reload': 'Reload',
 
   'workspace.loading': 'Loading room',
   'workspace.empty': 'This room has no folders or documents yet.',
@@ -372,9 +388,38 @@ export const messages = {
   'workspace.tab.participants': 'Access',
   'workspace.tab.processing': 'Processing',
   'workspace.tab.exports': 'Exports',
+  'workspace.tab.settings': 'Settings',
   'workspace.tabs.label': 'Room sections',
   'workspace.tab.rooms': 'Rooms',
   'workspace.tab.members': 'Members',
+  'settings.heading': 'Room settings',
+  'settings.loading': 'Loading room settings',
+  'settings.denied': 'Room settings are not available to your role.',
+  'settings.pending': 'Applying…',
+  'settings.visibility.heading': 'Visibility',
+  'settings.visibility.publish': 'Publish room',
+  'settings.visibility.archive': 'Archive room',
+  'settings.visibility.returnToDraft': 'Return to draft',
+  'settings.visibility.publish.title': 'Publish this room',
+  'settings.visibility.archive.title': 'Archive this room',
+  'settings.visibility.draft.title': 'Return this room to draft',
+  'settings.visibility.publish.consequence':
+    'Viewers with a grant will be able to read the published collection. Viewers who gain access: {viewers}. Published documents: {documents}.',
+  'settings.visibility.archive.consequence':
+    'Viewers lose all content access now. Records and exports remain, and the room can return to draft later. Viewers who lose access: {viewers}.',
+  'settings.visibility.draft.consequence':
+    'Every viewer loses access to this room immediately. Nothing is deleted, and the room can be published again.',
+  'settings.visibility.freshSignIn': 'Publishing needs a sign-in from the last 15 minutes.',
+  'settings.visibility.publishStructureFirst':
+    'Publish the collection at least once before making the room visible to viewers.',
+  'settings.visibility.pinnedByPurge':
+    'A purge is scheduled. Cancel it before returning this room to draft.',
+  'settings.visibility.done.published': 'Room published.',
+  'settings.visibility.done.archived': 'Room archived.',
+  'settings.visibility.done.draft': 'Room returned to draft. Viewers no longer have access.',
+  'confirm.loading': 'Preparing the review…',
+  'confirm.typeToConfirm': 'Type {phrase} to confirm',
+  'confirm.mismatch': 'Type the phrase exactly as shown to continue.',
   'workspace.views.label': 'Workbench sections',
 
   /*

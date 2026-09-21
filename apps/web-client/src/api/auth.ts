@@ -15,6 +15,8 @@ import {
   serverErrorCode,
 } from './transport.ts';
 
+export const OIDC_BEGIN_PATH = '/api/auth/oidc/begin';
+
 export type SessionState =
   | { readonly authenticated: false }
   | {

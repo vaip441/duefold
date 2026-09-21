@@ -12,7 +12,6 @@ import {
   json,
   requireArray,
   requireInteger,
-  requireNumber,
   requireString,
 } from './transport.ts';
 
@@ -244,9 +243,11 @@ function parseRoom(value: unknown): MemberRoom {
     title: requireString(value, 'title'),
     description: value['description'],
     state: state as RoomState,
-    revision: requireNumber(value, 'revision'),
-    workingRevision: requireNumber(value, 'workingRevision'),
-    publishedRevision: requireNumber(value, 'publishedRevision'),
+    /* Revisions are the counters optimistic concurrency compares, so a fractional one is a
+       malformed response rather than a stale expectation. */
+    revision: requireInteger(value, 'revision'),
+    workingRevision: requireInteger(value, 'workingRevision'),
+    publishedRevision: requireInteger(value, 'publishedRevision'),
     /* One decision, so a contradictory pair cannot be assembled here. */
     ...parseAccess(value),
     canPublish: value['canPublish'],
@@ -421,3 +422,38 @@ export async function searchRoom(
  * and every range request is re-authorized.
  * ---------------------------------------------------------------------------
  */
+
+export interface NewRoom {
+  readonly title: string;
+  readonly description: string;
+}
+
+/** Creates a draft room. Text is sent as NFC; every other rule is `create_room`'s. */
+export async function createRoom(room: NewRoom): Promise<{ readonly roomId: string }> {
+  const payload = await json({
+    method: 'POST',
+    path: '/api/rooms',
+    body: {
+      title: room.title.normalize('NFC'),
+      description: room.description.normalize('NFC'),
+    },
+  });
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  return { roomId: requireString(payload, 'roomId') };
+}
+
+/** One register row by id; null when the room is not reachable, which includes unknown. */
+export async function loadRoom(
+  roomId: string,
+  signal?: AbortSignal,
+): Promise<MemberRoom | null> {
+  const payload = await json({
+    method: 'GET',
+    path: `/api/rooms?roomId=${encodeURIComponent(roomId)}`,
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  const rooms = requireArray(payload, 'rooms').map(parseRoom);
+  if (rooms.length > 1) throw new ApiError('unavailable');
+  return rooms[0] ?? null;
+}

@@ -40,6 +40,7 @@ function register(overrides: Partial<Parameters<typeof RegisterView>[0]> = {}): 
       rooms={{ kind: 'ready', value: { rooms: [ROOM], nextCursor: null } }}
       loadingMore={false}
       pageFailure={null}
+      createRoom={null}
       onLoadMore={() => undefined}
       onOpen={() => undefined}
       onRetry={() => undefined}
@@ -129,6 +130,26 @@ describe('RegisterView', () => {
     expect(markup).toContain(messages['rooms.empty']);
     expect(markup).toContain(messages['rooms.emptyHelp']);
     expect(markup).not.toContain('role="alert"');
+  });
+
+  it('offers New room only when the server said this member may create rooms', () => {
+    const ready = { kind: 'ready', value: { rooms: [], nextCursor: null } } as const;
+    const props = {
+      rooms: ready,
+      loadingMore: false,
+      pageFailure: null,
+      onLoadMore: () => undefined,
+      onOpen: () => undefined,
+      onRetry: () => undefined,
+    };
+    expect(renderToStaticMarkup(<RegisterView {...props} createRoom={null} />)).not.toContain(
+      messages['rooms.new'],
+    );
+    expect(
+      renderToStaticMarkup(
+        <RegisterView {...props} createRoom={() => Promise.resolve(null)} />,
+      ),
+    ).toContain(messages['rooms.new']);
   });
 });
 

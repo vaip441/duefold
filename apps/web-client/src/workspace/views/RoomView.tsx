@@ -34,6 +34,7 @@ import { ExportsPanel } from '../../components/ExportsPanel.tsx';
 import { Notice } from '../../components/Notice.tsx';
 import { ParticipantsPanel } from '../../components/ParticipantsPanel.tsx';
 import { ProcessingPanel } from '../../components/ProcessingPanel.tsx';
+import { RoomSettingsPanel } from '../../components/RoomSettingsPanel.tsx';
 import { SectionNav } from '../../components/SectionNav.tsx';
 import { StructureControls } from '../../components/StructureControls.tsx';
 import { StructureTable } from '../../components/StructureTable.tsx';
@@ -51,6 +52,7 @@ import {
 import type { Load } from '../state.ts';
 import { useParticipantsSection } from '../useParticipantsSection.ts';
 import { useExportsSection, useProcessingSection } from '../useRoomSections.ts';
+import { useRoomSettings } from '../useRoomSettings.ts';
 import { transferParts } from '../upload.ts';
 import { failureMessage } from '../failure-message.ts';
 
@@ -78,6 +80,41 @@ export interface RoomViewProps {
    */
   readonly onEntriesChange: (entries: readonly WorkingEntry[]) => void;
 }
+
+const CORE_ROOM_TABS = [
+  {
+    id: 'structure',
+    scope: 'room',
+    label: () => translate('workspace.tab.structure'),
+    order: 10,
+  },
+  {
+    id: 'participants',
+    scope: 'room',
+    label: () => translate('workspace.tab.participants'),
+    order: 20,
+  },
+  {
+    id: 'processing',
+    scope: 'room',
+    label: () => translate('workspace.tab.processing'),
+    order: 30,
+  },
+  {
+    id: 'exports',
+    scope: 'room',
+    label: () => translate('workspace.tab.exports'),
+    order: 40,
+  },
+] as const satisfies readonly SectionTab[];
+
+const SETTINGS_TAB = {
+  id: 'settings',
+  scope: 'room',
+  label: () => translate('workspace.tab.settings'),
+  /* After the branding contribution (50): Settings closes the strip. */
+  order: 60,
+} as const satisfies SectionTab;
 
 export function RoomView({
   roomId,
@@ -140,6 +177,10 @@ export function RoomView({
     },
   });
 
+  /* Offered on Room Manager authority, the register row's `canPublish`. The reader
+     refuses anyone else independently. */
+  const settings = useRoomSettings(room?.canPublish === true ? roomId : null, onRoomsChanged);
+
   const refreshWorkspace = useCallback(
     (signal?: AbortSignal): void => {
       loadRoomWorkspace(roomId, signal).then(
@@ -174,32 +215,7 @@ export function RoomView({
    * internals.
    */
   const sections = composeSections(
-    [
-      {
-        id: 'structure',
-        scope: 'room',
-        label: () => translate('workspace.tab.structure'),
-        order: 10,
-      },
-      {
-        id: 'participants',
-        scope: 'room',
-        label: () => translate('workspace.tab.participants'),
-        order: 20,
-      },
-      {
-        id: 'processing',
-        scope: 'room',
-        label: () => translate('workspace.tab.processing'),
-        order: 30,
-      },
-      {
-        id: 'exports',
-        scope: 'room',
-        label: () => translate('workspace.tab.exports'),
-        order: 40,
-      },
-    ] as const satisfies readonly SectionTab[],
+    [...CORE_ROOM_TABS, ...(settings === null ? [] : [SETTINGS_TAB])],
     contributedSections('room'),
   );
   const section = currentSection(sections, sectionId);
@@ -765,6 +781,10 @@ export function RoomView({
             exportsSection.refresh(roomId);
           }}
         />
+      ) : null}
+
+      {currentId === 'settings' && settings !== null ? (
+        <RoomSettingsPanel section={settings} onStatus={onStatus} />
       ) : null}
 
       {/* A contributed section renders itself and owns its own state. */}

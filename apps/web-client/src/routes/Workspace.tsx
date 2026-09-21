@@ -19,17 +19,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
+  createRoom,
   loadRooms,
   publicationApply,
   publicationDryRun,
   signOut,
   type MemberRoom,
+  type NewRoom,
   type RoomCursor,
   type PublicationImpact,
   type WorkingEntry,
 } from '../api/client.ts';
 import { AppShell } from '../components/AppShell.tsx';
 import { Notice } from '../components/Notice.tsx';
+import { OpenRoomState } from '../components/OpenRoomState.tsx';
 import { PublicationDialog } from '../components/PublicationDialog.tsx';
 import { SectionNav } from '../components/SectionNav.tsx';
 import { ThemeSelect, type ThemeChoice } from '../components/ThemeSelect.tsx';
@@ -37,7 +40,10 @@ import type { SectionTab } from '../contract.ts';
 import { currentSection } from '../workspace/sections.ts';
 import { translate } from '../i18n/translate.ts';
 import { failureMessage } from '../workspace/failure-message.ts';
+import type { PresentedFailure } from '../workspace/failures.ts';
+import { settle } from '../workspace/outcome.ts';
 import type { Load } from '../workspace/state.ts';
+import { useOpenRoom } from '../workspace/useOpenRoom.ts';
 import { AdministrationView } from '../workspace/views/AdministrationView.tsx';
 import { RegisterView } from '../workspace/views/RegisterView.tsx';
 import { RoomView } from '../workspace/views/RoomView.tsx';
@@ -172,7 +178,9 @@ export function Workspace({
    * made the tail of a large installation unreachable and slowed the first paint by every
    * page it insisted on reading first.
    */
+  const [openRoomToken, setOpenRoomToken] = useState(0);
   const refreshRooms = useCallback((signal?: AbortSignal): void => {
+    setOpenRoomToken((token) => token + 1);
     loadRooms(signal === undefined ? {} : { signal }).then(
       (page) => {
         setRoomsFailure(null);
@@ -259,8 +267,8 @@ export function Workspace({
 
   const register = rooms.kind === 'ready' ? rooms.value : null;
   const roomList = register?.rooms ?? [];
-  const openRoom =
-    openRoomId === null ? null : (roomList.find((room) => room.roomId === openRoomId) ?? null);
+  const openRoomLoad = useOpenRoom(openRoomId, openRoomToken);
+  const openRoom = openRoomLoad?.kind === 'ready' ? openRoomLoad.value : null;
 
   const beginPublish = (): void => {
     if (openRoomId === null) return;
@@ -327,6 +335,21 @@ export function Workspace({
         depth: entry.depth,
       }))
     : roomList.map((room) => ({ id: room.roomId, title: room.title, depth: 0 }));
+
+  const enterRoom = (id: string): void => {
+    setOpenRoomId(id);
+    setSelectedEntryId(null);
+    setRoomSectionId('structure');
+  };
+
+  const createRoomAndEnter = async (room: NewRoom): Promise<PresentedFailure | null> => {
+    const outcome = await settle(createRoom(room));
+    if (!outcome.ok) return outcome.failure;
+    setStatus(translate('rooms.new.created', { title: room.title }));
+    enterRoom(outcome.value.roomId);
+    refreshRooms();
+    return null;
+  };
 
   return (
     <AppShell
@@ -447,7 +470,17 @@ export function Workspace({
         />
       )}
 
-      {openRoomId !== null ? (
+      {openRoomLoad === null ? null : (
+        <OpenRoomState
+          load={openRoomLoad}
+          onRetry={() => {
+            setOpenRoomToken((current) => current + 1);
+          }}
+          onLeave={leaveRoom}
+        />
+      )}
+
+      {openRoomId !== null && openRoom !== null ? (
         <RoomView
           roomId={openRoomId}
           room={openRoom}
@@ -475,12 +508,9 @@ export function Workspace({
           rooms={rooms}
           loadingMore={roomsLoadingMore}
           pageFailure={roomsFailure}
+          createRoom={mayAdministerOrganization ? createRoomAndEnter : null}
           onLoadMore={loadMoreRooms}
-          onOpen={(id) => {
-            setOpenRoomId(id);
-            setSelectedEntryId(null);
-            setRoomSectionId('structure');
-          }}
+          onOpen={enterRoom}
           onRetry={() => {
             setRooms({ kind: 'loading' });
             setRoomsFailure(null);

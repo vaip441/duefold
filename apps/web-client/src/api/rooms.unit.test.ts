@@ -9,10 +9,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadRooms, loadRoomWorkspace, ApiError } from './client.ts';
+import { createRoom, loadRoom, loadRooms, loadRoomWorkspace, ApiError } from './client.ts';
 
 interface Call {
   readonly path: string;
+  readonly method?: string;
+  readonly body?: unknown;
 }
 
 const calls: Call[] = [];
@@ -27,8 +29,12 @@ function respond(status: number, payload: unknown): Response {
 }
 
 function stub(reply: (call: Call) => Response): void {
-  vi.stubGlobal('fetch', (path: string) => {
-    const call: Call = { path };
+  vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {
+    const call: Call = {
+      path,
+      method: init?.method ?? 'GET',
+      body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined,
+    };
     calls.push(call);
     return Promise.resolve(reply(call));
   });
@@ -290,5 +296,27 @@ describe('loadRoomWorkspace', () => {
     await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
       failure: 'unavailable',
     });
+  });
+});
+
+describe('createRoom', () => {
+  it('sends NFC text and returns the new id', async () => {
+    stub(() => respond(201, { roomId: 'r'.repeat(32) }));
+    expect(await createRoom({ title: 'Café', description: '' })).toStrictEqual({
+      roomId: 'r'.repeat(32),
+    });
+    expect(calls[0]?.body).toStrictEqual({
+      title: 'Café',
+      description: '',
+    });
+  });
+});
+
+describe('loadRoom', () => {
+  it('is null for an unreachable room and fails closed on more than one row', async () => {
+    stub(() => respond(200, { rooms: [] }));
+    expect(await loadRoom('x'.repeat(32))).toBeNull();
+    stub(() => respond(200, { rooms: [ROOM, ROOM] }));
+    await expect(loadRoom('x'.repeat(32))).rejects.toMatchObject({ failure: 'unavailable' });
   });
 });

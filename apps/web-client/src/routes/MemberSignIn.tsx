@@ -20,8 +20,9 @@ import { AuthSheet } from '../components/AuthSheet.tsx';
 import { Notice } from '../components/Notice.tsx';
 import { StatusRegion } from '../components/StatusRegion.tsx';
 import type { ThemeChoice } from '../components/ThemeSelect.tsx';
+import { OIDC_BEGIN_PATH } from '../api/auth.ts';
 
-export const OIDC_BEGIN_PATH = '/api/auth/oidc/begin';
+export { OIDC_BEGIN_PATH };
 
 export interface MemberSignInProps {
   /** True when the identity provider returned the user without a session. */

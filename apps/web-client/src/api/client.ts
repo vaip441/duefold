@@ -37,9 +37,18 @@ export {
   type RequestOptions,
 } from './transport.ts';
 
-export { loadSession, requestOtp, signOut, verifyOtp, type SessionState } from './auth.ts';
+export {
+  OIDC_BEGIN_PATH,
+  loadSession,
+  requestOtp,
+  signOut,
+  verifyOtp,
+  type SessionState,
+} from './auth.ts';
 
 export {
+  createRoom,
+  loadRoom,
   loadRoomWorkspace,
   loadRooms,
   mutateStructure,
@@ -47,7 +56,10 @@ export {
   publicationDryRun,
   restoreFromTrash,
   searchRoom,
+  type DocumentEntry,
+  type FolderEntry,
   type MemberRoom,
+  type NewRoom,
   type PublicationChangeKind,
   type PublicationImpact,
   type PublicationItem,
@@ -59,9 +71,20 @@ export {
   type SearchHit,
   type TrashEntry,
   type WorkingEntry,
-  type DocumentEntry,
-  type FolderEntry,
 } from './rooms.ts';
+
+export {
+  applyVisibility,
+  loadRoomSettings,
+  reviewVisibility,
+  type PurgeState,
+  type ReviewedVisibility,
+  type RoomCapabilities,
+  type RoomSettings,
+  type RoomSettingsView,
+  type VisibilityChange,
+  type VisibilityImpact,
+} from './room-settings.ts';
 
 export {
   beginPreview,

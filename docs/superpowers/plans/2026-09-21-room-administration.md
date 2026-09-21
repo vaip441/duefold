@@ -3314,7 +3314,7 @@ git commit -m "List, create and staff counterparties, and map duplicates to 409"
 
 `New room` is offered on `mayAdministerOrganization`, which is `may_administer_organization`'s answer — the same predicate `create_room` refuses on. The frame reads the open room's row by id, so a room just created is fully usable whichever register page its title lands on.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Create `apps/web-client/src/workspace/outcome.unit.test.ts`:
 
@@ -3423,7 +3423,7 @@ it('offers New room only when the server said this member may create rooms', () 
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 outcome rooms.unit NewRoomDialog views.unit
@@ -3431,7 +3431,7 @@ npx vitest run --project unit --maxWorkers=2 outcome rooms.unit NewRoomDialog vi
 
 Expected: FAIL — modules and exports not found.
 
-- [ ] **Step 3: Write `outcome.ts` and `FailureNotice`**
+- [x] **Step 3: Write `outcome.ts` and `FailureNotice`**
 
 Create `apps/web-client/src/workspace/outcome.ts`:
 
@@ -3501,7 +3501,7 @@ export function FailureNotice({
 
 If importing from `routes/` into `components/` creates a cycle the linter reports, move `OIDC_BEGIN_PATH` into `api/auth.ts` and re-export it from `MemberSignIn.tsx`.
 
-- [ ] **Step 4: Add the room client calls**
+- [x] **Step 4: Add the room client calls**
 
 Append to `apps/web-client/src/api/rooms.ts`:
 
@@ -3537,7 +3537,7 @@ export async function loadRoom(roomId: string, signal?: AbortSignal): Promise<Me
 
 Add `createRoom`, `loadRoom` and `type NewRoom` to the `rooms.ts` re-export block in `api/client.ts`.
 
-- [ ] **Step 5: Read the open room by id**
+- [x] **Step 5: Read the open room by id**
 
 Create `apps/web-client/src/workspace/useOpenRoom.ts`:
 
@@ -3594,7 +3594,7 @@ In `apps/web-client/src/routes/Workspace.tsx`, replace the `roomList.find` deriv
 
 and make `refreshRooms` also re-read the open row by adding `setOpenRoomToken((token) => token + 1);` to its body. `RoomView` already renders its own load failure for a room it cannot reach, so the frame does not render this one again.
 
-- [ ] **Step 6: Write the dialog**
+- [x] **Step 6: Write the dialog**
 
 Create `apps/web-client/src/components/NewRoomDialog.tsx`:
 
@@ -3780,7 +3780,7 @@ export function NewRoomDialog({ open, onCreate, onClose }: NewRoomDialogProps): 
 
 Initial focus goes to the title field, not Cancel: this dialog opens on a constructive task with nothing destructive behind its primary action.
 
-- [ ] **Step 7: Offer it on the register**
+- [x] **Step 7: Offer it on the register**
 
 In `apps/web-client/src/workspace/views/RegisterView.tsx`, add to `RegisterViewProps`:
 
@@ -3834,7 +3834,7 @@ In `Workspace.tsx`, extract the body of `RegisterView`'s `onOpen` into `const en
 
 and pass `onOpen={enterRoom}` and `createRoom={mayAdministerOrganization ? createRoomAndEnter : null}` to `RegisterView`.
 
-- [ ] **Step 8: Add the copy**
+- [x] **Step 8: Add the copy**
 
 In `apps/web-client/src/i18n/en.ts`:
 
@@ -3854,7 +3854,7 @@ In `apps/web-client/src/i18n/en.ts`:
   'failure.reload': 'Reload',
 ```
 
-- [ ] **Step 9: Put the member assignment batch on the same convention**
+- [x] **Step 9: Put the member assignment batch on the same convention**
 
 Milestone 1 returns `AssignmentOutcome` (`{kind: 'applied'} | {kind: 'refused', failure}`) from `assign`, and its `act` helper takes a `reportAtTable` flag to decide whether a refusal also lands in the shared `changeFailure`. With `committed()` in place that is a second convention for the same answer. Fold it in, so the client has one.
 
@@ -3918,7 +3918,7 @@ In `apps/web-client/src/components/MembersPanel.tsx`, drop the `AssignmentOutcom
 
 In `MembersPanel.unit.test.tsx`, `NOOPS.onAssign` becomes `() => Promise.resolve(null)`. `git grep -n "AssignmentOutcome\|reportAtTable" apps/web-client` must return nothing.
 
-- [ ] **Step 10: Run the tests to verify they pass**
+- [x] **Step 10: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2
@@ -3929,7 +3929,7 @@ wc -l apps/web-client/src/routes/Workspace.tsx
 
 Expected: PASS — the assignment dialog still stays open on a refused batch and closes on a committed one — and `Workspace.tsx` at most 30 lines over its 494-line baseline.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add apps/web-client/src
@@ -3961,7 +3961,7 @@ git commit -m "Create a room from the register and open it by id"
 
 One dialog serves every confirmation in this milestone. Its ready content carries the consequence and a `Confirmation` that either has the server's phrase or has none — the kill switch and download exceptions take one deliberate press and no phrase, and the type makes a phrase-less `confirm` impossible to call with text and vice versa.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Create `apps/web-client/src/api/room-settings.unit.test.ts`:
 
@@ -4101,7 +4101,7 @@ describe('visibilityNotes', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2 room-settings ConfirmationDialog
@@ -4109,7 +4109,7 @@ npx vitest run --project unit --maxWorkers=2 room-settings ConfirmationDialog
 
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Write the client calls**
+- [x] **Step 3: Write the client calls**
 
 Create `apps/web-client/src/api/room-settings.ts`:
 
@@ -4280,7 +4280,7 @@ export async function applyVisibility(roomId: string, change: VisibilityChange):
 
 Re-export the calls and types from `api/client.ts`.
 
-- [ ] **Step 4: Write the dialog**
+- [x] **Step 4: Write the dialog**
 
 Create `apps/web-client/src/components/ConfirmationDialog.tsx`:
 
@@ -4464,7 +4464,7 @@ export function ConfirmationDialog({
 }
 ```
 
-- [ ] **Step 5: Write the hook and the pure helper**
+- [x] **Step 5: Write the hook and the pure helper**
 
 Create `apps/web-client/src/workspace/useRoomSettings.ts`:
 
@@ -4585,7 +4585,7 @@ export function roomDownloadPolicy(settings: RoomSettings): DownloadPolicy {
 
 `roomDownloadPolicy` is the resolution order the spec defines, not a fallback: an unset room policy *means* the installation default.
 
-- [ ] **Step 6: Write the visibility controls and the panel**
+- [x] **Step 6: Write the visibility controls and the panel**
 
 Create `apps/web-client/src/components/RoomVisibilityControls.tsx`:
 
@@ -4827,7 +4827,7 @@ export function RoomSettingsPanel({ section, onStatus }: RoomSettingsPanelProps)
 }
 ```
 
-- [ ] **Step 7: Offer the section on Room Manager authority**
+- [x] **Step 7: Offer the section on Room Manager authority**
 
 In `apps/web-client/src/workspace/views/RoomView.tsx`:
 
@@ -4868,7 +4868,7 @@ const SETTINGS_TAB = {
       ) : null}
 ```
 
-- [ ] **Step 8: Add the copy**
+- [x] **Step 8: Add the copy**
 
 ```ts
   'workspace.tab.settings': 'Settings',
@@ -4901,7 +4901,7 @@ const SETTINGS_TAB = {
   'confirm.typeToConfirm': 'Type {phrase} to confirm',
 ```
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 ```bash
 npx vitest run --project unit --maxWorkers=2
@@ -4911,7 +4911,7 @@ wc -l apps/web-client/src/workspace/views/RoomView.tsx
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add apps/web-client/src
