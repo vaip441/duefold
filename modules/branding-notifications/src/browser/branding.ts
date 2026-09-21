@@ -11,7 +11,7 @@ import type {
   EffectiveBrand,
   SupportContact,
   ViewerIntroductionSlot,
-} from '@duefold/web-client/contract';
+} from '@duefold/web-client/module-api';
 
 interface PublicBrandingPayload {
   readonly organizationName?: unknown;

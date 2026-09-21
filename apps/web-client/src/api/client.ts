@@ -125,7 +125,6 @@ export {
   type RevokedAssignment,
   type RoomAssignment,
   type RoomRole,
-  type TransferOutcome,
 } from './administration.ts';
 
 export {

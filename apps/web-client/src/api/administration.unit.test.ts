@@ -1,18 +1,3 @@
-/**
- * Administration API parsing tests.
- *
- * These assert the properties that decide whether this surface tells the truth
- * about access, not that the parser round-trips JSON:
- *
- * - A role, state, or room role the server did not send is a FAILURE, never a
- *   rendered row. Substituting a guess would show access the server never described.
- * - The keyset cursor is echoed unmodified, because re-serializing PostgreSQL's
- *   microsecond timestamp through a millisecond `Date` would move the cursor earlier
- *   than the row it came from and skip every subject tied at that microsecond.
- * - A 401 is the documented outcome of a COMPLETED ownership transfer, and only of
- *   that one call. Anywhere else it keeps its ordinary meaning.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyOwnershipTransfer,
@@ -61,6 +46,7 @@ const SUBJECT = {
   revision: 3,
   createdAt: '2026-09-20T10:00:00.000Z',
   assignments: [{ roomId: 'b'.repeat(32), roomRole: 'manager' }],
+  capabilities: { setRole: true, setState: true, assignRooms: true, transfer: false },
 };
 
 const INVITATION = {
@@ -91,16 +77,35 @@ describe('loadMembers', () => {
     expect(first?.subjectKind === 'member' ? first.assignments : null).toStrictEqual([
       { roomId: 'b'.repeat(32), roomRole: 'manager' },
     ]);
-    // Absent means "provably the last page", which is not the same as unknown.
     expect(page.nextCursor).toBeNull();
   });
 
+  it('carries the capability set the server decided, without inferring it', async () => {
+    stub(() => respond(200, { subjects: [SUBJECT] }));
+    const first = (await loadMembers()).subjects[0];
+    expect(first?.subjectKind === 'member' ? first.capabilities : null).toStrictEqual({
+      setRole: true,
+      setState: true,
+      assignRooms: true,
+      transfer: false,
+    });
+  });
+
+  it('refuses a member whose capability set is absent or not boolean', async () => {
+    const withoutCapabilities: Record<string, unknown> = { ...SUBJECT };
+    delete withoutCapabilities['capabilities'];
+    stub(() => respond(200, { subjects: [withoutCapabilities] }));
+    await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
+
+    stub(() =>
+      respond(200, {
+        subjects: [{ ...SUBJECT, capabilities: { ...SUBJECT.capabilities, transfer: 'yes' } }],
+      }),
+    );
+    await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
+  });
+
   it('echoes the server cursor text unmodified rather than through a Date', async () => {
-    /*
-     * PostgreSQL renders microseconds and a space separator. A client that parsed
-     * and re-serialized this would truncate to milliseconds, and in descending order
-     * every subject tied at that microsecond would be skipped silently.
-     */
     const cursor = { createdAt: '2026-09-20 10:00:00.123456+00', subjectId: 'c'.repeat(32) };
     stub(() => respond(200, { subjects: [SUBJECT], nextCursor: cursor }));
     const page = await loadMembers();
@@ -144,25 +149,12 @@ describe('loadMembers', () => {
     const subject = page.subjects[0];
     expect(subject?.subjectKind).toBe('invitation');
     expect(subject?.state).toBe('pending');
-    /*
-     * The role an invitation names is the one they WILL hold, and it is carried under a
-     * different name so no surface can read it as a role held now.
-     */
     expect(subject?.subjectKind === 'invitation' ? subject.intendedRole : null).toBe('admin');
-    /* No `assignments` at all: an invitation has no member row, so nothing could hold a
-       room privilege against it, and an empty array would still invite the reading that
-       they hold no rooms *yet*. */
     expect(subject).not.toHaveProperty('assignments');
   });
 
-  /*
-   * Each case here is a record the server should never send and that the surface must
-   * never render. Validating fields independently accepted all of them, and each one is
-   * a false statement about who can reach what.
-   */
   describe('semantically impossible records are refused', () => {
     it('refuses an invitation that claims to be active', async () => {
-      // Active means signed in. An invitation names someone who has not.
       stub(() => respond(200, { subjects: [{ ...INVITATION, state: 'active' }] }));
       await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
     });
@@ -173,16 +165,11 @@ describe('loadMembers', () => {
     });
 
     it('refuses an invitation that claims the owner role', async () => {
-      // Ownership moves only through the audited transfer, so no invitation can name it.
       stub(() => respond(200, { subjects: [{ ...INVITATION, globalRole: 'owner' }] }));
       await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
     });
 
     it('refuses an invitation carrying room assignments', async () => {
-      /*
-       * A room privilege attached to someone with no member row. Rendering it would put
-       * a room on a row for a person who cannot hold one.
-       */
       stub(() =>
         respond(200, {
           subjects: [
@@ -197,32 +184,21 @@ describe('loadMembers', () => {
     });
 
     it('refuses an invitation carrying an EMPTY assignment array', async () => {
-      /*
-       * The canonical wire union closes the invitation object with
-       * `additionalProperties: false`, so the server cannot send this field at all.
-       * Accepting an empty array and silently dropping it made the client and the schema
-       * disagree about what is representable, and repaired a malformed response instead of
-       * reporting it — the exact silent substitution this parser exists to prevent.
-       */
       stub(() => respond(200, { subjects: [{ ...INVITATION, assignments: [] }] }));
       await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
     });
 
     it('refuses an invitation whose assignments field is present but not an array', async () => {
-      // Present at all is the contradiction; its type does not make it less of one.
       stub(() => respond(200, { subjects: [{ ...INVITATION, assignments: null }] }));
       await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
     });
 
     it('refuses a member that claims to be pending', async () => {
-      // `pending` belongs to an invitation; `member.state='invited'` is unreachable.
       stub(() => respond(200, { subjects: [{ ...SUBJECT, state: 'pending' }] }));
       await expect(loadMembers()).rejects.toBeInstanceOf(ApiError);
     });
 
     it('refuses a member with no assignment field at all', async () => {
-      /* A member's complete active set is required. An absent field would read as "no
-         rooms", which is a claim about access rather than an absence of data. */
       const { assignments, ...withoutAssignments } = SUBJECT;
       expect(assignments).toHaveLength(1);
       stub(() => respond(200, { subjects: [withoutAssignments] }));
@@ -256,8 +232,6 @@ describe('setMemberRole', () => {
   });
 
   it('keeps a 401 on an ordinary call as an expired session', async () => {
-    // The transfer-apply mapping must not leak to any other call: a 401 there would
-    // become a false success.
     stub(() => respond(401, { error: { code: 'UNAUTHENTICATED', message: 'no' } }));
     await expect(
       setMemberRole({ memberId: 'a'.repeat(32), role: 'admin', expectedRevision: 3 }),
@@ -280,11 +254,6 @@ describe('dryRunOwnershipTransfer', () => {
   };
 
   it('keeps the exact count and the truncation flag rather than deriving either', async () => {
-    /*
-     * The named list is capped because it carries titles; the count stays exact. A
-     * client that derived the count from the list would understate a privilege
-     * revocation the Owner is being asked to approve.
-     */
     stub(() => respond(200, { impact: IMPACT }));
     const impact = await dryRunOwnershipTransfer('a'.repeat(32));
     expect(impact.revokedAssignmentCount).toBe(2);
@@ -308,29 +277,19 @@ describe('applyOwnershipTransfer', () => {
     confirmation: 'TRANSFER OWNERSHIP',
   };
 
-  it('reports a normal response as a completed transfer that ended the session', async () => {
+  it('resolves when the server states the transfer happened and ended the session', async () => {
     stub(() => respond(200, { transferred: true, sessionEnded: true }));
-    await expect(applyOwnershipTransfer(INPUT)).resolves.toStrictEqual({
-      outcome: 'session-ended',
-    });
+    await expect(applyOwnershipTransfer(INPUT)).resolves.toBeUndefined();
   });
 
-  it('treats a 401 as the documented outcome of a completed transfer', async () => {
-    /*
-     * The transfer revokes the acting Owner's sessions inside its own transaction, so
-     * the response can arrive after the session row is gone. That is success, and
-     * rendering it as an authentication error would tell the Owner the transfer
-     * failed when it did not.
-     */
+  it('reports a 401 as an authentication failure, because the transfer never ran', async () => {
     stub(() => respond(401, { error: { code: 'UNAUTHENTICATED', message: 'no' } }));
-    await expect(applyOwnershipTransfer(INPUT)).resolves.toStrictEqual({
-      outcome: 'session-ended',
+    await expect(applyOwnershipTransfer(INPUT)).rejects.toMatchObject({
+      failure: 'unauthenticated',
     });
   });
 
   it('still reports a 409 as a conflict, not as a completed transfer', async () => {
-    // The target changed after the preview, so nothing happened. Mapping this to
-    // success would claim a transfer the server refused.
     stub(() => respond(409, { error: { code: 'CONFLICT', message: 'no' } }));
     await expect(applyOwnershipTransfer(INPUT)).rejects.toMatchObject({
       failure: 'conflict',
@@ -339,6 +298,11 @@ describe('applyOwnershipTransfer', () => {
 
   it('refuses a 200 that does not state the transfer happened', async () => {
     stub(() => respond(200, { transferred: false }));
+    await expect(applyOwnershipTransfer(INPUT)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('refuses a 200 that omits the sign-out the transfer necessarily caused', async () => {
+    stub(() => respond(200, { transferred: true }));
     await expect(applyOwnershipTransfer(INPUT)).rejects.toBeInstanceOf(ApiError);
   });
 

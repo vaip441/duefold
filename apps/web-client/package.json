@@ -6,14 +6,7 @@
   "type": "module",
   "exports": {
     "./contract": "./src/contract.ts",
-    "./api/client": "./src/api/client.ts",
-    "./i18n/format": "./src/i18n/format.ts",
-    "./i18n/translate": "./src/i18n/translate.ts",
-    "./components/Notice": "./src/components/Notice.tsx",
-    "./components/UploadPanel": "./src/components/UploadPanel.tsx",
-    "./workspace/failures": "./src/workspace/failures.ts",
-    "./workspace/state": "./src/workspace/state.ts",
-    "./workspace/upload": "./src/workspace/upload.ts"
+    "./module-api": "./src/module-api.ts"
   },
   "scripts": {
     "build": "vite build"

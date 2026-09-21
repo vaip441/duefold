@@ -1,17 +1,3 @@
-/**
- * Member administration surface tests.
- *
- * Rendered through `react-dom/server`, which exercises the real component tree
- * without adding a DOM environment dependency, matching `AppShell.unit.test.tsx`.
- * Focus behaviour and dialog interaction belong to the Playwright suite, where a real
- * browser can make those assertions.
- *
- * What is asserted here is what the markup CLAIMS about access. Each case pins a
- * statement that would otherwise be false: an invitation rendered as a member, a
- * short page rendered as everyone, a refusal rendered as emptiness, or a state
- * carried by colour with no words behind it.
- */
-
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -22,7 +8,7 @@ import type {
 } from '../api/client.ts';
 import { messages } from '../i18n/en.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
-import { classifyLoad } from '../workspace/views/load-state.ts';
+import { classifyLoad, type LoadRecovery } from '../workspace/views/load-state.ts';
 import { MemberRoomsForm } from './MemberRoomsForm.tsx';
 import { MembersPanel, type MembersPanelProps } from './MembersPanel.tsx';
 import { OwnershipTransferPreview } from './OwnershipTransferPreview.tsx';
@@ -50,6 +36,7 @@ function subject(overrides: Partial<ProvisionedMember> = {}): ProvisionedMember 
     revision: 2,
     createdAt: '2026-09-20T10:00:00.000Z',
     assignments: [],
+    capabilities: { setRole: true, setState: true, assignRooms: true, transfer: true },
     ...overrides,
   };
 }
@@ -67,47 +54,83 @@ function invitation(overrides: Partial<PendingInvitation> = {}): PendingInvitati
   };
 }
 
-const NOOPS = {
-  onInvite: () => undefined,
-  onRevokeInvitation: () => undefined,
-  onRoleChange: () => undefined,
-  onStateChange: () => undefined,
-  onAssign: () => undefined,
-  onReviewTransfer: () => undefined,
-  onApplyTransfer: () => undefined,
-  onCancelTransfer: () => undefined,
-  onLoadMore: () => undefined,
-  onReload: () => undefined,
-  onSessionEnded: () => undefined,
-} as const;
+/**
+ * The panel's props are grouped by surface; these overrides are deliberately FLAT.
+ *
+ * A case says `render({ loading: true })`, not `render({ listing: { loading: true, denied:
+ * false, ... } })`. Nesting the overrides would make every case restate a whole group to
+ * change one field, and what each case is actually testing would disappear into the
+ * scaffolding. The grouping is the component's contract; this is the test's convenience,
+ * and `render` is the one place that maps between them.
+ */
+interface Overrides {
+  readonly subjects?: MembersPanelProps['subjects'];
+  readonly busySubjectId?: string | null;
+  readonly changeFailure?: PresentedFailure | null;
+  readonly loading?: boolean;
+  readonly denied?: boolean;
+  readonly failedLoad?: boolean;
+  readonly loadRecovery?: LoadRecovery;
+  readonly failure?: PresentedFailure | null;
+  readonly hasMore?: boolean;
+  readonly loadingMore?: boolean;
+  readonly rooms?: MembersPanelProps['assignment']['rooms'];
+  readonly roomsComplete?: boolean;
+  readonly roomsLoadingMore?: boolean;
+  readonly invitePending?: boolean;
+  readonly inviteFailure?: PresentedFailure | null;
+  readonly transferImpact?: MembersPanelProps['transfer']['impact'];
+  readonly transferImpactPending?: boolean;
+  readonly transferPending?: boolean;
+  readonly transferFailure?: PresentedFailure | null;
+  readonly onAssign?: MembersPanelProps['assignment']['onAssign'];
+  readonly onRoleChange?: MembersPanelProps['onRoleChange'];
+  readonly onStateChange?: MembersPanelProps['onStateChange'];
+  readonly onRevokeInvitation?: MembersPanelProps['onRevokeInvitation'];
+}
 
-function render(overrides: Partial<MembersPanelProps> = {}): string {
+function render(overrides: Overrides = {}): string {
   return renderToStaticMarkup(
     <MembersPanel
-      subjects={[]}
-      rooms={[]}
-      loading={false}
-      denied={false}
-      failedLoad={false}
-      loadRecovery="none"
-      failure={null}
-      roomsComplete
-      roomsLoadingMore={false}
-      onLoadMoreRooms={() => undefined}
-      hasMore={false}
-      loadingMore={false}
-      inviteFailure={null}
-      invitePending={false}
-      busySubjectId={null}
-      changeFailure={null}
-      changeFailureOrigin={null}
-      transferImpact={null}
-      transferImpactPending={false}
-      transferPending={false}
-      transferFailure={null}
-      assignmentsApplied={0}
-      {...NOOPS}
-      {...overrides}
+      subjects={overrides.subjects ?? []}
+      busySubjectId={overrides.busySubjectId ?? null}
+      changeFailure={overrides.changeFailure ?? null}
+      listing={{
+        loading: overrides.loading ?? false,
+        denied: overrides.denied ?? false,
+        failedLoad: overrides.failedLoad ?? false,
+        loadRecovery: overrides.loadRecovery ?? 'none',
+        failure: overrides.failure ?? null,
+        hasMore: overrides.hasMore ?? false,
+        loadingMore: overrides.loadingMore ?? false,
+        onLoadMore: () => undefined,
+        onReload: () => undefined,
+      }}
+      invite={{
+        pending: overrides.invitePending ?? false,
+        failure: overrides.inviteFailure ?? null,
+        onInvite: () => undefined,
+      }}
+      assignment={{
+        rooms: overrides.rooms ?? [],
+        roomsComplete: overrides.roomsComplete ?? true,
+        roomsLoadingMore: overrides.roomsLoadingMore ?? false,
+        onLoadMoreRooms: () => undefined,
+        onAssign: overrides.onAssign ?? (() => Promise.resolve(null)),
+      }}
+      transfer={{
+        impact: overrides.transferImpact ?? null,
+        impactPending: overrides.transferImpactPending ?? false,
+        pending: overrides.transferPending ?? false,
+        failure: overrides.transferFailure ?? null,
+        onReview: () => undefined,
+        onApply: () => undefined,
+        onCancel: () => undefined,
+      }}
+      onRevokeInvitation={overrides.onRevokeInvitation ?? (() => undefined)}
+      onRoleChange={overrides.onRoleChange ?? (() => undefined)}
+      onStateChange={overrides.onStateChange ?? (() => undefined)}
+      onSessionEnded={() => undefined}
     />,
   );
 }
@@ -125,17 +148,10 @@ describe('designed states', () => {
     expect(markup).toContain(messages['members.emptyHelp']);
   });
 
-  /*
-   * Each failure class is its own state. Every one of them used to arrive as "not
-   * available to your role", which named an authorization cause the failure did not have,
-   * suppressed its real copy, and offered no way forward.
-   */
   describe('a failed load is not a denial', () => {
     function failed(kind: PresentedFailure['kind'], body: string): string {
       return render({
         failedLoad: true,
-        /* The recovery comes from `classifyLoad`, so the panel is rendered with the same
-           pairing the view produces rather than one invented here. */
         loadRecovery: classifyLoad({
           failed: true,
           failure: { kind, title: null, body, offerReload: false },
@@ -160,8 +176,6 @@ describe('designed states', () => {
     });
 
     it('offers sign-in for an ended session, never a retry that would fail again', () => {
-      // Retrying on a session that no longer exists produces another 401, so a reload
-      // button would be an action that cannot succeed.
       const markup = failed('session-ended', messages['error.expired.body']);
       expect(markup).toContain(messages['error.expired.body']);
       expect(markup).toContain(messages['error.freshSignIn.action']);
@@ -169,23 +183,15 @@ describe('designed states', () => {
       expect(markup).not.toContain(messages['members.denied']);
     });
 
-    /*
-     * The stale-authentication case is its own class with its own recovery. It read
-     * "this change needs a fresh sign-in" above a button labelled "Load members again":
-     * the copy named the right recovery and the only control offered the wrong one, so
-     * following it reproduced the refusal and the instruction was unreachable.
-     */
     it('offers sign-in for a stale-authentication refusal, matching its own copy', () => {
       const markup = failed('fresh-oidc', messages['error.freshSignIn.body']);
       expect(markup).toContain(messages['error.freshSignIn.body']);
       expect(markup).toContain(messages['error.freshSignIn.action']);
       expect(markup).not.toContain(messages['members.failed.retry']);
-      // Not an ordinary denial: the member's role is not what refused this.
       expect(markup).not.toContain(messages['members.denied']);
     });
 
     it('shows no table or invite form for any failure class', () => {
-      // The list was not read, so nothing may be presented as if it had been.
       const markup = failed('plain', messages['error.unavailable.body']);
       expect(markup).not.toContain('<table');
       expect(markup).not.toContain(messages['members.invite.submit']);
@@ -195,32 +201,21 @@ describe('designed states', () => {
     it('falls back to its own copy when no failure was presented', () => {
       const markup = render({ failedLoad: true, failure: null, loadRecovery: 'retry' });
       expect(markup).toContain(messages['members.failed']);
-      /* A cause nobody established still earns a retry: the request may succeed, and
-         claiming an authorization cause would be a statement nobody determined. */
       expect(markup).toContain(messages['members.failed.retry']);
     });
   });
 
   it('renders the denied state without disclosing whether members exist', () => {
-    /*
-     * The server answers a denial uniformly so it cannot be used to discover who
-     * exists. An empty table beside a refusal would say "nobody", and a populated one
-     * would say the opposite; neither is the surface's to claim.
-     */
     const markup = render({ denied: true, subjects: [subject()] });
     expect(markup).toContain(messages['members.denied']);
     expect(markup).not.toContain('<table');
     expect(markup).not.toContain('@');
     expect(markup).not.toContain(messages['members.empty']);
     expect(markup).not.toContain(messages['members.invite.submit']);
-    /* No retry: retrying a refusal is refused again, so offering one would present an
-       action that cannot succeed and imply the denial might be transient. */
     expect(markup).not.toContain(messages['members.failed.retry']);
   });
 
   it('keeps a page failure separate from the denied state', () => {
-    // A further page failed while earlier pages are on screen. Those stay, because
-    // they are complete for the subjects they name.
     const markup = render({
       subjects: [subject()],
       failure: {
@@ -280,7 +275,6 @@ describe('what a row states about access', () => {
   });
 
   it('states role-derived room access rather than showing no rooms', () => {
-    // An Admin reaches every room with no assignment. "No rooms" would be false.
     const markup = render({ subjects: [subject({ globalRole: 'admin' })] });
     expect(markup).toContain(messages['members.rooms.byRole']);
   });
@@ -295,10 +289,6 @@ describe('what a row states about access', () => {
   });
 
   it('lists a room outside the register instead of omitting it', () => {
-    /*
-     * Omitting it would understate this member's access, which is the one thing this
-     * cell must never do. It is named as outside the loaded register instead.
-     */
     const markup = render({
       rooms: [],
       subjects: [subject({ assignments: [{ roomId: 'z'.repeat(32), roomRole: 'manager' }] })],
@@ -309,16 +299,75 @@ describe('what a row states about access', () => {
   });
 
   it('offers the Owner no role or access control', () => {
-    // Ownership moves only through the audited transfer and the Owner cannot be
-    // disabled, so either control would offer an action the server refuses.
-    const markup = render({ subjects: [subject({ globalRole: 'owner' })] });
+    const markup = render({
+      subjects: [
+        subject({
+          globalRole: 'owner',
+          capabilities: {
+            setRole: false,
+            setState: false,
+            assignRooms: false,
+            transfer: false,
+          },
+        }),
+      ],
+    });
     expect(markup).not.toContain(messages['members.role.toMember']);
     expect(markup).not.toContain(messages['members.state.disable']);
     expect(markup).not.toContain(messages['members.transfer']);
   });
 
+  it('offers no control at all on the acting administrator\u2019s own row', () => {
+    const markup = render({
+      subjects: [
+        subject({
+          globalRole: 'admin',
+          capabilities: {
+            setRole: false,
+            setState: false,
+            assignRooms: false,
+            transfer: false,
+          },
+        }),
+      ],
+    });
+    expect(markup).not.toContain(messages['members.role.toMember']);
+    expect(markup).not.toContain(messages['members.state.disable']);
+    expect(markup).not.toContain(messages['members.rooms.manage']);
+    expect(markup).not.toContain(messages['members.transfer']);
+  });
+
+  it('offers an Admin no ownership transfer, because transfer is Owner-only', () => {
+    const markup = render({
+      subjects: [
+        subject({
+          capabilities: {
+            setRole: true,
+            setState: true,
+            assignRooms: true,
+            transfer: false,
+          },
+        }),
+      ],
+    });
+    expect(markup).toContain(messages['members.state.disable']);
+    expect(markup).not.toContain(messages['members.transfer']);
+  });
+
   it('offers re-enabling a disabled member but no transfer to them', () => {
-    const markup = render({ subjects: [subject({ state: 'disabled' })] });
+    const markup = render({
+      subjects: [
+        subject({
+          state: 'disabled',
+          capabilities: {
+            setRole: true,
+            setState: true,
+            assignRooms: false,
+            transfer: false,
+          },
+        }),
+      ],
+    });
     expect(markup).toContain(messages['members.state.enable']);
     expect(markup).toContain(messages['members.state.disabledHelp']);
     expect(markup).not.toContain(messages['members.transfer']);
@@ -334,10 +383,6 @@ describe('what a row states about access', () => {
 
 describe('a short page is not a complete one', () => {
   it('says the list is partial while a cursor remains', () => {
-    /*
-     * A page bounded by the server's assignment budget is shorter than the limit and
-     * still continues, so a short table must not read as everyone.
-     */
     const markup = render({ subjects: [subject()], hasMore: true });
     expect(markup).toContain(messages['members.page.partial']);
     expect(markup).toContain(messages['members.page.more']);
@@ -351,11 +396,6 @@ describe('a short page is not a complete one', () => {
 });
 
 describe('stacked layout keeps column meaning', () => {
-  /*
-   * At narrow widths the stylesheet block-stacks every cell. Without a per-cell label a
-   * stacked cell was an unlabelled value and an unexplained button at 320px, and the
-   * stylesheet's claim that cells were labelled was not true of the markup.
-   */
   it('labels every cell with its column name', () => {
     const markup = render({
       rooms: [ROOM],
@@ -378,19 +418,12 @@ describe('stacked layout keeps column meaning', () => {
   });
 
   it('keeps the real column headers in the DOM rather than removing them', () => {
-    /*
-     * The headers are visually hidden by CSS at narrow widths, never `display:none`,
-     * which can drop the header association from the accessibility tree. They must
-     * therefore still be present in the markup for the stacked layout to be safe.
-     */
     const markup = render({ subjects: [subject()] });
     expect(markup).toContain('<thead>');
     expect([...markup.matchAll(/<th scope="col">/gu)].length).toBeGreaterThanOrEqual(4);
   });
 
   it('renders no second visible label element that would announce values twice', () => {
-    // The label is generated content from `data-label`, so there is no element carrying
-    // it that a screen reader would read alongside the real header.
     const markup = render({ subjects: [subject()] });
     expect(markup).not.toContain('df-register__label');
   });
@@ -401,7 +434,6 @@ describe('table semantics', () => {
     const markup = render({ subjects: [subject()] });
     expect(markup).toContain('<caption');
     expect(markup).toContain(`<th scope="col">${messages['members.columns.person']}</th>`);
-    // The person is the row header, so each cell is announced against a name.
     expect(markup).toContain('<th scope="row"');
   });
 
@@ -437,12 +469,6 @@ describe('ownership transfer preview', () => {
     revokedAssignmentsTruncated: true,
   };
 
-  /*
-   * The preview body is rendered directly rather than through its dialog. The dialog
-   * is a Base UI portal, which renders nothing on the server, so asserting this copy
-   * through the shell would pass against an empty string and prove nothing. Focus
-   * trapping, dismissal, and the disabled submit belong to the browser suite.
-   */
   function preview(
     overrides: Partial<Parameters<typeof OwnershipTransferPreview>[0]> = {},
   ): string {
@@ -472,11 +498,6 @@ describe('ownership transfer preview', () => {
   });
 
   it('names the rooms the promotion revokes, with the exact count', () => {
-    /*
-     * An Owner reaches every room, so the successor's assignments are superseded. A
-     * preview that described only the role change would ask for consent to a
-     * revocation it never mentioned.
-     */
     const markup = preview();
     expect(markup).toContain('7 room assignment');
     expect(markup).toContain('Series A');
@@ -491,11 +512,6 @@ describe('ownership transfer preview', () => {
     ).not.toContain(messages['members.transfer.revokesTruncated']);
   });
 
-  /*
-   * The revocation table stacks at 320px like every `.df-register`, and it sits in the
-   * one dialog where the Owner approves an irreversible privilege loss. Without per-cell
-   * labels the stacked form was a room title with an unexplained role beneath it.
-   */
   it('labels both cells of the revocation table for the stacked layout', () => {
     const markup = preview();
     expect(markup).toContain(`data-label="${messages['members.transfer.columns.room']}"`);
@@ -503,8 +519,6 @@ describe('ownership transfer preview', () => {
   });
 
   it('keeps the real column headers rather than relying on the labels alone', () => {
-    /* The headers are visually hidden at narrow widths, never removed, so the
-       programmatic association survives and the labels stay presentation. */
     const markup = preview();
     expect(markup).toContain(
       `<th scope="col">${messages['members.transfer.columns.room']}</th>`,
@@ -515,7 +529,6 @@ describe('ownership transfer preview', () => {
   });
 
   it('offers no confirmation field before the impact loads', () => {
-    // The phrase cannot be typed before there is something for it to confirm.
     const markup = preview({ impact: null, loading: true });
     expect(markup).toContain(messages['members.transfer.loading']);
     expect(markup).not.toContain('to confirm');
@@ -523,8 +536,6 @@ describe('ownership transfer preview', () => {
   });
 
   it('explains a near miss while it is typed, not after a rejected submit', () => {
-    // The submit is disabled until the phrase matches, so an error shown only on
-    // submit could never appear at all.
     const near = preview({ typed: 'transfer ownership' });
     expect(near).toContain(messages['members.transfer.mismatch']);
     expect(near).toContain('aria-invalid="true"');
@@ -561,18 +572,6 @@ describe('ownership transfer preview', () => {
   });
 });
 
-/**
- * Whose failure the assignment dialog is allowed to show.
- *
- * `changeFailure` is shared by role, state, invitation-revocation and assignment, so
- * without provenance the dialog displayed whatever was reported last. After any failed row
- * mutation, opening room assignment — for that member or a different one — showed the
- * unrelated error as if the draft on screen had just been rejected.
- *
- * The dialog is a Base UI portal and renders nothing on the server, so what is asserted
- * here is the table-level notice and the ORIGIN RULE the panel applies. The live dialog
- * body is covered by the browser journey.
- */
 describe('a failure belongs to the operation that caused it', () => {
   const CONFLICT: PresentedFailure = {
     kind: 'conflict',
@@ -586,19 +585,15 @@ describe('a failure belongs to the operation that caused it', () => {
     const markup = render({
       subjects: [member],
       changeFailure: CONFLICT,
-      changeFailureOrigin: { operation: 'role', subjectId: member.subjectId },
     });
     expect(markup).toContain(messages['error.conflict.body']);
   });
 
   it('keeps reporting a row failure that is still true', () => {
-    /* Cleared on the next attempt by the hook, not by opening an unrelated surface: a
-       refusal that has not been superseded is still the last thing that happened. */
     const member = subject();
     const markup = render({
       subjects: [member],
       changeFailure: CONFLICT,
-      changeFailureOrigin: { operation: 'state', subjectId: member.subjectId },
     });
     expect(markup).toContain(messages['error.conflict.body']);
     expect(markup).toContain(messages['error.conflict.reload']);
@@ -616,6 +611,9 @@ describe('room assignment form', () => {
         draft={{}}
         pending={false}
         changed={false}
+        withinLimit
+        entryCount={0}
+        entryLimit={100}
         failure={null}
         onDraftChange={() => undefined}
         {...overrides}
@@ -631,10 +629,6 @@ describe('room assignment form', () => {
   });
 
   it('labels each room control by that room and offers removal as a role', () => {
-    /*
-     * Removal is the "not staffed" option, so assignment and revocation are chosen in
-     * the same control and the resulting set is the one on screen.
-     */
     const markup = form();
     expect(markup).toContain('Role in Series A');
     expect(markup).toContain(messages['members.assign.none']);
@@ -643,30 +637,31 @@ describe('room assignment form', () => {
   });
 
   it('says a draft that changes nothing changes nothing', () => {
-    // A batch with no change still revokes the member's sessions, so an inert submit
-    // has to be explained rather than silently doing nothing.
     expect(form({ changed: false })).toContain(messages['members.assign.unchanged']);
     expect(form({ changed: true })).not.toContain(messages['members.assign.unchanged']);
   });
 
   /*
-   * The register is paged, so "Not staffed" is an answer about the rooms shown. A prefix
-   * presented as the whole list would let a room the administrator never received read as
-   * a room this member is not in.
+   * A DRAFT OVER THE BATCH BOUND SAYS SO, WITH NUMBERS.
+   *
+   * The server bounds assignments and revocations together, but the route's schema bounded
+   * each array separately, so 60 staffings plus 60 removals passed validation and came back
+   * a 400. The count and the limit are both named: "too many changes" without a number
+   * leaves the administrator removing entries until it happens to work.
    */
+  it('says how many changes one save may carry when the draft exceeds it', () => {
+    const over = form({ changed: true, withinLimit: false, entryCount: 120, entryLimit: 100 });
+    expect(over).toContain('120');
+    expect(over).toContain('100');
+    expect(form({ changed: true, withinLimit: true })).not.toContain('one save may carry');
+  });
+
   it('says so when only part of the room list loaded, and offers the rest', () => {
     const markup = form({ roomsComplete: false });
     expect(markup).toContain(messages['members.assign.partialRooms']);
-    // Before the controls, so the caveat is read while the choice is made.
     expect(markup.indexOf(messages['members.assign.partialRooms'])).toBeLessThan(
       markup.indexOf('<select'),
     );
-    /*
-     * The ACTION that resolves the caveat, inside the dialog where staffing is decided.
-     * The register used to be walked to an arbitrary page cap and stored as terminal, so
-     * this notice disclosed a limitation the administrator could do nothing about while
-     * rooms past the cap could not be staffed at all.
-     */
     expect(markup).toContain(messages['rooms.more']);
   });
 
@@ -679,15 +674,10 @@ describe('room assignment form', () => {
   it('claims nothing about completeness when the whole register loaded', () => {
     const markup = form({ roomsComplete: true });
     expect(markup).not.toContain(messages['members.assign.partialRooms']);
-    /* No continuation control: the server proved there is nothing further to load. */
     expect(markup).not.toContain(messages['rooms.more']);
   });
 
   it('reports a refused batch inside the form, with the draft intact', () => {
-    /*
-     * The dialog stays open until the batch resolves. Reporting the failure behind the
-     * table would have discarded a multi-room draft and asked for it again from memory.
-     */
     const markup = form({
       failure: {
         kind: 'conflict',
@@ -698,7 +688,6 @@ describe('room assignment form', () => {
     });
     expect(markup).toContain(messages['error.conflict.body']);
     expect(markup).toContain('role="alert"');
-    // The controls are still there, so the draft can be corrected and resubmitted.
     expect(markup).toContain('<select');
   });
 

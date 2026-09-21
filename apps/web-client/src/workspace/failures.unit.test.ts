@@ -17,7 +17,7 @@ describe('presentFailure', () => {
     const conflict = presentFailure(new ApiError('conflict'));
     expect(conflict.kind).toBe('conflict');
     expect(conflict.offerReload).toBe(true);
-    expect(conflict.body).toContain('Someone else changed this room');
+    expect(conflict.body).toContain('Someone else changed this');
 
     // Negative arm: no other failure suggests reloading.
     for (const failure of [

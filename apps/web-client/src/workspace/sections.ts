@@ -7,17 +7,30 @@
  * declared by the view that renders them; a module's sections arrive through the
  * build-time registry, which names only the composed modules' entries.
  *
- * This is navigation, not authorization. A section being present says only that
- * its module was composed; every request it makes is authorized by the server, and
- * a section whose reader refuses renders its own denied state.
+ * A section being present says only that its module was composed, not that the member may
+ * use it; a section whose reader refuses renders its own denied state.
  */
 
 import { composedBrowserEntries } from 'virtual:duefold/browser-entries';
-import type { SectionContribution, SectionTab } from '../contract.ts';
+import type {
+  RoomSectionContribution,
+  SectionContribution,
+  SectionTab,
+  TopSectionContribution,
+} from '../contract.ts';
 
 export type SectionScope = SectionTab['scope'];
 
-/** The contributed sections for one scope, in the order they will be shown. */
+/**
+ * The contributed sections for one scope, in the order they will be shown.
+ *
+ * Overloaded on the scope so the caller receives contributions whose `render` takes
+ * that scope's props. A room view therefore gets sections it can call with the room
+ * id it has, and the null-room case a single props type used to force on every room
+ * section is unrepresentable rather than handled.
+ */
+export function contributedSections(scope: 'top'): readonly TopSectionContribution[];
+export function contributedSections(scope: 'room'): readonly RoomSectionContribution[];
 export function contributedSections(scope: SectionScope): readonly SectionContribution[] {
   return composedBrowserEntries
     .flatMap((entry) => entry.contribution.sections ?? [])
@@ -31,10 +44,10 @@ export function contributedSections(scope: SectionScope): readonly SectionContri
  * to `id` so the strip has one stable order rather than depending on registry
  * sequence, which is generation order and not a product decision.
  */
-export function composeSections<T extends SectionTab>(
+export function composeSections<T extends SectionTab, C extends SectionContribution>(
   core: readonly T[],
-  contributed: readonly SectionContribution[],
-): readonly (T | SectionContribution)[] {
+  contributed: readonly C[],
+): readonly (T | C)[] {
   return [...core, ...contributed].sort((left, right) =>
     left.order === right.order ? left.id.localeCompare(right.id) : left.order - right.order,
   );
@@ -54,7 +67,14 @@ export function currentSection<T extends SectionTab>(
   return sections.find((section) => section.id === requestedId) ?? sections[0] ?? null;
 }
 
-/** Whether a resolved tab is a module contribution, and so renders itself. */
-export function isContributed(section: SectionTab): section is SectionContribution {
+/**
+ * Whether a resolved tab is a module contribution, and so renders itself.
+ *
+ * Generic in the contribution type, so narrowing a strip composed from room
+ * contributions yields a room contribution and the caller may pass its room id.
+ */
+export function isContributed<C extends SectionContribution>(
+  section: SectionTab | C,
+): section is C {
   return 'render' in section;
 }

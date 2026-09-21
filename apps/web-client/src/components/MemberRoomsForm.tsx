@@ -31,6 +31,10 @@ export interface MemberRoomsFormProps {
   readonly pending: boolean;
   /** False when the draft matches what the member already holds. */
   readonly changed: boolean;
+  /** False when assignments plus revocations exceed what one save may carry. */
+  readonly withinLimit: boolean;
+  readonly entryCount: number;
+  readonly entryLimit: number;
   /** The last submitted batch's failure, reported here with the draft intact. */
   readonly failure: PresentedFailure | null;
   readonly onDraftChange: (roomId: string, role: DraftRole) => void;
@@ -44,6 +48,9 @@ export function MemberRoomsForm({
   draft,
   pending,
   changed,
+  withinLimit,
+  entryCount,
+  entryLimit,
   failure,
   onDraftChange,
 }: MemberRoomsFormProps): React.ReactElement {
@@ -125,11 +132,23 @@ export function MemberRoomsForm({
         ))
       )}
 
-      {/* Stated rather than left to a silently inert button: a batch that changes
-          nothing still fires the session revocation, so confirming one by accident
-          would sign a colleague out for no reason. */}
+      {/* Stated rather than left to a silently inert button. The server refuses a
+          batch that changes nothing -- an audit row is evidence of a privilege change,
+          so a batch that changed none must not produce one -- and this says why the
+          control is unavailable instead of letting the refusal arrive as an error. */}
       {rooms.length === 0 || changed ? null : (
         <p className="df-field__help">{translate('members.assign.unchanged')}</p>
+      )}
+
+      {/* Over the batch bound. Named with the count and the limit, because "too many" with
+          no number leaves the administrator guessing how much to remove. */}
+      {withinLimit ? null : (
+        <p className="df-field__help" role="alert">
+          {translate('members.assign.tooLarge', {
+            count: String(entryCount),
+            limit: String(entryLimit),
+          })}
+        </p>
       )}
     </>
   );

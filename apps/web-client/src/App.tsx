@@ -26,7 +26,11 @@ type Bootstrap =
   | { readonly kind: 'anonymous' }
   | { readonly kind: 'offline' }
   | { readonly kind: 'unavailable' }
-  | { readonly kind: 'session'; readonly principal: 'member' | 'viewer' };
+  | {
+      readonly kind: 'session';
+      readonly principal: 'member' | 'viewer';
+      readonly mayAdministerOrganization: boolean;
+    };
 
 type AuthChoice = 'member' | 'viewer';
 
@@ -79,7 +83,11 @@ export function App(): React.ReactElement {
       (session) => {
         setBootstrap(
           session.authenticated
-            ? { kind: 'session', principal: session.principal }
+            ? {
+                kind: 'session',
+                principal: session.principal,
+                mayAdministerOrganization: session.mayAdministerOrganization,
+              }
             : { kind: 'anonymous' },
         );
       },
@@ -166,6 +174,7 @@ export function App(): React.ReactElement {
     return (
       <Workspace
         principal={bootstrap.principal}
+        mayAdministerOrganization={bootstrap.mayAdministerOrganization}
         theme={theme}
         onThemeChange={setTheme}
         onSignedOut={() => {

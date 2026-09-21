@@ -14,7 +14,7 @@
  */
 
 import { createElement, useEffect } from 'react';
-import type { BrowserContribution, SectionProps } from '@duefold/web-client/contract';
+import type { BrowserContribution, RoomSectionProps } from '@duefold/web-client/module-api';
 import { BrandingPanel } from './BrandingPanel.tsx';
 import { brandingCopy } from './copy.ts';
 import { useBrandingSection } from './useBrandingSection.ts';
@@ -23,7 +23,7 @@ import { useBrandingSection } from './useBrandingSection.ts';
  * The section's own component, so its state machine mounts with the section and
  * unmounts with it. The application does not hold branding state on its behalf.
  */
-function BrandingSection({ roomId, onStatus }: SectionProps): React.ReactElement {
+function BrandingSection({ roomId, onStatus }: RoomSectionProps): React.ReactElement {
   const section = useBrandingSection({
     onSaved: () => {
       onStatus(brandingCopy('saved'));
@@ -36,14 +36,11 @@ function BrandingSection({ roomId, onStatus }: SectionProps): React.ReactElement
    * had: a Manager who never opens Branding causes no branding request.
    */
   useEffect(() => {
-    if (roomId !== null) refresh(roomId);
+    refresh(roomId);
   }, [roomId, refresh]);
-  /*
-   * `scope: 'room'` means the frame renders this only inside a room, so a null id
-   * is unreachable. It is still handled rather than asserted away: a crash on a
-   * contract violation would take the whole worktable down.
-   */
-  if (roomId === null) return createElement('p', { className: 'df-field__help' }, null);
+  /* No null branch. `RoomSectionProps` types `roomId` as present, because the frame
+     renders a room section only inside a room -- so the case the old empty-paragraph
+     fallback covered is now refused by the compiler instead of handled at runtime. */
   return (
     <BrandingPanel
       configuration={section.configuration}

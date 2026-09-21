@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { SectionContribution, SectionTab } from '../contract.ts';
+import type { RoomSectionContribution, SectionTab } from '../contract.ts';
 import { composeSections, currentSection, isContributed } from './sections.ts';
 
 const CORE: readonly SectionTab[] = [
@@ -20,7 +20,12 @@ const CORE: readonly SectionTab[] = [
   { id: 'participants', scope: 'room', label: () => 'Access', order: 20 },
 ];
 
-function contribution(overrides: Partial<SectionContribution> = {}): SectionContribution {
+/* A ROOM contribution specifically: SectionContribution is discriminated by scope, so
+   a fixture typed as the union could not be spread over with a partial without
+   widening `scope` and losing which render signature applies. */
+function contribution(
+  overrides: Partial<Omit<RoomSectionContribution, 'scope'>> = {},
+): RoomSectionContribution {
   return {
     id: 'branding',
     scope: 'room',

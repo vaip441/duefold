@@ -1,28 +1,3 @@
-/**
- * Organization administration: members, invitations, roles, states, assignments,
- * and ownership transfer.
- *
- * Every field is validated off the wire rather than cast, for one reason that is
- * not tidiness: this surface reports who inside the organization can reach which
- * rooms, so a value the server did not actually send must not be rendered as
- * though it had been. A role or state this process does not recognize is a
- * failure, not a row — substituting a guess would show access the server never
- * described.
- *
- * Two contracts here are load-bearing:
- *
- * 1. THE PAGE IS NEVER PARTIAL PER SUBJECT. Each subject carries its complete
- *    active assignment set; the server bounds a page by returning fewer SUBJECTS.
- *    A page may therefore be shorter than the limit and still continue, so
- *    completeness is `nextCursor` and nothing else. The caller must follow the
- *    cursor rather than stop when a page looks short.
- * 2. THE CURSOR IS ECHOED UNMODIFIED. `nextCursor.createdAt` is PostgreSQL's exact
- *    timestamp text. Parsing and re-serializing it would truncate microseconds to
- *    milliseconds, move the cursor earlier than the row it came from, and in
- *    descending order skip every subject tied at that microsecond. It is a string
- *    here and stays one.
- */
-
 import {
   ApiError,
   failureForStatus,
@@ -44,22 +19,6 @@ export interface RoomAssignment {
   readonly roomRole: RoomRole;
 }
 
-/**
- * One row of the member list, as a discriminated union.
- *
- * `subjectKind` is load-bearing rather than cosmetic, and the two kinds do not share
- * a shape. `member.state` admits `'invited'`, but acceptance inserts `'active'`
- * directly and no transition leads into `'invited'`, so an invited person exists ONLY
- * as an invitation row. A surface that rendered the two alike would claim someone has
- * access before they have ever signed in.
- *
- * A FLAT RECORD WOULD ADMIT RECORDS THAT CANNOT EXIST. Validating each field on its
- * own accepted an `invitation` that was `active`, held the `owner` role, and carried
- * room assignments, and a `member` that was `pending` — every one a false statement
- * about access, and each one able to put controls on a row that should not have them.
- * Splitting the union makes those combinations unrepresentable rather than merely
- * unexpected, so the compiler refuses them and the parser cannot pass one through.
- */
 export type MemberSubject = ProvisionedMember | PendingInvitation;
 
 interface SubjectIdentity {
@@ -69,24 +28,21 @@ interface SubjectIdentity {
   readonly createdAt: string;
 }
 
-/** Someone who has signed in. Holds a real role, a real state, and real rooms. */
+export interface SubjectCapabilities {
+  readonly setRole: boolean;
+  readonly setState: boolean;
+  readonly assignRooms: boolean;
+  readonly transfer: boolean;
+}
+
 export interface ProvisionedMember extends SubjectIdentity {
   readonly subjectKind: 'member';
   readonly globalRole: GlobalRole;
   readonly state: MemberState;
-  /** The member's COMPLETE active set. */
   readonly assignments: readonly RoomAssignment[];
+  readonly capabilities: SubjectCapabilities;
 }
 
-/**
- * Someone invited who has never signed in.
- *
- * `state` is `'pending'` and nothing else, `intendedRole` is the role they WILL hold
- * rather than one they hold now, and there is no `assignments` field at all: an
- * invitation has no member row, so there is nothing a room assignment could reference.
- * An empty array would have invited the reading that they hold no rooms *yet*, which is
- * a statement about access that does not apply.
- */
 export interface PendingInvitation extends SubjectIdentity {
   readonly subjectKind: 'invitation';
   readonly state: 'pending';
@@ -94,37 +50,21 @@ export interface PendingInvitation extends SubjectIdentity {
 }
 
 export interface MemberPageCursor {
-  /** Server text, echoed unmodified. Not RFC 3339, and never reformatted. */
   readonly createdAt: string;
   readonly subjectId: string;
 }
 
 export interface MemberPage {
   readonly subjects: readonly MemberSubject[];
-  /** Absent when the server proved this page is the last one. */
   readonly nextCursor: MemberPageCursor | null;
 }
 
-/** One room an ownership transfer would revoke from the successor. */
 export interface RevokedAssignment {
   readonly roomId: string;
   readonly roomTitle: string;
   readonly roomRole: RoomRole;
 }
 
-/**
- * The server's ownership-transfer preview.
- *
- * `previewId` is the evidence the required dry run happened; apply presents it and
- * the server consumes it once. The confirmation phrase is a documented constant, so
- * the phrase alone proves only that the caller read the documentation.
- *
- * `revokedAssignment*` name the privilege loss the promotion causes: ownership
- * carries standing Room Manager authority everywhere, so the successor's explicit
- * assignments are superseded. The count is exact; the named list is capped and
- * `revokedAssignmentsTruncated` says when the cap applied, so a short list never
- * reads as the whole impact.
- */
 export interface OwnershipTransferImpact {
   readonly previewId: string;
   readonly targetEmailDisplay: string;
@@ -145,19 +85,7 @@ export interface InvitedMember {
 export interface AppliedAssignments {
   readonly memberId: string;
   readonly changed: number;
-  /** The member's complete resulting active set, not a count to interpret. */
   readonly assignments: readonly RoomAssignment[];
-}
-
-/**
- * The outcome of a completed ownership transfer.
- *
- * `session-ended` is a SUCCESS. The transfer revokes the outgoing Owner's sessions
- * inside its own transaction, so the response arrives on a session that no longer
- * exists. See `applyOwnershipTransfer`.
- */
-export interface TransferOutcome {
-  readonly outcome: 'transferred' | 'session-ended';
 }
 
 const GLOBAL_ROLES: readonly GlobalRole[] = ['owner', 'admin', 'member'];
@@ -193,49 +121,37 @@ function parseIdentity(value: Readonly<Record<string, unknown>>): SubjectIdentit
   };
 }
 
-/**
- * Parses one subject, enforcing the invariants its kind implies.
- *
- * Each kind is read against its OWN rules rather than against a shared superset, so a
- * combination that cannot exist is refused instead of rendered. An invitation that
- * arrived `active`, as `owner`, or carrying assignments would each be a false statement
- * about access; a `member` that arrived `pending` would claim someone has a member row
- * before they have signed in. Any of them means this process and the server disagree
- * about the vocabulary, and guessing which half is right is exactly the substitution
- * that shows access the server never described.
- */
+function parseCapabilities(value: unknown): SubjectCapabilities {
+  if (!isRecord(value)) throw new ApiError('unavailable');
+  const flag = (key: keyof SubjectCapabilities): boolean => {
+    const present = value[key];
+    if (typeof present !== 'boolean') throw new ApiError('unavailable');
+    return present;
+  };
+  return {
+    setRole: flag('setRole'),
+    setState: flag('setState'),
+    assignRooms: flag('assignRooms'),
+    transfer: flag('transfer'),
+  };
+}
+
 function parseSubject(value: unknown): MemberSubject {
   if (!isRecord(value)) throw new ApiError('unavailable');
   const kind = value['subjectKind'];
   if (kind === 'member') {
-    /* A member's state is active or disabled. `'pending'` belongs to an invitation
-       and reaching it here would mean an unreachable member state was serialized. */
     return {
       subjectKind: 'member',
       ...parseIdentity(value),
       globalRole: oneOf(GLOBAL_ROLES, value['globalRole']),
       state: oneOf(MEMBER_STATES, value['state']),
       assignments: parseAssignments(value['assignments']),
+      capabilities: parseCapabilities(value['capabilities']),
     };
   }
   if (kind === 'invitation') {
-    /* Exactly `'pending'`: the reader returns only pending invitations, so any other
-       state means the row is not what the contract says it is. */
     if (value['state'] !== 'pending') throw new ApiError('unavailable');
-    /* An invitation names an assignable role. `owner` is unreachable — ownership moves
-       only through the audited transfer — so an invitation claiming it would advertise
-       an arrival the server cannot honour. */
     const intendedRole = oneOf(ASSIGNABLE_ROLES, value['globalRole']);
-    /*
-     * NO `assignments` PROPERTY AT ALL, empty included.
-     *
-     * The wire union closes the invitation object with `additionalProperties: false`, so
-     * the server cannot send this field and a response carrying it did not come from a
-     * contract this client agrees with. Tolerating an empty array and dropping it was
-     * strictly worse than refusing: the two halves of one semantic union then disagreed
-     * about what is representable, and the client repaired malformed state instead of
-     * reporting it — exactly the silent substitution this parser exists to prevent.
-     */
     if ('assignments' in value) throw new ApiError('unavailable');
     return {
       subjectKind: 'invitation',
@@ -261,17 +177,6 @@ export async function loadMembers(input?: {
   readonly signal?: AbortSignal;
 }): Promise<MemberPage> {
   const after = input?.after ?? null;
-  /*
-   * Percent-encoded explicitly rather than through `URLSearchParams`, which renders
-   * a space as `+`. The cursor is PostgreSQL's timestamp text and contains a space,
-   * and `+` only decodes back to one under form-urlencoded semantics. `%20` decodes
-   * to a space either way, so the cursor survives regardless of how the query is
-   * parsed — and a cursor that arrives altered resumes at the wrong instant and
-   * silently skips subjects.
-   *
-   * Both components travel together or neither does. A partial cursor is a 400 the
-   * server decides; sending half of one would be this process inventing a page.
-   */
   const suffix =
     after === null
       ? ''
@@ -309,8 +214,6 @@ export async function inviteMember(input: {
 }
 
 export async function revokeMemberInvitation(invitationId: string): Promise<void> {
-  /* 204 No Content, so there is no body to read; `json` would reject an empty
-     one as unavailable and report a completed revocation as a failure. */
   const response = await request({
     method: 'POST',
     path: '/api/members/actions',
@@ -380,36 +283,15 @@ export async function dryRunOwnershipTransfer(
   };
 }
 
-/**
- * Applies an ownership transfer.
- *
- * A 401 HERE, AND ONLY HERE, IS SUCCESS. The transfer revokes the acting Owner's
- * sessions inside its own transaction, so the response can arrive after the
- * session row is already gone and the browser sees 401 rather than the body. That
- * is the documented outcome of a completed transfer, so it resolves as
- * `session-ended` and the surface reports the transfer and the sign-out together.
- *
- * The mapping is confined to this one call on purpose. Treating 401 as success
- * anywhere else would turn an expired session into a false "it worked", so no
- * other call gets this treatment. A server that answers normally says
- * `sessionEnded: true` in the body, which is the same outcome by the ordinary path.
- */
 export async function applyOwnershipTransfer(input: {
   readonly memberId: string;
   readonly previewId: string;
   readonly expectedRevision: number;
   readonly confirmation: string;
-}): Promise<TransferOutcome> {
-  try {
-    const payload = await action({ action: 'transfer-apply', ...input });
-    if (!isRecord(payload) || payload['transferred'] !== true)
-      throw new ApiError('unavailable');
-    return { outcome: payload['sessionEnded'] === true ? 'session-ended' : 'transferred' };
-  } catch (error: unknown) {
-    if (error instanceof ApiError && error.failure === 'unauthenticated')
-      return { outcome: 'session-ended' };
-    throw error;
-  }
+}): Promise<void> {
+  const payload = await action({ action: 'transfer-apply', ...input });
+  if (!isRecord(payload) || payload['transferred'] !== true || payload['sessionEnded'] !== true)
+    throw new ApiError('unavailable');
 }
 
 async function action(body: Readonly<Record<string, unknown>>): Promise<unknown> {

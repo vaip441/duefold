@@ -17,7 +17,19 @@ import {
 
 export type SessionState =
   | { readonly authenticated: false }
-  | { readonly authenticated: true; readonly principal: 'member' | 'viewer' };
+  | {
+      readonly authenticated: true;
+      readonly principal: 'member' | 'viewer';
+      /**
+       * Whether this principal may administer members, as the server decided.
+       *
+       * Decides only whether the Members destination is OFFERED. It is not the
+       * authorization -- the list route refuses independently -- but a tab that can
+       * only ever render a denial is not a destination, and offering one to a plain
+       * member was the browser guessing at access it cannot decide.
+       */
+      readonly mayAdministerOrganization: boolean;
+    };
 
 /** Bootstraps the shell. Absent, expired, and revoked sessions look identical. */
 export async function loadSession(signal?: AbortSignal): Promise<SessionState> {
@@ -43,7 +55,12 @@ export async function loadSession(signal?: AbortSignal): Promise<SessionState> {
   if (!payload['authenticated']) return { authenticated: false };
   const principal = payload['principal'];
   if (principal !== 'member' && principal !== 'viewer') throw new ApiError('unavailable');
-  return { authenticated: true, principal };
+  /* Required and strictly boolean, like every other capability on the wire: a missing
+     flag defaulted either way would either hide a real destination or offer one the
+     server refuses. */
+  const mayAdministerOrganization = payload['mayAdministerOrganization'];
+  if (typeof mayAdministerOrganization !== 'boolean') throw new ApiError('unavailable');
+  return { authenticated: true, principal, mayAdministerOrganization };
 }
 
 /**

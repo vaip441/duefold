@@ -350,10 +350,18 @@ export const messages = {
    *   suggests retrying, because retrying would reapply a stale revision.
    * - Irreversible actions say what cannot be undone BEFORE the control.
    */
-  'error.conflict.title': 'This room changed',
+  /*
+   * NOT "this room": the same 409 reaches member administration, where nothing is a room.
+   *
+   * Mapping SQLSTATE 23505 to 409 gave the member surface this copy, and an Admin inviting
+   * an address that was already invited was told someone had changed a room. The phrasing is
+   * now true of whatever was being changed, which is all a uniform conflict may claim: the
+   * server forwards no wording, so the client cannot name the thing without guessing.
+   */
+  'error.conflict.title': 'This changed while you were working',
   'error.conflict.body':
-    'Someone else changed this room while you were working. Reload to see the current state, then make the change again.',
-  'error.conflict.reload': 'Reload this room',
+    'Someone else changed this while you were working, or it already exists. Reload to see the current state, then make the change again.',
+  'error.conflict.reload': 'Reload',
   'error.invalid.body': 'That request was not accepted. Check the values and try again.',
   'error.freshSignIn.title': 'Recent sign-in needed',
   'error.freshSignIn.body':
@@ -463,6 +471,11 @@ export const messages = {
   'members.assign.pending': 'Saving rooms\u2026',
   'members.assign.saved': 'Rooms updated. That member has been signed out of every device.',
   'members.assign.unchanged': 'Nothing changed. Choose a different room or role first.',
+  /* The server bounds assignments and removals TOGETHER, so a draft can be inside every
+     per-list limit and still too large. Said here, with the count, rather than arriving
+     as a rejected save. */
+  'members.assign.tooLarge':
+    'This is {count} changes and one save may carry {limit}. Save some now and the rest afterwards.',
   'members.assign.noRooms': 'There are no rooms to staff anyone into yet.',
   /* The register is paged. If it stopped short, "Not staffed" is an answer about the
      rooms shown and nothing more — the dialog must not imply it saw them all. */

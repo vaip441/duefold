@@ -11,7 +11,7 @@
  * come to mean two different things.
  */
 
-import { formatMessage, type MessageValues } from '@duefold/web-client/i18n/format';
+import { formatMessage, type MessageValues } from '@duefold/web-client/module-api';
 
 const messages = {
   'section.tab': 'Branding',

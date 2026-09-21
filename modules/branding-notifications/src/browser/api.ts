@@ -14,7 +14,7 @@ import {
   requireNumber,
   requireString,
   type UploadIntentResponse,
-} from '@duefold/web-client/api/client';
+} from '@duefold/web-client/module-api';
 
 export interface BrandingConfiguration {
   readonly organizationName: string;

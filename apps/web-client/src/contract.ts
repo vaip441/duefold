@@ -39,23 +39,33 @@ export interface ViewerIntroductionSlot {
 }
 
 /**
- * What a contributed section receives.
+ * What every contributed section receives, whatever its scope.
  *
- * `ReactElement` is imported rather than reached for through a global `React`
- * namespace: this file is also read by the Node project, which carries no DOM or
- * JSX globals, so an ambient reference would fail to type-check there.
+ * Deliberately narrow. A section needing the room's working entries, its revisions, or
+ * another section's loader would be core navigation wearing a contribution's clothes.
  *
- * Deliberately narrow. A section that needed the room's working entries, its
- * revisions, or another section's loader would be core navigation wearing a
- * contribution's clothes; a contributed section owns its own state and reaches the
- * server itself. `roomId` is null on the top-level workbench, where a room-scoped
- * section is never rendered.
+ * `roomId` is NOT here: whether a section has one is exactly what `scope` decides. One
+ * props type carrying `string | null` forced every room section to handle a null it could
+ * never receive, and the branding section's branch rendered an empty paragraph for a case
+ * the frame cannot produce.
  */
-export interface SectionProps {
-  readonly roomId: string | null;
+export interface SectionPropsBase {
   /** Announces through the frame's single polite live region. */
   readonly onStatus: (message: string) => void;
 }
+
+/** A top-level section. There is no open room, so there is no room id to give it. */
+export interface TopSectionProps extends SectionPropsBase {
+  readonly scope: 'top';
+}
+
+/** A section inside a room. The frame renders it only there, so the id is present. */
+export interface RoomSectionProps extends SectionPropsBase {
+  readonly scope: 'room';
+  readonly roomId: string;
+}
+
+export type SectionProps = TopSectionProps | RoomSectionProps;
 
 /**
  * A section tab, whoever owns it.
@@ -76,20 +86,28 @@ export interface SectionTab {
 }
 
 /**
- * A section tab and panel a module contributes.
+ * A section tab and the panel behind it, contributed by a module.
  *
- * This exists so section navigation is composed rather than hardcoded. A
- * hardcoded tab list shipped an omitted module's tab and panel in the browser
- * bundle, which contradicts the invariant that an omitted module is ABSENT from
- * production artifacts rather than hidden by a runtime check.
+ * Navigation is composed rather than hardcoded because a literal tab list shipped an
+ * omitted module's tab and panel in the browser bundle, against invariant 17.
  *
- * `label` is a function, not a string, so the copy comes from the contributing
- * module's own catalogue. A literal here would be untranslatable copy, and a key
- * into the application's catalogue would leave the omitted module's label in every
- * bundle.
+ * `label` is a function so the copy comes from the contributing module's own catalogue: a
+ * literal would be untranslatable, and a key into the application's catalogue would leave
+ * the omitted module's label in every bundle.
+ *
+ * Discriminated by `scope`, so a room section's `render` is typed with a non-null `roomId`
+ * and cannot be handed top-level props by mistake.
  */
-export interface SectionContribution extends SectionTab {
-  readonly render: (props: SectionProps) => ReactElement;
+export type SectionContribution = TopSectionContribution | RoomSectionContribution;
+
+export interface TopSectionContribution extends SectionTab {
+  readonly scope: 'top';
+  readonly render: (props: TopSectionProps) => ReactElement;
+}
+
+export interface RoomSectionContribution extends SectionTab {
+  readonly scope: 'room';
+  readonly render: (props: RoomSectionProps) => ReactElement;
 }
 
 export interface BrowserContribution {

@@ -34,6 +34,7 @@ import { PublicationDialog } from '../components/PublicationDialog.tsx';
 import { SectionNav } from '../components/SectionNav.tsx';
 import { ThemeSelect, type ThemeChoice } from '../components/ThemeSelect.tsx';
 import type { SectionTab } from '../contract.ts';
+import { currentSection } from '../workspace/sections.ts';
 import { translate } from '../i18n/translate.ts';
 import { failureMessage } from '../workspace/failure-message.ts';
 import type { Load } from '../workspace/state.ts';
@@ -47,6 +48,13 @@ export interface WorkspaceProps {
    * has no viewer branch to keep in sync with it.
    */
   readonly principal: 'member';
+  /**
+   * Whether the server said this member may administer members.
+   *
+   * Decides whether the Members view is offered. Not an authorization decision: the
+   * list route and every mutation refuse independently.
+   */
+  readonly mayAdministerOrganization: boolean;
   readonly theme: ThemeChoice;
   readonly onThemeChange: (choice: ThemeChoice) => void;
   readonly onSignedOut: () => void;
@@ -77,25 +85,33 @@ interface RoomRegister {
 /**
  * The top-level views.
  *
- * `administration` is present for every member, because visibility is not
- * authorization: the reader behind it refuses anyone who is not an Owner or Admin,
- * and the surface renders that refusal as a designed denied state. Hiding the tab
- * for a plain member would put an access decision in the browser, where a change of
- * role could not be reflected without a reload.
+ * `administration` is offered only when the SERVER said this member may administer
+ * members. That answer comes from the session bootstrap, so a role change is
+ * reflected on the next bootstrap rather than requiring a client release -- and the
+ * decision is still not made here: `read_members` and every mutation refuse
+ * independently.
+ *
+ * It used to be offered to everyone, on the reasoning that visibility is not
+ * authorization. That was true and still produced a plain member being handed a
+ * destination whose only possible content was a refusal.
  */
-const VIEWS = [
-  { id: 'rooms', scope: 'top', label: () => translate('workspace.tab.rooms'), order: 10 },
-  {
-    id: 'administration',
-    scope: 'top',
-    label: () => translate('workspace.tab.members'),
-    order: 20,
-  },
-] as const satisfies readonly SectionTab[];
-type ViewId = (typeof VIEWS)[number]['id'];
+const ROOMS_VIEW = {
+  id: 'rooms',
+  scope: 'top',
+  label: () => translate('workspace.tab.rooms'),
+  order: 10,
+} as const satisfies SectionTab;
+const ADMINISTRATION_VIEW = {
+  id: 'administration',
+  scope: 'top',
+  label: () => translate('workspace.tab.members'),
+  order: 20,
+} as const satisfies SectionTab;
+type ViewId = (typeof ROOMS_VIEW | typeof ADMINISTRATION_VIEW)['id'];
 
 export function Workspace({
   principal,
+  mayAdministerOrganization,
   theme,
   onThemeChange,
   onSignedOut,
@@ -111,6 +127,21 @@ export function Workspace({
   const [roomsFailure, setRoomsFailure] = useState<string | null>(null);
   const [roomsLoadingMore, setRoomsLoadingMore] = useState(false);
   const [view, setView] = useState<ViewId>('rooms');
+  /* One entry for a member who cannot administer, so the strip degrades to the single
+     destination they have rather than to a tab that would only refuse them. */
+  const views = mayAdministerOrganization ? [ROOMS_VIEW, ADMINISTRATION_VIEW] : [ROOMS_VIEW];
+  /*
+   * Resolved against the strip that actually exists, so `mayAdministerOrganization` is
+   * consulted ONCE -- when composing `views` -- and every later question is "is this view
+   * on the strip?".
+   *
+   * It was tested again at the selection handler and again at the render, and three copies
+   * of one rule is three places to forget it. `currentSection` falls back to the first tab
+   * when the requested id is absent, which is exactly the behaviour those checks were
+   * hand-rolling: a member who cannot administer resolves to Rooms because Administration
+   * is not in their strip, not because a boolean was re-read.
+   */
+  const currentView = currentSection(views, view) ?? ROOMS_VIEW;
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [roomSectionId, setRoomSectionId] = useState('structure');
@@ -408,10 +439,10 @@ export function Workspace({
       {inRoom ? null : (
         <SectionNav
           label={translate('workspace.views.label')}
-          sections={VIEWS}
+          sections={views}
           currentId={view}
           onSelect={(id) => {
-            setView(id === 'administration' ? 'administration' : 'rooms');
+            setView(currentSection(views, id)?.id ?? 'rooms');
           }}
         />
       )}
@@ -428,7 +459,7 @@ export function Workspace({
           onRoomsChanged={refreshRooms}
           onEntriesChange={setRoomEntries}
         />
-      ) : view === 'administration' ? (
+      ) : currentView.id === 'administration' ? (
         <AdministrationView
           rooms={roomList}
           roomsComplete={register?.nextCursor === null}

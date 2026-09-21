@@ -9,9 +9,9 @@
  */
 
 import { useCallback, useState } from 'react';
-import { presentFailure, type PresentedFailure } from '@duefold/web-client/workspace/failures';
-import { planParts } from '@duefold/web-client/components/UploadPanel';
-import { transferParts } from '@duefold/web-client/workspace/upload';
+import { presentFailure, type PresentedFailure } from '@duefold/web-client/module-api';
+import { planParts } from '@duefold/web-client/module-api';
+import { transferParts } from '@duefold/web-client/module-api';
 import {
   createBrandingUploadIntent,
   deleteBrandingAsset,

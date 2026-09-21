@@ -768,7 +768,9 @@ export function RoomView({
       ) : null}
 
       {/* A contributed section renders itself and owns its own state. */}
-      {section !== null && isContributed(section) ? section.render({ roomId, onStatus }) : null}
+      {section !== null && isContributed(section)
+        ? section.render({ scope: 'room', roomId, onStatus })
+        : null}
     </>
   );
 }

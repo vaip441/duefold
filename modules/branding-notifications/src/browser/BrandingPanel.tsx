@@ -15,10 +15,10 @@
  */
 
 import { useEffect, useId, useState } from 'react';
-import { Notice } from '@duefold/web-client/components/Notice';
-import type { PresentedFailure } from '@duefold/web-client/workspace/failures';
-import { validateAccent, validateSupportContact } from '@duefold/web-client/workspace/state';
-import { translate } from '@duefold/web-client/i18n/translate';
+import { Notice } from '@duefold/web-client/module-api';
+import type { PresentedFailure } from '@duefold/web-client/module-api';
+import { validateAccent, validateSupportContact } from '@duefold/web-client/module-api';
+import { translate } from '@duefold/web-client/module-api';
 import type { BrandingAssetKind, BrandingConfiguration } from './api.ts';
 import { brandingCopy } from './copy.ts';
 

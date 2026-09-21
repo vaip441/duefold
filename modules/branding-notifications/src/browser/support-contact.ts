@@ -12,7 +12,7 @@
  * are deliberately indistinguishable: all three render nothing.
  */
 
-import type { BrowserContribution, SupportContactSlot } from '@duefold/web-client/contract';
+import type { BrowserContribution, SupportContactSlot } from '@duefold/web-client/module-api';
 
 interface SupportContactPayload {
   readonly supportContact: { readonly kind: 'email' | 'url'; readonly value: string } | null;

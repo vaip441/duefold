@@ -1,40 +1,17 @@
-/*
- * Duefold Reading Room — tokens.
- *
- * A prepared reading room, not a software dashboard. Hierarchy comes from
- * alignment, type, rules, and state. There are no floating cards: every surface
- * sits on ONE PLANE, and regions are separated by rules, a small ground shift,
- * and space. See DESIGN.md for the one-plane rule and the rationale behind each
- * scale below.
- *
- * Scales are deliberately short. A token that no surface consumes is not here.
- */
-
-/* Self-hosted, OFL-1.1. No third-party font request is made at runtime: a CDN
- * font fetch would disclose viewer activity to a third party. */
 @import '@fontsource-variable/source-serif-4/wght.css';
 @import '@fontsource-variable/public-sans/wght.css';
 
 :root {
   color-scheme: light;
 
-  /* --- Type -------------------------------------------------------------
-   * Two families, both variable, both OFL. Source Serif 4 carries titles and
-   * document-facing text because this product is read, not monitored. Public
-   * Sans carries interface furniture: labels, controls, tables, metadata.
-   * Public Sans was drawn for government forms and dense administrative use,
-   * which is exactly the register of a finding aid. */
   --font-text: 'Source Serif 4 Variable', 'Source Serif 4', georgia, serif;
   --font-ui: 'Public Sans Variable', 'Public Sans', system-ui, sans-serif;
 
-  /* Five sizes. A sixth was drafted and deleted: nothing consumed it.
-   * Fixed rem, not fluid — a product UI is read at consistent DPI, and a
-   * heading that shrinks inside a narrow region reads as a bug. */
-  --size-title: 1.5rem; /* one h1 per view */
-  --size-section: 1.125rem; /* region and group headings */
-  --size-body: 0.9375rem; /* running text and table cells */
-  --size-meta: 0.8125rem; /* metadata, help, secondary rows */
-  --size-label: 0.6875rem; /* tracked uppercase region labels */
+  --size-title: 1.5rem;
+  --size-section: 1.125rem;
+  --size-body: 0.9375rem;
+  --size-meta: 0.8125rem;
+  --size-label: 0.6875rem;
 
   --leading-tight: 1.25;
   --leading-body: 1.55;
@@ -45,9 +22,6 @@
   --weight-medium: 500;
   --weight-semibold: 600;
 
-  /* --- Space -----------------------------------------------------------
-   * One 4px-derived ramp. Region padding uses --space-5/6; groups use
-   * --space-2/3. More space above a heading than below it. */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -56,52 +30,38 @@
   --space-6: 2rem;
   --space-7: 3rem;
 
-  /* --- Colour ----------------------------------------------------------
-   * Restrained: two grounds, three ink weights, rules, and ONE green. The
-   * green means active/current/primary and nothing else — it is never
-   * decorative, never a fill behind body text, never a status hue.
-   * Contrast ratios in the comments are measured, not estimated. */
-  --ground: #f2f3f1; /* the one plane */
-  --ground-sunken: #e8eae7; /* region separation WITHIN the plane, not a card */
-  --ground-raised: #f7f8f6; /* selected row / current line */
+  --ground: #f2f3f1;
+  --ground-sunken: #e8eae7;
+  --ground-raised: #f7f8f6;
 
-  --ink: #1b211f; /* 14.69:1 on ground */
-  --ink-muted: #555f58; /* 5.96:1 on ground, 5.48:1 on sunken */
-  --ink-faint: #616a63; /* 5.03:1 on ground, 4.63:1 on sunken */
+  --ink: #1b211f;
+  --ink-muted: #555f58;
+  --ink-faint: #616a63;
 
-  --rule: #c7cdc7; /* hairline separation; decorative, never sole meaning */
-  --rule-strong: #7e877f; /* control borders: 3.33:1 on ground (WCAG 1.4.11) */
+  --rule: #c7cdc7;
+  --rule-strong: #7e877f;
 
-  --accent: #006b5e; /* 5.78:1 on ground */
-  --accent-strong: #00544a; /* 7.97:1 on ground; hover/active */
-  --accent-contrast: #ffffff; /* 6.43:1 on --accent */
-  --accent-wash: #dfe8e4; /* current-item ground; never behind body text alone */
+  --accent: #006b5e;
+  --accent-strong: #00544a;
+  --accent-contrast: #ffffff;
+  --accent-wash: #dfe8e4;
 
-  --danger: #8e2c1c; /* 7.47:1 on ground */
-  --notice: #7a5310; /* 6.14:1 on ground */
+  --danger: #8e2c1c;
+  --notice: #7a5310;
 
   --focus-ring: var(--accent);
   --selection-ground: #cfe0da;
   --selection-ink: var(--ink);
 
-  /* --- Rules and radii -------------------------------------------------
-   * Rules carry the structure. Radii stay at or below 2px: this world is
-   * ruled paper and worktables, not rounded cards. */
   --hairline: 1px;
   --radius-control: 2px;
 
-  /* --- Motion ----------------------------------------------------------
-   * Motion explains a state change or a spatial relationship, or it does not
-   * ship. Nothing animates on first paint. */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --duration-press: 120ms;
   --duration-state: 160ms;
   --duration-region: 200ms;
 
-  /* --- Layout ----------------------------------------------------------
-   * Proportions of the shell. The index is fixed and narrow because a finding
-   * aid is scanned, not read; the worktable takes the remainder. */
   --index-width: 15rem;
   --notes-width: 17rem;
   --measure-prose: 68ch;
@@ -110,32 +70,29 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  /* Dark is a full token inversion of the chrome only. Document pixels are
-   * never theme-inverted; see .df-document-pixels. */
   --ground: #161a18;
   --ground-sunken: #111513;
   --ground-raised: #1e2320;
 
-  --ink: #e8ebe7; /* 14.62:1 on ground */
-  --ink-muted: #a7b0a9; /* 7.89:1 on ground */
-  --ink-faint: #939c95; /* 6.22:1 on ground, 6.51:1 on sunken */
+  --ink: #e8ebe7;
+  --ink-muted: #a7b0a9;
+  --ink-faint: #939c95;
 
   --rule: #2e3531;
-  --rule-strong: #666e68; /* 3.34:1 on ground */
+  --rule-strong: #666e68;
 
-  --accent: #5fc9b4; /* 8.79:1 on ground */
-  --accent-strong: #7fd8c6; /* 10.49:1 on ground */
-  --accent-contrast: #0b0f0d; /* 9.65:1 on --accent */
+  --accent: #5fc9b4;
+  --accent-strong: #7fd8c6;
+  --accent-contrast: #0b0f0d;
   --accent-wash: #1d2f2b;
 
-  --danger: #f0958a; /* 7.84:1 on ground */
-  --notice: #ddb25e; /* 8.87:1 on ground */
+  --danger: #f0958a;
+  --notice: #ddb25e;
 
   --selection-ground: #2c4a44;
 }
 
 @media (prefers-color-scheme: dark) {
-  /* System default. An explicit individual override sets data-theme and wins. */
   :root:not([data-theme]) {
     color-scheme: dark;
 
