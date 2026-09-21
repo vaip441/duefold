@@ -151,8 +151,13 @@ export function createHandler(runtime: WebRuntime) {
         transaction,
       });
       let memberId: string;
+      /* One correlation ID spans the whole sign-in: acceptance, bootstrap, and the
+       * issued session all trace back to this request rather than to separately
+       * invented identifiers. */
+      const correlationId = requireCorrelationId(request.id);
       try {
-        memberId = (await resolveOidcMember(runtime.authPool, identity)).memberId;
+        memberId = (await resolveOidcMember(runtime.authPool, identity, correlationId))
+          .memberId;
       } catch (error) {
         if (!(error instanceof Error) || error.message !== 'MEMBER_INVITATION_REQUIRED')
           throw error;
@@ -162,7 +167,7 @@ export function createHandler(runtime: WebRuntime) {
             identity,
             allowlist: runtime.ownerAllowlist,
             organizationName: runtime.organizationName,
-            correlationId: requireCorrelationId(request.id),
+            correlationId,
           })
         ).memberId;
       }

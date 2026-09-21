@@ -19,6 +19,7 @@ import {
   claimFirstOwner,
   consumeOidcTransaction,
   persistOidcTransaction,
+  resolveOidcMember,
 } from '../../modules/core-security/src/auth/oidc.ts';
 import {
   issueSession,
@@ -299,6 +300,219 @@ describe('security migration and role boundaries', () => {
         assignmentId,
       ]),
     ).rejects.toMatchObject({ code: '42501' });
+  });
+});
+
+describe('OIDC member invitation acceptance', () => {
+  it('accepts an Admin invitation with its intended role and fully identified audit evidence', async () => {
+    const invitationId = createOpaqueId();
+    await runtimePool.query('SELECT invite_member($1,$2,$3,$4,$5,$6,$7,$8)', [
+      invitationId,
+      'promoted@example.test',
+      'Promoted@example.test',
+      'admin',
+      ownerId,
+      createOpaqueId(),
+      createOpaqueId(),
+      createCorrelationId(),
+    ]);
+
+    /* The callback's own correlation id must reach the audit rows rather than a
+     * freshly invented one, so a sign-in is traceable end to end. */
+    const correlationId = createCorrelationId();
+    const { memberId } = await resolveOidcMember(
+      authPool,
+      {
+        issuer: 'https://idp.example.test',
+        subject: 'promoted-subject',
+        emailKey: 'promoted@example.test',
+        emailDisplay: 'Promoted@example.test',
+        authenticatedAt: new Date(),
+        authenticationTimeAsserted: true,
+      },
+      correlationId,
+    );
+
+    expect(
+      (
+        await migrationPool.query<{ global_role: string }>(
+          'SELECT global_role FROM member WHERE id=$1',
+          [memberId],
+        )
+      ).rows[0]?.global_role,
+    ).toBe('admin');
+    /* Both the authorizing invitation and the created member must be
+     * independently identifiable, and both must carry the request correlation. */
+    expect(
+      (
+        await migrationPool.query<{
+          event_type: string;
+          actor_id: string;
+          subject_id: string;
+          resource_type: string;
+          resource_id: string;
+          reason_code: string;
+          correlation_id: string;
+          detail: Record<string, unknown>;
+        }>(
+          `SELECT event_type,actor_id,subject_id,resource_type,resource_id,reason_code,
+                  correlation_id,detail
+             FROM audit_event
+            WHERE correlation_id=$1 AND event_type IN ('invitation.accepted','member.created')
+            ORDER BY event_type`,
+          [correlationId],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        event_type: 'invitation.accepted',
+        actor_id: memberId,
+        subject_id: memberId,
+        resource_type: 'invitation',
+        resource_id: invitationId,
+        reason_code: 'MEMBER_INVITATION_ACCEPTED',
+        correlation_id: correlationId,
+        detail: { intendedRole: 'admin' },
+      },
+      {
+        event_type: 'member.created',
+        actor_id: memberId,
+        subject_id: memberId,
+        resource_type: 'member',
+        resource_id: memberId,
+        reason_code: 'MEMBER_INVITATION_ACCEPTED',
+        correlation_id: correlationId,
+        detail: { invitationId, globalRole: 'admin' },
+      },
+    ]);
+    expect(
+      (
+        await migrationPool.query<{ state: string }>(
+          'SELECT state FROM invitation WHERE id=$1',
+          [invitationId],
+        )
+      ).rows[0]?.state,
+    ).toBe('accepted');
+  });
+
+  it('rolls member creation and invitation acceptance back when audit persistence fails', async () => {
+    const invitationId = createOpaqueId();
+    await runtimePool.query('SELECT invite_member($1,$2,$3,$4,$5,$6,$7,$8)', [
+      invitationId,
+      'acceptance-rollback@example.test',
+      'acceptance-rollback@example.test',
+      'member',
+      ownerId,
+      createOpaqueId(),
+      createOpaqueId(),
+      createCorrelationId(),
+    ]);
+    await migrationPool.query(`CREATE FUNCTION fail_member_creation_audit() RETURNS trigger
+      LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.event_type='member.created' THEN RAISE EXCEPTION 'injected member audit failure'; END IF;
+        RETURN NEW;
+      END $$`);
+    await migrationPool.query(
+      'CREATE TRIGGER fail_member_creation_audit BEFORE INSERT ON audit_event FOR EACH ROW EXECUTE FUNCTION fail_member_creation_audit()',
+    );
+    try {
+      await expect(
+        resolveOidcMember(
+          authPool,
+          {
+            issuer: 'https://idp.example.test',
+            subject: 'acceptance-rollback-subject',
+            emailKey: 'acceptance-rollback@example.test',
+            emailDisplay: 'acceptance-rollback@example.test',
+            authenticatedAt: new Date(),
+            authenticationTimeAsserted: true,
+          },
+          createCorrelationId(),
+        ),
+      ).rejects.toThrow('injected member audit failure');
+      expect(
+        (
+          await migrationPool.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM member WHERE email_key='acceptance-rollback@example.test'",
+          )
+        ).rows[0]?.count,
+      ).toBe(0);
+      expect(
+        (
+          await migrationPool.query<{ state: string }>(
+            'SELECT state FROM invitation WHERE id=$1',
+            [invitationId],
+          )
+        ).rows[0]?.state,
+      ).toBe('pending');
+      /* The acceptance event must not survive the failure of the creation event;
+       * either the whole provisioning commits or none of its evidence does. */
+      expect(
+        (
+          await migrationPool.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM audit_event WHERE resource_id=$1 AND event_type='invitation.accepted'",
+            [invitationId],
+          )
+        ).rows[0]?.count,
+      ).toBe(0);
+    } finally {
+      await migrationPool.query('DROP TRIGGER fail_member_creation_audit ON audit_event');
+      await migrationPool.query('DROP FUNCTION fail_member_creation_audit()');
+    }
+  });
+
+  /*
+   * Two browsers completing sign-in for one invitation must not both provision a
+   * member. The row lock decides one winner; the loser is refused with the same
+   * closed-set reason an uninvited identity receives.
+   */
+  it('admits exactly one member when two sign-ins race for one invitation', async () => {
+    await runtimePool.query('SELECT invite_member($1,$2,$3,$4,$5,$6,$7,$8)', [
+      createOpaqueId(),
+      'raced@example.test',
+      'Raced@example.test',
+      'member',
+      ownerId,
+      createOpaqueId(),
+      createOpaqueId(),
+      createCorrelationId(),
+    ]);
+    const attempt = (subject: string): Promise<{ readonly memberId: string }> =>
+      resolveOidcMember(
+        authPool,
+        {
+          issuer: 'https://idp.example.test',
+          subject,
+          emailKey: 'raced@example.test',
+          emailDisplay: 'Raced@example.test',
+          authenticatedAt: new Date(),
+          authenticationTimeAsserted: true,
+        },
+        createCorrelationId(),
+      );
+    const outcomes = await Promise.allSettled([attempt('raced-a'), attempt('raced-b')]);
+    expect(outcomes.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+    expect(
+      outcomes.flatMap((outcome) =>
+        outcome.status === 'rejected' ? [(outcome.reason as Error).message] : [],
+      ),
+    ).toEqual(['MEMBER_INVITATION_REQUIRED']);
+    expect(
+      (
+        await migrationPool.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM member WHERE email_key='raced@example.test'",
+        )
+      ).rows[0]?.count,
+    ).toBe(1);
+    expect(
+      (
+        await migrationPool.query<{ count: number }>(
+          `SELECT count(*)::int AS count FROM audit_event
+            WHERE event_type='invitation.accepted'
+              AND resource_id IN (SELECT id FROM invitation WHERE email_key='raced@example.test')`,
+        )
+      ).rows[0]?.count,
+    ).toBe(1);
   });
 });
 
