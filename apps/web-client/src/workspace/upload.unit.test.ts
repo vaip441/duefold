@@ -9,7 +9,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { planParts } from '../components/UploadPanel.tsx';
-import { transferParts } from './upload.ts';
+import { checksumPartPlan, transferParts } from './upload.ts';
 
 const MIB = 1024 * 1024;
 
@@ -37,13 +37,43 @@ describe('planParts', () => {
   });
 });
 
+describe('checksumPartPlan', () => {
+  it('hashes the exact bytes of every planned part in base64', async () => {
+    const source = new File([new Uint8Array([1, 2, 3, 4, 5])], 'model.pdf', {
+      type: 'application/pdf',
+    });
+    const plan = [
+      { partNumber: 1, size: 3 },
+      { partNumber: 2, size: 2 },
+    ];
+
+    await expect(
+      checksumPartPlan({ file: source, plan, signal: new AbortController().signal }),
+    ).resolves.toEqual([
+      {
+        partNumber: 1,
+        size: 3,
+        checksumSha256: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc+4E=',
+      },
+      {
+        partNumber: 2,
+        size: 2,
+        checksumSha256: 'L6Gzd79nMJ9l5ee8nZJDRcpkjexOYBo5ipy0l9y6N2U=',
+      },
+    ]);
+  });
+});
+
 describe('transferParts', () => {
   function file(size: number): File {
     return new File([new Uint8Array(size)], 'model.pdf', { type: 'application/pdf' });
   }
 
   it('uploads every part in order and reports progress that ends at 100', async () => {
-    const plan = planParts(12 * MIB);
+    const plan = planParts(12 * MIB).map((part, index) => ({
+      ...part,
+      checksumSha256: `${String(index).padStart(43, 'A')}=`,
+    }));
     const intent = {
       intentId: 'i'.repeat(32),
       uploadId: 'upload',
@@ -68,6 +98,8 @@ describe('transferParts', () => {
         },
       });
       expect(parts.map((part) => part.partNumber)).toEqual(plan.map((part) => part.partNumber));
+      const completedChecksums = parts.map(({ checksumSha256 }) => checksumSha256);
+      expect(completedChecksums).toEqual(plan.map(({ checksumSha256 }) => checksumSha256));
       expect(parts.every((part) => part.etag !== '')).toBe(true);
       // Sequential: the provider saw parts in plan order.
       expect(uploaded).toEqual(plan.map((part) => part.partNumber));

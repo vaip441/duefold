@@ -57,7 +57,7 @@ import type { Load } from '../state.ts';
 import { useParticipantsSection } from '../useParticipantsSection.ts';
 import { useExportsSection, useProcessingSection } from '../useRoomSections.ts';
 import { useRoomSettings } from '../useRoomSettings.ts';
-import { transferParts } from '../upload.ts';
+import { checksumPartPlan, transferParts } from '../upload.ts';
 import { failureMessage } from '../failure-message.ts';
 import { AccessSection } from './AccessSection.tsx';
 
@@ -402,6 +402,11 @@ export function RoomView({
           new Map(current).set(item.id, { kind: 'active', percent: 0 }),
         );
         try {
+          const checksummedPlan = await checksumPartPlan({
+            file: item.file,
+            plan,
+            signal: controller.signal,
+          });
           const intent = await createUploadIntent({
             roomId,
             displayTitle: item.title,
@@ -409,12 +414,12 @@ export function RoomView({
             declaredMediaType:
               item.file.type === '' ? 'application/octet-stream' : item.file.type,
             declaredSize: item.file.size,
-            parts: plan,
+            parts: checksummedPlan,
           });
           const parts = await transferParts({
             file: item.file,
             intent,
-            plan,
+            plan: checksummedPlan,
             signal: controller.signal,
             onProgress: (percent) => {
               setUploadStates((current) =>

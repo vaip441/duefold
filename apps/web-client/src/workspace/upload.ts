@@ -22,6 +22,50 @@ export interface UploadIntent {
   readonly parts: readonly { readonly partNumber: number; readonly url: string }[];
 }
 
+export interface UploadPartPlan {
+  readonly partNumber: number;
+  readonly size: number;
+  readonly checksumSha256?: string;
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+}
+
+/** Hashes each exact multipart slice before requesting checksum-bound upload URLs. */
+export async function checksumPartPlan(input: {
+  readonly file: File;
+  readonly plan: readonly UploadPartPlan[];
+  readonly signal: AbortSignal;
+}): Promise<readonly UploadPartPlan[]> {
+  const checksummed: UploadPartPlan[] = [];
+  let offset = 0;
+  for (const part of input.plan) {
+    throwIfAborted(input.signal);
+    const bytes = await input.file.slice(offset, offset + part.size).arrayBuffer();
+    throwIfAborted(input.signal);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    checksummed.push({
+      ...part,
+      checksumSha256: base64(new Uint8Array(digest)),
+    });
+    offset += part.size;
+  }
+  return checksummed;
+}
+
+export interface CompletedUploadPart {
+  readonly partNumber: number;
+  readonly etag: string;
+  readonly checksumSha256?: string;
+}
+
 /** One part PUT with progress. Resolves the provider's ETag. */
 export function putPart(input: {
   readonly url: string;
@@ -74,12 +118,12 @@ export function putPart(input: {
 export async function transferParts(input: {
   readonly file: File;
   readonly intent: UploadIntent;
-  readonly plan: readonly { readonly partNumber: number; readonly size: number }[];
+  readonly plan: readonly UploadPartPlan[];
   readonly signal: AbortSignal;
   readonly onProgress: (percent: number) => void;
-}): Promise<readonly { readonly partNumber: number; readonly etag: string }[]> {
+}): Promise<readonly CompletedUploadPart[]> {
   const total = input.plan.reduce((sum, part) => sum + part.size, 0);
-  const completed: { readonly partNumber: number; readonly etag: string }[] = [];
+  const completed: CompletedUploadPart[] = [];
   let settledBytes = 0;
   let offset = 0;
   for (const part of input.plan) {
@@ -98,7 +142,11 @@ export async function transferParts(input: {
         input.onProgress(Math.min(100, Math.max(0, percent)));
       },
     });
-    completed.push({ partNumber: part.partNumber, etag });
+    completed.push({
+      partNumber: part.partNumber,
+      etag,
+      ...(part.checksumSha256 === undefined ? {} : { checksumSha256: part.checksumSha256 }),
+    });
     settledBytes += part.size;
     offset += part.size;
     input.onProgress(total === 0 ? 100 : Math.round((settledBytes / total) * 100));

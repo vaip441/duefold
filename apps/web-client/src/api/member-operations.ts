@@ -178,7 +178,11 @@ export async function createUploadIntent(input: {
   readonly originalFilename: string;
   readonly declaredMediaType: string;
   readonly declaredSize: number;
-  readonly parts: readonly { readonly partNumber: number; readonly size: number }[];
+  readonly parts: readonly {
+    readonly partNumber: number;
+    readonly size: number;
+    readonly checksumSha256?: string;
+  }[];
 }): Promise<UploadIntentResponse> {
   const payload = await json({ method: 'POST', path: '/api/uploads/intents', body: input });
   if (!isRecord(payload)) throw new ApiError('unavailable');
@@ -202,7 +206,11 @@ export async function createUploadIntent(input: {
 export async function finalizeUpload(input: {
   readonly intentId: string;
   readonly uploadId: string;
-  readonly parts: readonly { readonly partNumber: number; readonly etag: string }[];
+  readonly parts: readonly {
+    readonly partNumber: number;
+    readonly etag: string;
+    readonly checksumSha256?: string;
+  }[];
 }): Promise<{ readonly documentId: string; readonly versionId: string }> {
   const payload = await json({ method: 'POST', path: '/api/uploads/finalize', body: input });
   if (!isRecord(payload)) throw new ApiError('unavailable');
