@@ -100,6 +100,10 @@ describe('a database that goes away under a transaction', () => {
     const name = `Injected ${createOpaqueId().slice(0, 8)}`;
     try {
       const client = await victim.connect();
+      // pg emits the administrator termination both through the pending query and
+      // on the checked-out client. The latter is expected for this injected fault;
+      // without a listener Node treats it as an unrelated uncaught exception.
+      client.on('error', () => undefined);
       const pid = await backendPid(client);
       await client.query('BEGIN');
       await client.query(
@@ -143,6 +147,7 @@ describe('a database that goes away under a transaction', () => {
     const pool = injectable('probe', 2);
     try {
       const client = await pool.connect();
+      client.on('error', () => undefined);
       const pid = await backendPid(client);
       await terminate(pid);
       await expect(client.query('SELECT 1')).rejects.toThrow();
@@ -163,6 +168,7 @@ describe('a database that goes away under a transaction', () => {
     const victim = injectable('probe');
     try {
       const client = await victim.connect();
+      client.on('error', () => undefined);
       const pid = await backendPid(client);
       await client.query('BEGIN');
       await client.query('SELECT * FROM organization FOR UPDATE');

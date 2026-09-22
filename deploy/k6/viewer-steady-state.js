@@ -41,16 +41,20 @@ const unexpectedStatus = new Counter('duefold_unexpected_status');
 const BASE_URL = __ENV.BASE_URL;
 if (BASE_URL === undefined || BASE_URL === '') fail('BASE_URL is required');
 
+const scenarioVus = Number.parseInt(__ENV.SCENARIO_VUS ?? '100', 10);
+const scenarioDuration = __ENV.SCENARIO_DURATION ?? '10m';
+if (!Number.isInteger(scenarioVus) || scenarioVus < 1) fail('SCENARIO_VUS must be positive');
+
 const tokens = JSON.parse(open(__ENV.VIEWER_TOKENS ?? './viewer-tokens.json'));
-if (!Array.isArray(tokens) || tokens.length < 100)
-  fail(`expected at least 100 seeded viewer sessions, found ${tokens.length}`);
+if (!Array.isArray(tokens) || tokens.length < scenarioVus)
+  fail(`expected at least ${scenarioVus} seeded viewer sessions, found ${tokens.length}`);
 
 export const options = {
   scenarios: {
     steady_state: {
       executor: 'constant-vus',
-      vus: 100,
-      duration: '10m',
+      vus: scenarioVus,
+      duration: scenarioDuration,
       gracefulStop: '30s',
     },
   },
@@ -69,27 +73,32 @@ export const options = {
 
 function authenticated(token) {
   return {
-    headers: { cookie: `__Host-duefold_session=${token.secret}` },
+    headers: {
+      cookie: `__Host-duefold_session=${token.secret}; __Host-duefold_csrf=${token.csrfToken}`,
+      'x-duefold-csrf': token.csrfToken,
+    },
     /* A redirect to sign-in would be recorded as a 200 and hide a session failure. */
     redirects: 0,
     tags: { name: 'viewer' },
   };
 }
 
-/** Classifies a response: expected success, deliberate denial, or fault. */
+function recordOpaqueDenial(response) {
+  if (response.status === 200 && response.json('document') === null) {
+    deliberateDenials.add(1);
+    faultRate.add(false);
+    return true;
+  }
+  unexpectedStatus.add(1, { status: String(response.status) });
+  faultRate.add(true);
+  return false;
+}
+
+/** Classifies a response: expected success or fault. */
 function classify(response, expected) {
   if (response.status === expected) {
     faultRate.add(false);
     return 'expected';
-  }
-  if (response.status === 403 || response.status === 404) {
-    /*
-     * Denials and not-founds are the designed answer for content this viewer has no
-     * grant on. Counted, never treated as a fault.
-     */
-    deliberateDenials.add(1);
-    faultRate.add(false);
-    return 'denied';
   }
   unexpectedStatus.add(1, { status: String(response.status) });
   faultRate.add(true);
@@ -99,6 +108,12 @@ function classify(response, expected) {
 export default function viewerJourney() {
   const token = tokens[__VU % tokens.length];
   const auth = authenticated(token);
+
+  const denied = http.get(
+    `${BASE_URL}/api/viewer/document?roomId=${token.deniedRoomId}&documentId=${token.deniedDocumentId}`,
+    auth,
+  );
+  if (!recordOpaqueDenial(denied)) return;
 
   /* Room list: the viewer home, which must disclose nothing about other rooms. */
   const rooms = http.get(`${BASE_URL}/api/viewer/rooms`, auth);
@@ -130,14 +145,25 @@ export default function viewerJourney() {
 
   const activity = http.post(
     `${BASE_URL}/api/viewer/previews`,
-    JSON.stringify({ roomId: room.roomId, documentId: document.resourceId }),
+    JSON.stringify({
+      roomId: room.roomId,
+      documentId: document.resourceId,
+      versionId: detail.json('document.publishedVersionId'),
+    }),
     { ...auth, headers: { ...auth.headers, 'content-type': 'application/json' } },
   );
   if (classify(activity, 201) !== 'expected') return;
 
+  const cache = http.post(
+    `${BASE_URL}/api/viewer/pages/cache`,
+    JSON.stringify({ roomId: room.roomId, documentId: document.resourceId, pageNumber: 1 }),
+    { ...auth, headers: { ...auth.headers, 'content-type': 'application/json' } },
+  );
+  if (classify(cache, 201) !== 'expected') return;
+
   const page = http.get(
-    `${BASE_URL}/api/viewer/pages/image?roomId=${room.roomId}` +
-      `&documentId=${document.resourceId}&page=1`,
+    `${BASE_URL}/api/viewer/pages/image?cacheId=${cache.json('cacheId')}` +
+      `&activityId=${activity.json('activityId')}`,
     auth,
   );
   previewLatency.add(page.timings.duration);

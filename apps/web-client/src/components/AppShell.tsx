@@ -7,7 +7,6 @@
  *   - `navigation` holds the collection index;
  *   - `main` holds the worktable and owns the single `h1` for the view;
  *   - `complementary` holds the access-notes margin;
- *   - `contentinfo` holds the counterparty strip;
  *   - one polite live region reports asynchronous status.
  *
  * The index and the worktable are related programmatically: index entries carry
@@ -30,6 +29,8 @@ export interface CollectionEntry {
   readonly title: string;
   /** Nesting depth, 0-based, for the finding-aid indent. */
   readonly depth: number;
+  /** Folder entries organize the index but do not activate the worktable. */
+  readonly kind?: 'item' | 'group';
 }
 
 export interface CollectionEmptyState {
@@ -53,7 +54,6 @@ export interface AppShellProps {
   readonly accountActions?: ReactNode;
   /** Plain-language effective policy for the current selection. */
   readonly notes?: ReactNode;
-  readonly counterparties?: ReactNode;
   readonly status: string;
   readonly children?: ReactNode;
 }
@@ -70,13 +70,11 @@ export function AppShell({
   contextActions,
   accountActions,
   notes,
-  counterparties,
   status,
   children,
 }: AppShellProps): React.ReactElement {
   const indexHeadingId = useId();
   const notesHeadingId = useId();
-  const counterpartiesHeadingId = useId();
   const treeId = useId();
   // The index is a disclosure only in the one-column layout; it stays expanded
   // by default so a keyboard user never has to open it to reach the collection.
@@ -135,20 +133,31 @@ export function AppShell({
               <li className="df-visually-hidden">{translate('shell.index.controls')}</li>
               {entries.map((entry) => (
                 <li key={entry.id}>
-                  <button
-                    type="button"
-                    className="df-index__entry"
-                    style={{
-                      paddingInlineStart: `calc(var(--space-5) + ${entry.depth} * var(--space-4))`,
-                    }}
-                    aria-current={entry.id === currentEntryId ? 'true' : undefined}
-                    aria-controls={WORKTABLE_ID}
-                    onClick={() => {
-                      onSelectEntry(entry.id);
-                    }}
-                  >
-                    {entry.title}
-                  </button>
+                  {entry.kind === 'group' ? (
+                    <span
+                      className="df-index__entry df-index__entry--group"
+                      style={{
+                        paddingInlineStart: `calc(var(--space-5) + ${entry.depth} * var(--space-4))`,
+                      }}
+                    >
+                      {entry.title}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="df-index__entry"
+                      style={{
+                        paddingInlineStart: `calc(var(--space-5) + ${entry.depth} * var(--space-4))`,
+                      }}
+                      aria-current={entry.id === currentEntryId ? 'true' : undefined}
+                      aria-controls={WORKTABLE_ID}
+                      onClick={() => {
+                        onSelectEntry(entry.id);
+                      }}
+                    >
+                      {entry.title}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -172,15 +181,6 @@ export function AppShell({
         </h2>
         <div className="df-notes__body">{notes ?? translate('shell.notes.empty')}</div>
       </aside>
-
-      <footer className="df-counterparties" aria-labelledby={counterpartiesHeadingId}>
-        <h2 className="df-counterparties__heading" id={counterpartiesHeadingId}>
-          {translate('shell.counterparties.heading')}
-        </h2>
-        <div className="df-counterparties__body">
-          {counterparties ?? translate('shell.counterparties.empty')}
-        </div>
-      </footer>
 
       <StatusRegion message={status} label={translate('shell.status.region')} />
     </div>

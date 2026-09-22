@@ -638,6 +638,15 @@ English is the only 1.0 locale, but every UI string resolves through a key in
 `apps/web-client/src/i18n/en.ts`. A later locale is a catalogue addition, not a
 source rewrite. Security and legal text is never machine-translated.
 
+## 2026-09-22 workspace preparation and reading-room refinement
+
+- Room work now begins with one explicit preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion, Access owns readers and counterparties, Review opens processing readiness, and Publish remains consequence-first behind the server dry-run dialog. Processing, exports, branding, and settings remain supporting sections below the path rather than competing as equal preparation steps.
+- The shell no longer owns a global counterparty footer. Counterparties are rendered only by the authorized member Access surface; the viewer reading room never receives or emits that concept in its DOM.
+- The viewer collection index is canonical. Folders are non-interactive finding-aid headings, documents activate the worktable, and the previous duplicate collection register was removed.
+- Collection rows expose one **Manage** disclosure. Reordering is a dedicated mode, while rename, placement, metadata, download policy, and staged removal stay inside the selected row’s focused task.
+- Upload is a reviewed multi-file or directory queue. Browser preflight applies the shared path, depth, count, total-size, collision, and extension rules before transfer; each file then uses the existing per-file intent, multipart transfer, and finalization contract and keeps an independent waiting, progress, accepted, or failed state. Relative paths are review context only because the current server attachment contract does not accept a destination folder.
+- Responsive registers carry visible cell labels when headers move off-screen. The preparation path, upload queue, and focused row task restack to one column at 48rem without changing source or focus order.
+
 ## Do's and Don'ts
 
 ### Do:

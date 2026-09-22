@@ -18,7 +18,7 @@
     "compose": "node packages/composition/src/cli.ts generate",
     "compose:verify": "node packages/composition/src/cli.ts verify",
     "compose:verify:minimal": "node packages/composition/src/cli.ts verify --manifest composition.minimal.manifest.json",
-    "build": "npm run compose && npm run build --workspace @duefold/web-client",
+    "build": "npm run compose && npm run build --workspace @duefold/web-client && node deploy/check-browser-budgets.ts",
     "typecheck": "npm run compose && tsc -p tsconfig.json && tsc -p apps/web-client/tsconfig.json && tsc -p modules/branding-notifications/tsconfig.json && tsc -p test/browser/tsconfig.json",
     "lint": "npm run compose && eslint . --max-warnings 0",
     "format": "prettier --check .",

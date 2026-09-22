@@ -163,6 +163,14 @@ export function Workspace({
   const [impactLoading, setImpactLoading] = useState(false);
   const [publishPending, setPublishPending] = useState(false);
   const [publishFailure, setPublishFailure] = useState<string | null>(null);
+  const preparationStep =
+    roomSectionId === 'participants' || roomSectionId === 'counterparties'
+      ? 'access'
+      : roomSectionId === 'structure' || roomSectionId === 'upload'
+        ? 'collection'
+        : roomSectionId === 'processing'
+          ? 'review'
+          : null;
 
   /*
    * The register is loaded by the frame rather than by a view, because both the
@@ -333,8 +341,14 @@ export function Workspace({
         id: entry.entryId,
         title: entry.displayName,
         depth: entry.depth,
+        kind: entry.resourceKind === 'folder' ? ('group' as const) : ('item' as const),
       }))
-    : roomList.map((room) => ({ id: room.roomId, title: room.title, depth: 0 }));
+    : roomList.map((room) => ({
+        id: room.roomId,
+        title: room.title,
+        depth: 0,
+        kind: 'item' as const,
+      }));
 
   const enterRoom = (id: string): void => {
     setOpenRoomId(id);
@@ -481,17 +495,58 @@ export function Workspace({
       )}
 
       {openRoomId !== null && openRoom !== null ? (
-        <RoomView
-          roomId={openRoomId}
-          room={openRoom}
-          selectedEntryId={selectedEntryId}
-          sectionId={roomSectionId}
-          reloadToken={roomReloadToken}
-          onSectionChange={setRoomSectionId}
-          onStatus={setStatus}
-          onRoomsChanged={refreshRooms}
-          onEntriesChange={setRoomEntries}
-        />
+        <>
+          <nav className="df-preparation" aria-label={translate('workspace.steps.label')}>
+            <button
+              type="button"
+              className="df-preparation__step"
+              aria-current={preparationStep === 'collection' ? 'step' : undefined}
+              onClick={() => {
+                setRoomSectionId('structure');
+              }}
+            >
+              {translate('workspace.steps.collection')}
+            </button>
+            <button
+              type="button"
+              className="df-preparation__step"
+              aria-current={preparationStep === 'access' ? 'step' : undefined}
+              onClick={() => {
+                setRoomSectionId('participants');
+              }}
+            >
+              {translate('workspace.steps.access')}
+            </button>
+            <button
+              type="button"
+              className="df-preparation__step"
+              aria-current={preparationStep === 'review' ? 'step' : undefined}
+              onClick={() => {
+                setRoomSectionId('processing');
+              }}
+            >
+              {translate('workspace.steps.review')}
+            </button>
+            <button
+              type="button"
+              className="df-preparation__step df-preparation__step--publish"
+              onClick={beginPublish}
+            >
+              {translate('workspace.steps.publish')}
+            </button>
+          </nav>
+          <RoomView
+            roomId={openRoomId}
+            room={openRoom}
+            selectedEntryId={selectedEntryId}
+            sectionId={roomSectionId}
+            reloadToken={roomReloadToken}
+            onSectionChange={setRoomSectionId}
+            onStatus={setStatus}
+            onRoomsChanged={refreshRooms}
+            onEntriesChange={setRoomEntries}
+          />
+        </>
       ) : currentView.id === 'administration' ? (
         <AdministrationView
           rooms={roomList}

@@ -104,7 +104,11 @@ export function ProcessingPanel({
               const busy = busyVersionId === version.versionId;
               return (
                 <tr key={version.versionId} data-processing-state={version.state}>
-                  <th scope="row" className="df-register__name">
+                  <th
+                    scope="row"
+                    className="df-register__name"
+                    data-label={translate('processing.columns.document')}
+                  >
                     {version.displayTitle}
                     {version.retainedUntil === null ? null : (
                       <span className="df-register__meta" data-numeric="true">
@@ -114,8 +118,7 @@ export function ProcessingPanel({
                       </span>
                     )}
                   </th>
-                  <td>
-                    {/* State in words, with tone only as reinforcement. */}
+                  <td data-label={translate('processing.columns.state')}>
                     <span className="df-state" data-tone={presented.tone}>
                       {translate(presented.label)}
                     </span>
@@ -128,7 +131,7 @@ export function ProcessingPanel({
                       </span>
                     ) : null}
                   </td>
-                  <td>
+                  <td data-label={translate('processing.columns.actions')}>
                     <div className="df-register__actions">
                       {presented.canRetry ? (
                         <button

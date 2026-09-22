@@ -65,4 +65,7 @@ published with the source, so they are named here rather than linked.
 - [Trust boundaries](docs/security/data-flow.md)
 - [Room administration HTTP contract](docs/room-administration-http-contract.md)
 - [Installation status HTTP contract](docs/installation-status-http-contract.md)
+- [Production qualification runbook](docs/production-qualification.md) — final deployment, provider, performance, failure, restore, and final-domain evidence procedure.
+- [Independent security review pack](docs/security/independent-review-checklist.md) — required reviewer checklist and finding log.
+- [Manual accessibility review pack](docs/accessibility-manual-review.md) — assistive-technology journeys and sign-off.
 - [Development setup](docs/development.md)

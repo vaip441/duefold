@@ -161,7 +161,11 @@ export function ParticipantsPanel({
           <tbody>
             {participants.map((participant) => (
               <tr key={participant.viewerId} data-membership={participant.membershipState}>
-                <th scope="row" className="df-register__name">
+                <th
+                  scope="row"
+                  className="df-register__name"
+                  data-label={translate('participants.columns.reader')}
+                >
                   {participant.email}
                   {participant.counterpartyName === null ? null : (
                     <span className="df-register__meta">
@@ -171,7 +175,7 @@ export function ParticipantsPanel({
                     </span>
                   )}
                 </th>
-                <td>
+                <td data-label={translate('participants.columns.membership')}>
                   <span
                     className="df-state"
                     data-live={participant.membershipState === 'active' ? 'true' : 'false'}
@@ -184,7 +188,7 @@ export function ParticipantsPanel({
                     </span>
                   ) : null}
                 </td>
-                <td>
+                <td data-label={translate('participants.columns.grants')}>
                   {participant.grants.length === 0 ? (
                     <>
                       <span className="df-state">{translate('participants.noGrants')}</span>
@@ -261,7 +265,7 @@ export function ParticipantsPanel({
                     </ul>
                   )}
                 </td>
-                <td>
+                <td data-label={translate('participants.columns.actions')}>
                   <div className="df-register__actions">
                     {/* Only granting is participant-level; expiry and revoke live on
                       the specific grant they change. */}

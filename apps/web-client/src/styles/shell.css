@@ -12,20 +12,19 @@
  * to feel separate gets a heading and a rule, not a box.
  *
  * Regions, in DOM and focus order: room facts (with the primary action), the
- * collection index, the worktable, the access notes margin, the counterparty
- * strip. Narrow viewports restack them into one column rather than scaling the
- * desktop layout down.
+ * collection index, the worktable, and the access notes margin. Narrow
+ * viewports restack them into one column rather than scaling the desktop layout
+ * down.
  */
 
 .df-shell {
   display: grid;
   min-height: 100dvh;
   grid-template-columns: var(--index-width) minmax(0, 1fr) var(--notes-width);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     'facts facts facts'
-    'index worktable notes'
-    'counterparties counterparties counterparties';
+    'index worktable notes';
   background: var(--ground);
 }
 
@@ -124,8 +123,7 @@
 }
 
 .df-index__heading,
-.df-notes__heading,
-.df-counterparties__heading {
+.df-notes__heading {
   font-family: var(--font-ui);
   font-size: var(--size-label);
   font-weight: var(--weight-semibold);
@@ -159,8 +157,24 @@
   transition: color var(--duration-state) var(--ease-out);
 }
 
+.df-index__entry--group {
+  cursor: default;
+  color: var(--ink);
+  font-family: var(--font-text);
+  font-weight: var(--weight-semibold);
+  padding-block-start: var(--space-3);
+}
+
+.df-index__entry--group::after {
+  content: '';
+  display: block;
+  width: var(--space-5);
+  margin-block-start: var(--space-2);
+  border-block-end: var(--hairline) solid var(--rule);
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .df-index__entry:hover {
+  .df-index__entry:not(.df-index__entry--group):hover {
     color: var(--ink);
   }
 }
@@ -199,8 +213,7 @@
   overflow-y: auto;
 }
 
-.df-notes__body,
-.df-counterparties__body {
+.df-notes__body {
   padding-inline: var(--space-5);
   color: var(--ink-muted);
   font-size: var(--size-meta);
@@ -212,18 +225,6 @@
   border-top: var(--hairline) solid var(--rule);
   color: var(--ink);
   white-space: pre-wrap;
-}
-
-/* --- Counterparty strip: anchors the lower edge -------------------------- */
-
-.df-counterparties {
-  grid-area: counterparties;
-  border-top: var(--hairline) solid var(--rule);
-  padding: var(--space-4) 0;
-}
-
-.df-counterparties__heading {
-  margin-bottom: var(--space-2);
 }
 
 /* --- Empty states teach the region rather than announcing nothing -------- */
@@ -404,8 +405,7 @@
     grid-template-areas:
       'facts facts'
       'index worktable'
-      'index notes'
-      'counterparties counterparties';
+      'index notes';
   }
 
   .df-notes {
@@ -425,8 +425,7 @@
       'facts'
       'index'
       'worktable'
-      'notes'
-      'counterparties';
+      'notes';
   }
 
   .df-index {
@@ -450,11 +449,9 @@
   }
 
   .df-notes__body,
-  .df-counterparties__body,
   .df-empty:not(.df-empty--worktable),
   .df-index__heading,
-  .df-notes__heading,
-  .df-counterparties__heading {
+  .df-notes__heading {
     padding-inline: var(--space-4);
   }
 

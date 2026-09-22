@@ -73,6 +73,8 @@ export function StructureTable({
   downloads,
 }: StructureTableProps): React.ReactElement {
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [managing, setManaging] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [moving, setMoving] = useState<string | null>(null);
   const [editingMetadata, setEditingMetadata] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
@@ -119,9 +121,26 @@ export function StructureTable({
 
   return (
     <>
-      <p className="df-field__help" id={`${renameFieldId}-reorder-help`}>
-        {translate('structure.reorder.help')}
-      </p>
+      <div className="df-collection-toolbar">
+        <p className="df-field__help" id={`${renameFieldId}-reorder-help`}>
+          {reordering
+            ? translate('structure.reorder.activeHelp')
+            : translate('structure.manage.help')}
+        </p>
+        <button
+          type="button"
+          className="df-button"
+          aria-pressed={reordering}
+          onClick={() => {
+            setReordering((current) => !current);
+            setManaging(null);
+          }}
+        >
+          {reordering
+            ? translate('structure.reorder.done')
+            : translate('structure.reorder.start')}
+        </button>
+      </div>
       <table className="df-register">
         <caption className="df-visually-hidden">
           {translate('workspace.section.structure')}
@@ -155,7 +174,7 @@ export function StructureTable({
                 data-pending={entry.changeKinds.length > 0 ? 'true' : 'false'}
               >
                 {selectable ? (
-                  <td>
+                  <td data-label={translate('bulk.label')}>
                     {/* A real checkbox: selection is keyboard-operable by construction. */}
                     <input
                       type="checkbox"
@@ -172,7 +191,11 @@ export function StructureTable({
                     />
                   </td>
                 ) : null}
-                <th scope="row" className="df-register__name">
+                <th
+                  scope="row"
+                  className="df-register__name"
+                  data-label={translate('workspace.columns.name')}
+                >
                   <span
                     style={{
                       paddingInlineStart: `calc(${entry.depth} * var(--space-4))`,
@@ -225,8 +248,7 @@ export function StructureTable({
                     </span>
                   ) : null}
                 </th>
-                <td>
-                  {/* Status in words first; the data attribute only styles it. */}
+                <td data-label={translate('workspace.columns.status')}>
                   <span
                     className="df-state"
                     data-live={
@@ -248,123 +270,156 @@ export function StructureTable({
                     </ul>
                   ) : null}
                 </td>
-                <td data-numeric="true">{entry.position}</td>
-                <td>
+                <td data-label={translate('workspace.columns.order')} data-numeric="true">
+                  {entry.position}
+                </td>
+                <td data-label={translate('workspace.columns.actions')}>
                   <div className="df-register__actions">
-                    <button
-                      type="button"
-                      className="df-button df-button--quiet"
-                      disabled={busy || !entry.canMoveUp}
-                      onClick={() => {
-                        onReorder(entry, entry.position - 1);
-                      }}
-                    >
-                      {translate('structure.moveUp')}
-                      <span className="df-visually-hidden"> {entry.displayName}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="df-button df-button--quiet"
-                      disabled={busy || !entry.canMoveDown}
-                      onClick={() => {
-                        onReorder(entry, entry.position + 1);
-                      }}
-                    >
-                      {translate('structure.moveDown')}
-                      <span className="df-visually-hidden"> {entry.displayName}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="df-button df-button--quiet"
-                      disabled={busy}
-                      onClick={() => {
-                        setRenaming(entry.entryId);
-                        setDraftName(entry.displayName);
-                      }}
-                    >
-                      {translate('structure.rename')}
-                      <span className="df-visually-hidden"> {entry.displayName}</span>
-                    </button>
-                    {entry.stagedRemoved ? null : (
+                    {reordering ? (
+                      <>
+                        <button
+                          type="button"
+                          className="df-button df-button--quiet"
+                          disabled={busy || !entry.canMoveUp}
+                          onClick={() => {
+                            onReorder(entry, entry.position - 1);
+                          }}
+                        >
+                          {translate('structure.moveUp')}
+                          <span className="df-visually-hidden"> {entry.displayName}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="df-button df-button--quiet"
+                          disabled={busy || !entry.canMoveDown}
+                          onClick={() => {
+                            onReorder(entry, entry.position + 1);
+                          }}
+                        >
+                          {translate('structure.moveDown')}
+                          <span className="df-visually-hidden"> {entry.displayName}</span>
+                        </button>
+                      </>
+                    ) : (
                       <button
                         type="button"
-                        className="df-button df-button--quiet"
+                        className="df-button"
+                        aria-expanded={managing === entry.entryId}
+                        aria-controls={`manage-${entry.entryId}`}
                         disabled={busy}
                         onClick={() => {
-                          onStageRemoval(entry);
-                        }}
-                      >
-                        {translate('structure.stageRemoval')}
-                        <span className="df-visually-hidden"> {entry.displayName}</span>
-                      </button>
-                    )}
-                    {onMove === undefined || folders === undefined ? null : (
-                      <button
-                        type="button"
-                        className="df-button df-button--quiet"
-                        disabled={busy}
-                        onClick={() => {
-                          setMoving(entry.entryId);
+                          setManaging((current) =>
+                            current === entry.entryId ? null : entry.entryId,
+                          );
+                          setRenaming(null);
+                          setMoving(null);
                           setEditingMetadata(null);
                         }}
                       >
-                        {translate('structure.move')}
+                        {translate('structure.manage')}
                         <span className="df-visually-hidden"> {entry.displayName}</span>
                       </button>
                     )}
-                    {onMetadata === undefined || entry.resourceKind !== 'document' ? null : (
-                      <button
-                        type="button"
-                        className="df-button df-button--quiet"
-                        disabled={busy}
-                        onClick={() => {
-                          setEditingMetadata(entry.entryId);
-                          setMoving(null);
-                        }}
-                      >
-                        {translate('structure.metadata')}
-                        <span className="df-visually-hidden"> {entry.displayName}</span>
-                      </button>
-                    )}
-                    {downloads === null || entry.resourceKind !== 'document' ? null : (
-                      <DownloadOverrideControl
-                        entry={entry}
-                        current={downloads.overrides.get(entry.resourceId) ?? null}
-                        inherited={downloads.inherited}
-                        onChange={(policy) => downloads.change(entry, policy)}
-                        onReload={downloads.reload}
-                      />
-                    )}
-                    {moving === entry.entryId &&
-                    onMove !== undefined &&
-                    folders !== undefined ? (
-                      <MoveForm
-                        entry={entry}
-                        folders={folders}
-                        pending={busy}
-                        onMove={(input) => {
-                          onMove(input);
-                          setMoving(null);
-                        }}
-                        onCancel={() => {
-                          setMoving(null);
-                        }}
-                      />
-                    ) : null}
-                    {editingMetadata === entry.entryId &&
-                    onMetadata !== undefined &&
-                    entry.resourceKind === 'document' ? (
-                      <MetadataForm
-                        entry={entry}
-                        pending={busy}
-                        onSave={(input) => {
-                          onMetadata(input);
-                          setEditingMetadata(null);
-                        }}
-                        onCancel={() => {
-                          setEditingMetadata(null);
-                        }}
-                      />
+                    {managing === entry.entryId && !reordering ? (
+                      <div className="df-entry-manage" id={`manage-${entry.entryId}`}>
+                        <div className="df-entry-manage__actions">
+                          <button
+                            type="button"
+                            className="df-button df-button--quiet"
+                            disabled={busy}
+                            onClick={() => {
+                              setRenaming(entry.entryId);
+                              setDraftName(entry.displayName);
+                            }}
+                          >
+                            {translate('structure.rename')}
+                          </button>
+                          {onMove === undefined || folders === undefined ? null : (
+                            <button
+                              type="button"
+                              className="df-button df-button--quiet"
+                              disabled={busy}
+                              onClick={() => {
+                                setMoving(entry.entryId);
+                                setEditingMetadata(null);
+                              }}
+                            >
+                              {translate('structure.move')}
+                            </button>
+                          )}
+                          {onMetadata === undefined ||
+                          entry.resourceKind !== 'document' ? null : (
+                            <button
+                              type="button"
+                              className="df-button df-button--quiet"
+                              disabled={busy}
+                              onClick={() => {
+                                setEditingMetadata(entry.entryId);
+                                setMoving(null);
+                              }}
+                            >
+                              {translate('structure.metadata')}
+                            </button>
+                          )}
+                          {entry.stagedRemoved ? null : (
+                            <button
+                              type="button"
+                              className="df-button df-button--quiet"
+                              disabled={busy}
+                              onClick={() => {
+                                onStageRemoval(entry);
+                              }}
+                            >
+                              {translate('structure.stageRemoval')}
+                            </button>
+                          )}
+                        </div>
+                        {downloads === null || entry.resourceKind !== 'document' ? null : (
+                          <div className="df-field">
+                            <span className="df-field__label">
+                              {translate('structure.downloadPolicy')}
+                            </span>
+                            <DownloadOverrideControl
+                              entry={entry}
+                              current={downloads.overrides.get(entry.resourceId) ?? null}
+                              inherited={downloads.inherited}
+                              onChange={(policy) => downloads.change(entry, policy)}
+                              onReload={downloads.reload}
+                            />
+                          </div>
+                        )}
+                        {moving === entry.entryId &&
+                        onMove !== undefined &&
+                        folders !== undefined ? (
+                          <MoveForm
+                            entry={entry}
+                            folders={folders}
+                            pending={busy}
+                            onMove={(input) => {
+                              onMove(input);
+                              setMoving(null);
+                            }}
+                            onCancel={() => {
+                              setMoving(null);
+                            }}
+                          />
+                        ) : null}
+                        {editingMetadata === entry.entryId &&
+                        onMetadata !== undefined &&
+                        entry.resourceKind === 'document' ? (
+                          <MetadataForm
+                            entry={entry}
+                            pending={busy}
+                            onSave={(input) => {
+                              onMetadata(input);
+                              setEditingMetadata(null);
+                            }}
+                            onCancel={() => {
+                              setEditingMetadata(null);
+                            }}
+                          />
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                 </td>

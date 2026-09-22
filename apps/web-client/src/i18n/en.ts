@@ -27,7 +27,6 @@ export const messages = {
   'shell.landmark.index': 'Collection',
   'shell.landmark.worktable': 'Worktable',
   'shell.landmark.notes': 'Access notes',
-  'shell.landmark.counterparties': 'Counterparties',
   'shell.landmark.roomFacts': 'Room',
   'shell.index.heading': 'Collection',
   'shell.index.empty': 'No rooms yet.',
@@ -36,8 +35,6 @@ export const messages = {
   'shell.index.controls': 'Selecting an entry changes the worktable.',
   'shell.notes.heading': 'Access notes',
   'shell.notes.empty': 'Select an item to see who can read it.',
-  'shell.counterparties.heading': 'Counterparties',
-  'shell.counterparties.empty': 'No counterparties yet.',
   'shell.worktable.empty': 'Nothing selected.',
   'shell.worktable.emptyHelp': 'Choose an entry in the collection to begin.',
   /** Worktable heading before a room is open. Names the task, not the product. */
@@ -167,6 +164,11 @@ export const messages = {
   'workspace.columns.status': 'Compared with viewers',
   'workspace.columns.order': 'Order',
   'workspace.columns.actions': 'Actions',
+  'workspace.steps.label': 'Room preparation',
+  'workspace.steps.collection': '1 Collection',
+  'workspace.steps.access': '2 Access',
+  'workspace.steps.review': '3 Review',
+  'workspace.steps.publish': '4 Publish',
   'workspace.live': 'Live to viewers',
   'workspace.notLive': 'Not visible to viewers',
   'workspace.pending': 'Staged, not yet published',
@@ -198,6 +200,14 @@ export const messages = {
   'structure.moveDown': 'Move down',
   'structure.reorder.help':
     'Use Move up and Move down, or set a position. Dragging is not required.',
+  'structure.reorder.start': 'Reorder collection',
+  'structure.reorder.done': 'Finish reordering',
+  'structure.reorder.activeHelp':
+    'Reorder mode is active. Move items one position at a time, then finish reordering.',
+  'structure.manage': 'Manage',
+  'structure.manage.help':
+    'Open Manage for naming, placement, metadata, download policy, and removal.',
+  'structure.downloadPolicy': 'Download policy',
   'structure.stageRemoval': 'Stage removal',
   'structure.stageRemoval.help':
     'Draft-only items move to trash immediately. Published items stay visible to viewers until you publish the removal.',
@@ -218,7 +228,7 @@ export const messages = {
   'publish.preview.title': 'Publish changes',
   'publish.preview.loading': 'Preparing the change list',
   'publish.preview.none': 'Nothing to publish. Viewers already see the current structure.',
-  'publish.preview.count': '{count} item(s) change for viewers.',
+  'publish.preview.count': '{count} changes for viewers.',
   'publish.preview.explain':
     'This is what viewers will see change when you publish. Nothing changes for them until you confirm.',
   'publish.preview.itemPath': 'Path',
@@ -274,7 +284,7 @@ export const messages = {
   'viewer.rooms.empty': 'No rooms are shared with you yet.',
   'viewer.rooms.emptyHelp': 'When someone shares a room with this address, it appears here.',
   'viewer.rooms.open': 'Open room',
-  'viewer.rooms.count': '{count} room(s) shared with you.',
+  'viewer.rooms.count': '{count} rooms shared with you.',
   'viewer.index.heading': 'Documents',
   'viewer.index.empty': 'This room has no documents you can read.',
   'viewer.index.emptyHelp': 'Only published documents shared with you appear here.',
@@ -282,12 +292,14 @@ export const messages = {
   'viewer.folder': 'Folder',
   'viewer.document': 'Document',
   'viewer.document.open': 'Read',
-  'viewer.document.pages': '{count} page(s)',
+  'viewer.document.pages': '{count} pages',
   'viewer.document.loading': 'Opening document',
   'viewer.document.unavailable': 'This document is not available to read.',
   'viewer.document.unavailableHelp':
     'It may have been withdrawn, or access may have changed. Ask the person who shared the room.',
-  'viewer.document.selectPrompt': 'Choose a document from the list to start reading.',
+  'viewer.document.selectPrompt': 'Choose a document from the collection index.',
+  'viewer.document.selectHelp':
+    'Folders organize the index. Documents open here without repeating the collection as a second table.',
   'viewer.document.folderPrompt': 'This is a folder. Choose a document inside it to read.',
 
   'viewer.page.caption': 'Page {page} of {total}',
@@ -313,16 +325,17 @@ export const messages = {
     'The room introduction could not be loaded. The document access shown here is unchanged.',
   'viewer.print.omitted': 'Document pages are not included in printed output.',
 
-  'viewer.find.label': 'Find in this document',
-  'viewer.find.placeholder': 'Search the text on this page',
-  'viewer.find.submit': 'Find',
+  'viewer.find.label': 'Find on this page',
+  'viewer.find.placeholder': 'Text on the current page',
+  'viewer.find.submit': 'Find on page',
   'viewer.find.clear': 'Clear search',
   'viewer.find.next': 'Next match',
   'viewer.find.previous': 'Previous match',
   'viewer.find.none': 'No matches on this page.',
-  'viewer.find.count': '{count} match(es) on this page.',
+  'viewer.find.count': '{count} matches on this page.',
   'viewer.find.position': 'Match {index} of {count}.',
   'viewer.find.scope': 'Find searches the page you are reading.',
+  'viewer.page.navigation': 'Document pages',
 
   'viewer.link.leaving': 'You are leaving Duefold',
   'viewer.link.destination': 'This link goes to',
@@ -385,6 +398,7 @@ export const messages = {
   'error.freshSignIn.action': 'Sign in again',
 
   'workspace.tab.structure': 'Collection',
+  'workspace.tab.upload': 'Add documents',
   'workspace.tab.participants': 'Access',
   'workspace.tab.processing': 'Processing',
   'workspace.tab.exports': 'Exports',
@@ -537,6 +551,7 @@ export const messages = {
   'confirm.typeToConfirm': 'Type {phrase} to confirm',
   'confirm.mismatch': 'Type the phrase exactly as shown to continue.',
   'workspace.views.label': 'Workbench sections',
+  'workspace.supporting.label': 'Supporting tools',
 
   /*
    * Member administration.
@@ -737,21 +752,38 @@ export const messages = {
   'grant.revoke.warning':
     'Removing access takes effect immediately. Pages already open stop loading.',
 
-  'upload.heading': 'Add a document',
-  'upload.pick': 'Choose a file',
+  'upload.heading': 'Add documents',
+  'upload.pick': 'Choose files',
+  'upload.pickDirectory': 'Choose a directory',
+  'upload.or': 'or',
+  'upload.review': 'Review upload queue',
+  'upload.summary': '{count} files · {size} MB',
+  'upload.clear': 'Clear queue',
   'upload.title.label': 'Document title',
   'upload.title.help': 'Readers see this title, not the file name.',
   'upload.submit': 'Upload',
   'upload.pending': 'Uploading\u2026',
   'upload.progress': '{percent}% uploaded',
   'upload.done': 'Uploaded. Duefold is now checking the file.',
+  'upload.doneCount': '{count} files accepted for checking.',
+  'upload.batchDone': '{count} of {total} files accepted for checking.',
+  'upload.state.waiting': 'Waiting',
+  'upload.state.done': 'Accepted',
+  'upload.state.cancelled': 'Cancelled',
   'upload.failed': 'The upload did not finish. Nothing was added.',
   'upload.cancel': 'Cancel upload',
   'upload.cancelled': 'Upload cancelled. Nothing was added.',
   'upload.tooLarge': 'That file is larger than this installation accepts.',
   'upload.note':
-    'Every upload is scanned and converted before anyone can read it. Nothing is visible to readers until you publish.',
-  'upload.noFile': 'Choose a file to upload.',
+    'Choose files or one directory, then review every title. Each file is scanned and converted before anyone can read it.',
+  'upload.noFile': 'Choose one or more files to upload.',
+  'upload.preflight.count': 'This queue has too many files. Choose 2,000 files or fewer.',
+  'upload.preflight.total': 'This queue is larger than the 20 GB directory limit.',
+  'upload.preflight.collision':
+    'Two paths resolve to the same name. Rename one file and choose the directory again.',
+  'upload.preflight.type': 'This directory contains an unsupported file type.',
+  'upload.preflight.path':
+    'One or more paths are unsafe or unsupported. Check the directory names and try again.',
 
   'processing.heading': 'Files being checked',
   'processing.loading': 'Loading processing state',
@@ -847,8 +879,8 @@ export const messages = {
   'bulk.selectRow': 'Select {name}',
   'bulk.action.stageRemoval': 'Stage removal of selected',
   'bulk.action.move': 'Move selected',
-  'bulk.confirm.stageRemoval': 'Stage removal of {count} item(s)?',
-  'bulk.pending': 'Applying to {count} item(s)\u2026',
+  'bulk.confirm.stageRemoval': 'Stage removal of {count} selected items?',
+  'bulk.pending': 'Applying to {count} selected items…',
   'bulk.partial': '{done} of {total} items changed before an error stopped the rest.',
 
   'structure.createFolder.parent': 'Inside',

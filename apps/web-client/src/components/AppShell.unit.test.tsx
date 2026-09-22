@@ -43,17 +43,15 @@ describe('landmark regions', () => {
     expect(markup).toContain('<nav');
     expect(markup).toContain('<main');
     expect(markup).toContain('<aside');
-    expect(markup).toContain('<footer');
+    expect(markup).not.toContain('<footer');
   });
 
   it('names each region so a landmark list is navigable', () => {
     const markup = render();
-    // The index, notes, and counterparty regions are labelled by their heading;
-    // the room-facts banner carries an explicit label because its heading is the
-    // wordmark.
+    // The index and notes regions are labelled by their headings; the
+    // room-facts banner carries an explicit label because its heading is the wordmark.
     expect(markup).toMatch(/<nav class="df-index" aria-labelledby="[^"]+"/u);
     expect(markup).toMatch(/<aside class="df-notes" aria-labelledby="[^"]+"/u);
-    expect(markup).toMatch(/<footer class="df-counterparties" aria-labelledby="[^"]+"/u);
     expect(markup).toMatch(/<header class="df-facts" aria-label="[^"]+"/u);
   });
 
@@ -72,7 +70,7 @@ describe('landmark regions', () => {
     expect([...markup.matchAll(/<h1/gu)]).toHaveLength(1);
     expect(markup).toContain('<h1 class="df-worktable__title">Series A room</h1>');
     // Region labels are h2, never a second h1.
-    expect([...markup.matchAll(/<h2/gu)].length).toBeGreaterThanOrEqual(3);
+    expect([...markup.matchAll(/<h2/gu)].length).toBeGreaterThanOrEqual(2);
   });
 
   it('puts the skip link first in DOM order and targets the worktable', () => {
@@ -82,7 +80,7 @@ describe('landmark regions', () => {
     expect(markup).toContain('id="df-worktable"');
   });
 
-  it('keeps focus order: facts, index, worktable, notes, counterparties', () => {
+  it('keeps focus order: facts, index, worktable, notes', () => {
     const markup = render();
     // Anchored on the region's opening tag: the skip link mentions the worktable
     // id earlier by design, and that is the target rather than the region.
@@ -91,7 +89,6 @@ describe('landmark regions', () => {
       '<nav class="df-index"',
       '<main class="df-worktable"',
       '<aside class="df-notes"',
-      '<footer class="df-counterparties"',
     ].map((region) => markup.indexOf(region));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect(order).toStrictEqual([...order].sort((left, right) => left - right));
@@ -156,10 +153,11 @@ describe('honest empty states', () => {
     expect(markup).toContain('Choose an entry in the collection to begin.');
   });
 
-  it('states the notes and counterparty regions rather than rendering blank', () => {
+  it('states the notes region and never invents counterparties', () => {
     const markup = render();
     expect(markup).toContain('Select an item to see who can read it.');
-    expect(markup).toContain('No counterparties yet.');
+    expect(markup).not.toContain('Counterparties');
+    expect(markup).not.toContain('No counterparties yet.');
   });
 
   it('invents no content: an empty shell shows no room, document, or person', () => {

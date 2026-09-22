@@ -20,6 +20,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '../packages/shared/src/ids.ts';
+import {
+  createWorkerStorage,
+  workerStorageConfig,
+} from '../modules/rooms-documents/src/storage/s3-compatible.ts';
 
 interface SeedOptions {
   readonly documents: number;
@@ -60,6 +64,32 @@ function sha256Hex(data: string | Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
+interface ViewerToken {
+  readonly viewerId: string;
+  readonly secret: string;
+  readonly csrfToken: string;
+  readonly deniedRoomId: string;
+  readonly deniedDocumentId: string;
+}
+
+const BENCHMARK_PAGE = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=',
+  'base64',
+);
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === '') throw new Error(`${name}_REQUIRED`);
+  return value;
+}
+
+function booleanEnvironment(name: string): boolean {
+  const value = process.env[name];
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`${name}_REQUIRED`);
+}
+
 async function main(): Promise<void> {
   const options = parseArgs();
   const migrationUrl =
@@ -73,6 +103,21 @@ async function main(): Promise<void> {
 
   const migrationPool = new Pool({ connectionString: migrationUrl });
   const authPool = new Pool({ connectionString: authUrl });
+  const workerStorage = createWorkerStorage(
+    workerStorageConfig({
+      endpoint: requiredEnvironment('DUEFOLD_STORAGE_ENDPOINT'),
+      region: requiredEnvironment('DUEFOLD_STORAGE_REGION'),
+      bucket: requiredEnvironment('DUEFOLD_STORAGE_BUCKET'),
+      credentials: {
+        accessKeyId: requiredEnvironment('DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID'),
+        secretAccessKey: requiredEnvironment('DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY'),
+      },
+      pathStyle: booleanEnvironment('DUEFOLD_STORAGE_PATH_STYLE'),
+      checksumSupport: booleanEnvironment('DUEFOLD_STORAGE_CHECKSUM_SUPPORT'),
+    }),
+  );
+  const pageShaHex = sha256Hex(BENCHMARK_PAGE);
+  const pageShaBase64 = createHash('sha256').update(BENCHMARK_PAGE).digest('base64');
 
   try {
     process.stdout.write(
@@ -82,6 +127,8 @@ async function main(): Promise<void> {
     const client = await migrationPool.connect();
     let ownerId: string;
     let roomId: string;
+    let deniedRoomId: string;
+    let deniedDocumentId: string;
 
     try {
       await client.query('BEGIN');
@@ -117,12 +164,10 @@ async function main(): Promise<void> {
       );
 
       // 4. Create 5-level folder tree
-      const folderIds: string[] = [];
       let parentFolderId: string | null = null;
       for (let level = 1; level <= 5; level += 1) {
         const folderId = createOpaqueId();
         const entryId = createOpaqueId();
-        folderIds.push(folderId);
         await client.query(
           'INSERT INTO folder (id, room_id, created_by, description) VALUES ($1, $2, $3, $4)',
           [folderId, roomId, ownerId, `Level ${level} folder`],
@@ -135,6 +180,45 @@ async function main(): Promise<void> {
         );
         parentFolderId = folderId;
       }
+
+      // A second published room is intentionally not granted to benchmark viewers.
+      deniedRoomId = createOpaqueId();
+      deniedDocumentId = createOpaqueId();
+      const deniedVersionId = createOpaqueId();
+      await client.query(
+        `INSERT INTO room (id, title, state, published_revision, published_at, working_revision)
+         VALUES ($1, 'Inaccessible Benchmark Room', 'published', 1, statement_timestamp(), 1)`,
+        [deniedRoomId],
+      );
+      await client.query(
+        `INSERT INTO document (id, room_id, display_title, created_by, description, revision, download_policy)
+         VALUES ($1, $2, 'Inaccessible document', $3, '', 1, 'deny')`,
+        [deniedDocumentId, deniedRoomId, ownerId],
+      );
+      await client.query(
+        `INSERT INTO document_version (id, document_id, original_filename, object_key,
+           declared_media_type, detected_media_type, size_bytes, sha256, processing_attempts,
+           state, scan_signature_version, manual_retry_count, hidden_sheet_warning)
+         VALUES ($1, $2, 'inaccessible.pdf', $3, 'application/pdf', 'application/pdf',
+           2048, $4, 1, 'ready_for_review', '2026.1', 0, false)`,
+        [
+          deniedVersionId,
+          deniedDocumentId,
+          `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
+          sha256Hex('inaccessible-benchmark-content'),
+        ],
+      );
+      await client.query('UPDATE document SET working_version_id=$1 WHERE id=$2', [
+        deniedVersionId,
+        deniedDocumentId,
+      ]);
+      await client.query(
+        `INSERT INTO published_structure_entry
+           (room_id, entry_id, resource_kind, resource_id, parent_folder_id, display_name,
+            description, order_key, source_revision, published_version_id)
+         VALUES ($1, $2, 'document', $3, NULL, 'Inaccessible document', '', 100, 1, $4)`,
+        [deniedRoomId, createOpaqueId(), deniedDocumentId, deniedVersionId],
+      );
 
       await client.query('COMMIT');
     } catch (error) {
@@ -155,6 +239,9 @@ async function main(): Promise<void> {
         const docRows: string[] = [];
         const verRows: string[] = [];
         const pubRows: string[] = [];
+        const derivativeRows: string[] = [];
+        const versionByDocument = new Map<string, string>();
+        const derivativeUploads: (() => Promise<void>)[] = [];
 
         for (let i = 0; i < count; i += 1) {
           const docNum = offset + i + 1;
@@ -163,7 +250,9 @@ async function main(): Promise<void> {
           const entryId = createOpaqueId();
           const sha = sha256Hex(`bench-content-${docNum}`);
           const objKey = `quarantine/${createOpaqueId()}/${createOpaqueId()}`;
+          const derivativeKey = `derivatives/${createOpaqueId()}/${createOpaqueId()}`;
           const orderKey = (docNum * 10).toString();
+          versionByDocument.set(docId, verId);
 
           docRows.push(
             `('${docId}', '${roomId}', 'Document ${docNum}', '${ownerId}', statement_timestamp(), 'Benchmark document ${docNum}', 1, NULL, 'allow')`,
@@ -173,6 +262,17 @@ async function main(): Promise<void> {
           );
           pubRows.push(
             `('${roomId}', '${entryId}', 'document', '${docId}', NULL, 'Document ${docNum}', 'Benchmark document ${docNum}', ${orderKey}, 1, '${verId}')`,
+          );
+          derivativeRows.push(
+            `('${createOpaqueId()}', '${verId}', 1, '${derivativeKey}', 'image/png', ${BENCHMARK_PAGE.byteLength}, '${pageShaHex}', 1, 1, 'Page 1', '[]'::jsonb)`,
+          );
+          derivativeUploads.push(() =>
+            workerStorage.putDerivative({
+              key: derivativeKey,
+              bytes: BENCHMARK_PAGE,
+              contentType: 'image/png',
+              sha256Base64: pageShaBase64,
+            }),
           );
         }
 
@@ -188,9 +288,26 @@ async function main(): Promise<void> {
           `INSERT INTO published_structure_entry (room_id, entry_id, resource_kind, resource_id, parent_folder_id, display_name, description, order_key, source_revision, published_version_id)
            VALUES ${pubRows.join(',')}`,
         );
+        for (
+          let uploadOffset = 0;
+          uploadOffset < derivativeUploads.length;
+          uploadOffset += 20
+        ) {
+          await Promise.all(
+            derivativeUploads.slice(uploadOffset, uploadOffset + 20).map((upload) => upload()),
+          );
+        }
         await clientBatch.query(
-          `UPDATE document SET working_version_id = v.id FROM document_version v WHERE document.id = v.document_id AND document.id = ANY($1::text[])`,
-          [docRows.map((_, i) => offset + i + 1).map((_, i) => docRows[i]?.split("'")[1])],
+          `INSERT INTO document_derivative
+             (id, version_id, page_number, object_key, media_type, size_bytes, sha256,
+              width, height, accessible_label, text_layer)
+           VALUES ${derivativeRows.join(',')}`,
+        );
+        await clientBatch.query(
+          `UPDATE document d SET working_version_id = values.version_id
+           FROM (SELECT * FROM unnest($1::text[], $2::text[]) AS pair(document_id, version_id)) values
+           WHERE d.id = values.document_id`,
+          [[...versionByDocument.keys()], [...versionByDocument.values()]],
         );
         await clientBatch.query('COMMIT');
       } catch (error) {
@@ -203,7 +320,7 @@ async function main(): Promise<void> {
 
     // 6. Viewers, memberships, grants, and issued sessions
     process.stdout.write(`Seeding ${options.viewers} viewers and active sessions...\n`);
-    const viewerTokens: { readonly viewerId: string; readonly secret: string }[] = [];
+    const viewerTokens: ViewerToken[] = [];
 
     for (let v = 0; v < options.viewers; v += 1) {
       const viewerId = createOpaqueId();
@@ -263,7 +380,13 @@ async function main(): Promise<void> {
             [sessionId, secretDigest, csrfDigest, effectiveViewerId, effectiveFamilyId],
           );
           await authClient.query('COMMIT');
-          viewerTokens.push({ viewerId: effectiveViewerId, secret });
+          viewerTokens.push({
+            viewerId: effectiveViewerId,
+            secret,
+            csrfToken,
+            deniedRoomId,
+            deniedDocumentId,
+          });
         } catch (error) {
           await authClient.query('ROLLBACK');
           throw error;

@@ -346,12 +346,18 @@ export function ViewerReadingRoom({
   const indexEntries =
     openRoomId === null
       ? rooms.kind === 'ready'
-        ? rooms.value.map((room) => ({ id: room.roomId, title: room.title, depth: 0 }))
+        ? rooms.value.map((room) => ({
+            id: room.roomId,
+            title: room.title,
+            depth: 0,
+            kind: 'item' as const,
+          }))
         : []
       : entries.map((entry) => ({
           id: entry.entryId,
           title: entry.displayName,
           depth: depthOf(entry),
+          kind: entry.resourceKind === 'folder' ? ('group' as const) : ('item' as const),
         }));
 
   const openDocument = document.kind === 'ready' ? document.value : null;
@@ -420,8 +426,7 @@ export function ViewerReadingRoom({
           return;
         }
         const entry = entries.find((item) => item.entryId === id);
-        if (entry === undefined) return;
-        if (entry.resourceKind === 'document') setOpenDocumentId(entry.resourceId);
+        if (entry?.resourceKind === 'document') setOpenDocumentId(entry.resourceId);
       }}
       status={status}
       notes={
@@ -544,57 +549,10 @@ export function ViewerReadingRoom({
             {translate('viewer.index.emptyHelp')}
           </div>
         ) : (
-          <>
-            <p className="df-field__help">{translate('viewer.document.selectPrompt')}</p>
-            <table className="df-register">
-              <caption className="df-visually-hidden">
-                {translate('viewer.index.heading')}
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">{translate('workspace.columns.name')}</th>
-                  <th scope="col">{translate('workspace.columns.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry) => (
-                  <tr key={entry.entryId}>
-                    <th scope="row" className="df-register__name">
-                      <span
-                        style={{
-                          paddingInlineStart: `calc(${String(depthOf(entry))} * var(--space-4))`,
-                          display: 'inline-block',
-                        }}
-                      >
-                        {entry.displayName}
-                      </span>
-                      <span className="df-register__meta">
-                        {translate(
-                          entry.resourceKind === 'folder' ? 'viewer.folder' : 'viewer.document',
-                        )}
-                      </span>
-                    </th>
-                    <td>
-                      <div className="df-register__actions">
-                        {entry.resourceKind === 'document' ? (
-                          <button
-                            type="button"
-                            className="df-button df-button--quiet"
-                            onClick={() => {
-                              setOpenDocumentId(entry.resourceId);
-                            }}
-                          >
-                            {translate('viewer.document.open')}
-                            <span className="df-visually-hidden"> {entry.displayName}</span>
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
+          <div className="df-reading-intro">
+            <p className="df-worktable__lead">{translate('viewer.document.selectPrompt')}</p>
+            <p className="df-field__help">{translate('viewer.document.selectHelp')}</p>
+          </div>
         )
       ) : document.kind === 'loading' ? (
         <p className="df-field__help">{translate('viewer.document.loading')}</p>
@@ -649,7 +607,7 @@ export function ViewerReadingRoom({
             />
           )}
 
-          <nav className="df-pager" aria-label={translate('viewer.index.heading')}>
+          <nav className="df-pager" aria-label={translate('viewer.page.navigation')}>
             <button
               type="button"
               className="df-button"

@@ -336,9 +336,111 @@
   opacity: 0.85;
 }
 
+/* Guided preparation and focused collection controls. */
+.df-preparation {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: var(--hairline) solid var(--rule-strong);
+  background: var(--ground-sunken);
+}
+.df-preparation__step {
+  min-height: var(--control-height);
+  border: 0;
+  border-inline-end: var(--hairline) solid var(--rule);
+  background: transparent;
+  color: var(--ink-muted);
+  padding: var(--space-3) var(--space-5);
+  font: var(--weight-semibold) var(--size-label) / var(--leading-tight) var(--font-ui);
+  letter-spacing: 0.04em;
+  text-align: start;
+  cursor: pointer;
+}
+.df-preparation__step:last-child {
+  border-inline-end: 0;
+}
+.df-preparation__step[aria-current='step'] {
+  background: var(--accent-wash);
+  color: var(--ink);
+  border-block-end: 2px solid var(--accent);
+}
+.df-preparation__step--publish {
+  color: var(--accent-strong);
+}
+.df-reading-intro {
+  max-width: 36rem;
+  padding-block: var(--space-6);
+  border-block: var(--hairline) solid var(--rule);
+}
+.df-collection-toolbar,
+.df-upload-review__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.df-collection-toolbar {
+  padding-block-end: var(--space-4);
+  border-block-end: var(--hairline) solid var(--rule);
+}
+.df-entry-manage {
+  width: min(32rem, 70vw);
+  margin-block-start: var(--space-2);
+  border-inline-start: 2px solid var(--accent);
+  background: var(--ground-sunken);
+  padding: var(--space-4);
+  text-align: start;
+}
+.df-entry-manage__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-block-end: var(--space-3);
+}
+.df-upload-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: var(--space-4);
+}
+.df-upload-picker__or {
+  padding-block-end: var(--space-3);
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+}
+.df-upload-review {
+  border-block: var(--hairline) solid var(--rule-strong);
+  padding-block: var(--space-5);
+}
+.df-upload-list {
+  display: grid;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.df-upload-list__item {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 1fr) minmax(8rem, auto);
+  align-items: end;
+  gap: var(--space-4);
+  padding-block: var(--space-4);
+  border-block-start: var(--hairline) solid var(--rule);
+}
+.df-upload-list__item[data-state='failed'] {
+  border-inline-start: 2px solid var(--danger);
+  padding-inline-start: var(--space-4);
+}
+.df-upload-list__identity,
+.df-upload-list__state {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.df-upload-list__path {
+  overflow-wrap: anywhere;
+  font-weight: var(--weight-semibold);
+}
+
 /*
- * Member workspace.
- *
  * The register is a finding aid, not a data grid: a rule under the header row, a
  * rule between rows, no vertical rules, no zebra fill, and no card. Hierarchy is
  * carried by the row header's weight and the meta line's size, so the table reads
@@ -990,6 +1092,29 @@
   .df-panel__block,
   .df-impact {
     max-width: none;
+  }
+  .df-preparation,
+  .df-upload-picker,
+  .df-upload-list__item {
+    grid-template-columns: 1fr;
+  }
+  .df-preparation__step {
+    border-inline-end: 0;
+    border-block-end: var(--hairline) solid var(--rule);
+  }
+  .df-preparation__step:last-child {
+    border-block-end: 0;
+  }
+  .df-upload-picker__or {
+    padding: 0;
+  }
+  .df-collection-toolbar,
+  .df-upload-review__summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .df-entry-manage {
+    width: 100%;
   }
 }
 

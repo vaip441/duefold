@@ -54,10 +54,12 @@ async function openDocument(page: Page, title = 'Investor model'): Promise<void>
     .getByRole('button', { name: /Open room|Series B diligence/u })
     .first()
     .click();
-  await expect(page.getByRole('row', { name: new RegExp(title, 'u') })).toBeVisible();
+  await expect(
+    page.getByRole('navigation', { name: 'Collection' }).getByRole('button', { name: title }),
+  ).toBeVisible();
   await page
-    .getByRole('button', { name: new RegExp(`Read ${title}`, 'u') })
-    .first()
+    .getByRole('navigation', { name: 'Collection' })
+    .getByRole('button', { name: title })
     .click();
 }
 
@@ -83,9 +85,12 @@ test.describe('viewer reading room', () => {
     await expect(open).toBeVisible();
     await open.click();
     await expect(page.getByText('Materials prepared for your review.')).toBeVisible();
-    await expect(page.getByRole('row', { name: /Investor model/u })).toBeVisible();
-    // The folder is disclosed as a navigation path, with no Read control.
-    await expect(page.getByRole('row', { name: /Financials/u })).toBeVisible();
+    const collection = page.getByRole('navigation', { name: 'Collection' });
+    await expect(collection.getByRole('button', { name: 'Investor model' })).toBeVisible();
+    // The folder is disclosed as finding-aid context, with no activation control.
+    await expect(collection.getByText('Financials', { exact: true })).toBeVisible();
+    await expect(collection.getByRole('button', { name: 'Financials' })).toHaveCount(0);
+    await expect(page.getByRole('main').getByRole('table')).toHaveCount(0);
   });
 
   test('shows an explicit state when the protected room introduction fails to load', async ({
@@ -113,6 +118,8 @@ test.describe('viewer reading room', () => {
     await expect(notes).toContainText('marked with your email address');
     await expect(notes).toContainText('outside Duefold');
     const body = (await page.locator('body').textContent()) ?? '';
+    expect(body).not.toContain('Counterparties');
+    expect(body).not.toContain('No counterparties yet.');
     // No claim that screenshots or workarounds are prevented.
     expect(body).not.toMatch(/cannot be copied|prevent screenshots|drm|copy.protect/iu);
   });
@@ -158,9 +165,9 @@ test.describe('viewer reading room', () => {
   test('finds text on the page and reports the count in words', async ({ page }) => {
     await signIn(page);
     await openDocument(page);
-    const find = page.getByRole('searchbox', { name: /Find in this document/u });
+    const find = page.getByRole('searchbox', { name: /Find on this page/u });
     await find.fill('revenue');
-    await expect(page.getByText(/1 match\(es\) on this page/u)).toBeVisible();
+    await expect(page.getByText(/1 matches on this page/u)).toBeVisible();
     await page.getByRole('button', { name: 'Next match' }).click();
     await expect(page.locator('.df-page__match[data-current="true"]')).toHaveCount(1);
     // A query with no match says so rather than silently showing nothing.
@@ -175,8 +182,8 @@ test.describe('viewer reading room', () => {
     await openDocument(page);
     await page.getByRole('button', { name: 'Next page' }).click();
     await expect(page.locator('.df-page__text')).toContainText('Appendix');
-    await page.getByRole('searchbox', { name: /Find in this document/u }).fill('resume');
-    await expect(page.getByText(/1 match\(es\) on this page/u)).toBeVisible();
+    await page.getByRole('searchbox', { name: /Find on this page/u }).fill('resume');
+    await expect(page.getByText(/1 matches on this page/u)).toBeVisible();
   });
 
   test('navigates pages by keyboard and announces the new page', async ({ page }) => {
@@ -262,7 +269,7 @@ test.describe('viewer reading room', () => {
   test('has no accessibility violations with find active, both themes', async ({ page }) => {
     await signIn(page);
     await openDocument(page);
-    await page.getByRole('searchbox', { name: /Find in this document/u }).fill('revenue');
+    await page.getByRole('searchbox', { name: /Find on this page/u }).fill('revenue');
     await page.getByRole('button', { name: 'Next match' }).click();
     for (const theme of ['light', 'dark'] as const) {
       await settleTheme(page, theme);
@@ -276,7 +283,15 @@ test.describe('viewer reading room', () => {
   test('reads without horizontal overflow at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await signIn(page, { downloadPolicy: 'allow' });
-    await openDocument(page);
+    await page
+      .getByRole('button', { name: /Open room|Series B diligence/u })
+      .first()
+      .click();
+    await page.getByRole('button', { name: 'Collection' }).click();
+    await page
+      .getByRole('navigation', { name: 'Collection' })
+      .getByRole('button', { name: 'Investor model' })
+      .click();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );

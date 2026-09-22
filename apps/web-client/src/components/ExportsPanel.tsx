@@ -121,7 +121,11 @@ export function ExportsPanel({
               const busy = downloadingId === record.exportId;
               return (
                 <tr key={record.exportId} data-export-state={record.state}>
-                  <th scope="row" className="df-register__name">
+                  <th
+                    scope="row"
+                    className="df-register__name"
+                    data-label={translate('exports.columns.preset')}
+                  >
                     {translate(`exports.preset.${record.preset}`)}
                     {record.includeOriginals ? (
                       <span className="df-register__meta">
@@ -134,7 +138,7 @@ export function ExportsPanel({
                       </span>
                     )}
                   </th>
-                  <td>
+                  <td data-label={translate('exports.columns.state')}>
                     <span
                       className="df-state"
                       data-live={presented.canDownload ? 'true' : 'false'}
@@ -145,8 +149,10 @@ export function ExportsPanel({
                       <span className="df-register__meta">{translate(presented.help)}</span>
                     )}
                   </td>
-                  <td data-numeric="true">{formatDate(record.expiresAt)}</td>
-                  <td>
+                  <td data-label={translate('exports.columns.expires')} data-numeric="true">
+                    {formatDate(record.expiresAt)}
+                  </td>
+                  <td data-label={translate('exports.columns.actions')}>
                     <div className="df-register__actions">
                       {presented.canDownload ? (
                         <>

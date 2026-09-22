@@ -17,6 +17,11 @@
  */
 
 import { useId, useRef, useState } from 'react';
+
+interface DirectoryInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  readonly webkitdirectory?: string;
+}
+import { preflightDirectoryUpload } from '../../../../modules/rooms-documents/src/preflight.ts';
 import { translate } from '../i18n/translate.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
 import { Notice } from './Notice.tsx';
@@ -46,21 +51,35 @@ export function planParts(size: number): readonly UploadPlanPart[] {
   return parts;
 }
 
+export interface UploadItem {
+  readonly id: string;
+  readonly file: File;
+  readonly title: string;
+  readonly relativePath: string;
+}
+
+export type UploadItemState =
+  | { readonly kind: 'waiting' }
+  | { readonly kind: 'active'; readonly percent: number }
+  | { readonly kind: 'done' }
+  | { readonly kind: 'cancelled' }
+  | { readonly kind: 'failed'; readonly message: string };
+
 export interface UploadPanelProps {
   readonly pending: boolean;
-  readonly progressPercent: number | null;
+  readonly states: ReadonlyMap<string, UploadItemState>;
   readonly failure: PresentedFailure | null;
-  readonly done: boolean;
-  readonly onUpload: (input: { readonly file: File; readonly title: string }) => void;
+  readonly doneCount: number;
+  readonly onUpload: (items: readonly UploadItem[]) => void;
   readonly onCancel: () => void;
   readonly onReload: () => void;
 }
 
 export function UploadPanel({
   pending,
-  progressPercent,
+  states,
   failure,
-  done,
+  doneCount,
   onUpload,
   onCancel,
   onReload,
@@ -68,9 +87,64 @@ export function UploadPanel({
   const headingId = useId();
   const fieldId = useId();
   const fileInput = useRef<HTMLInputElement | null>(null);
-  const [title, setTitle] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const directoryInput = useRef<HTMLInputElement | null>(null);
+  const directoryAttributes: DirectoryInputProps = { webkitdirectory: '' };
+  const [items, setItems] = useState<readonly UploadItem[]>([]);
   const [attempted, setAttempted] = useState(false);
+  const [preflightFailure, setPreflightFailure] = useState<string | null>(null);
+
+  const choose = (files: FileList | null): void => {
+    if (files === null) return;
+    try {
+      const chosen = Array.from(files);
+      const normalized = preflightDirectoryUpload(
+        chosen.map((file) => ({
+          path: file.webkitRelativePath === '' ? file.name : file.webkitRelativePath,
+          size: file.size,
+        })),
+      );
+      const next = chosen.map((file, index) => {
+        const normalizedEntry = normalized[index];
+        if (normalizedEntry === undefined) throw new Error('PREFLIGHT_PATH_REJECTED');
+        return {
+          id: `${normalizedEntry.path}:${String(file.size)}:${String(file.lastModified)}:${String(index)}`,
+          file,
+          relativePath: normalizedEntry.path,
+          title: file.name.replace(/\.[^.]+$/u, ''),
+        };
+      });
+      setItems(next);
+      setPreflightFailure(null);
+      setAttempted(false);
+    } catch (error) {
+      setItems([]);
+      if (
+        error instanceof Error &&
+        (error.message === 'PREFLIGHT_COLLISION_REJECTED' ||
+          error.message === 'PREFLIGHT_CONFUSABLE_REJECTED')
+      ) {
+        setPreflightFailure(translate('upload.preflight.collision'));
+      } else if (
+        error instanceof Error &&
+        (error.message === 'PREFLIGHT_FILE_SIZE_REJECTED' ||
+          error.message === 'PREFLIGHT_TOTAL_SIZE_REJECTED')
+      ) {
+        setPreflightFailure(translate('upload.preflight.total'));
+      } else {
+        setPreflightFailure(
+          translate(
+            error instanceof Error && error.message === 'PREFLIGHT_COUNT_REJECTED'
+              ? 'upload.preflight.count'
+              : error instanceof Error && error.message === 'PREFLIGHT_TYPE_REJECTED'
+                ? 'upload.preflight.type'
+                : 'upload.preflight.path',
+          ),
+        );
+      }
+    }
+  };
+
+  const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
 
   return (
     <section aria-labelledby={headingId}>
@@ -94,69 +168,150 @@ export function UploadPanel({
         </Notice>
       )}
 
-      {done ? (
+      {preflightFailure === null ? null : (
+        <Notice tone="problem" role="alert">
+          {preflightFailure}
+        </Notice>
+      )}
+
+      {doneCount > 0 ? (
         <Notice tone="action" role="status">
-          {translate('upload.done')}
+          {translate('upload.doneCount', { count: doneCount })}
         </Notice>
       ) : null}
 
-      <div className="df-field">
-        <label className="df-field__label" htmlFor={`${fieldId}-file`}>
-          {translate('upload.pick')}
-        </label>
-        <input
-          id={`${fieldId}-file`}
-          className="df-field__input"
-          type="file"
-          ref={fileInput}
-          disabled={pending}
-          aria-invalid={attempted && file === null ? 'true' : undefined}
-          onChange={(event) => {
-            const chosen = event.target.files?.[0] ?? null;
-            setFile(chosen);
-            // A sensible default title, still editable and clearly labelled.
-            if (chosen !== null && title.trim() === '')
-              setTitle(chosen.name.replace(/\.[^.]+$/u, ''));
-          }}
-        />
-        {attempted && file === null ? (
-          <p className="df-field__error" role="alert">
-            {translate('upload.noFile')}
-          </p>
-        ) : null}
+      <div className="df-upload-picker">
+        <div className="df-field">
+          <label className="df-field__label" htmlFor={`${fieldId}-file`}>
+            {translate('upload.pick')}
+          </label>
+          <input
+            id={`${fieldId}-file`}
+            className="df-field__input"
+            type="file"
+            multiple
+            ref={fileInput}
+            disabled={pending}
+            aria-invalid={attempted && items.length === 0 ? 'true' : undefined}
+            onChange={(event) => {
+              choose(event.target.files);
+            }}
+          />
+        </div>
+        <span className="df-upload-picker__or">{translate('upload.or')}</span>
+        <div className="df-field">
+          <label className="df-field__label" htmlFor={`${fieldId}-directory`}>
+            {translate('upload.pickDirectory')}
+          </label>
+          <input
+            id={`${fieldId}-directory`}
+            className="df-field__input"
+            type="file"
+            multiple
+            {...directoryAttributes}
+            ref={directoryInput}
+            disabled={pending}
+            onChange={(event) => {
+              choose(event.target.files);
+            }}
+          />
+        </div>
       </div>
-
-      <div className="df-field">
-        <label className="df-field__label" htmlFor={`${fieldId}-title`}>
-          {translate('upload.title.label')}
-        </label>
-        <input
-          id={`${fieldId}-title`}
-          className="df-field__input"
-          value={title}
-          disabled={pending}
-          aria-describedby={`${fieldId}-title-help`}
-          aria-invalid={attempted && title.trim() === '' ? 'true' : undefined}
-          onChange={(event) => {
-            setTitle(event.target.value);
-          }}
-        />
-        <p className="df-field__help" id={`${fieldId}-title-help`}>
-          {translate('upload.title.help')}
+      {attempted && items.length === 0 ? (
+        <p className="df-field__error" role="alert">
+          {translate('upload.noFile')}
         </p>
-      </div>
-
-      {pending && progressPercent !== null ? (
-        <>
-          {/* A real progress element with a real value. */}
-          <progress className="df-progress" max={100} value={progressPercent}>
-            {translate('upload.progress', { percent: progressPercent })}
-          </progress>
-          <p className="df-field__help" data-numeric="true">
-            {translate('upload.progress', { percent: progressPercent })}
-          </p>
-        </>
       ) : null}
+
+      {items.length === 0 ? null : (
+        <div className="df-upload-review">
+          <div className="df-upload-review__summary">
+            <div>
+              <h3 className="df-panel__subheading">{translate('upload.review')}</h3>
+              <p className="df-field__help" data-numeric="true">
+                {translate('upload.summary', {
+                  count: items.length,
+                  size: new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(
+                    totalBytes / 1_000_000,
+                  ),
+                })}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="df-button df-button--quiet"
+              disabled={pending}
+              onClick={() => {
+                setItems([]);
+                setPreflightFailure(null);
+                if (fileInput.current !== null) fileInput.current.value = '';
+                if (directoryInput.current !== null) directoryInput.current.value = '';
+              }}
+            >
+              {translate('upload.clear')}
+            </button>
+          </div>
+          <ol className="df-upload-list">
+            {items.map((item) => {
+              const state = states.get(item.id) ?? { kind: 'waiting' as const };
+              return (
+                <li key={item.id} className="df-upload-list__item" data-state={state.kind}>
+                  <div className="df-upload-list__identity">
+                    <span className="df-upload-list__path">{item.relativePath}</span>
+                    <span className="df-register__meta">
+                      {new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(
+                        item.file.size / 1_000_000,
+                      )}{' '}
+                      MB
+                    </span>
+                  </div>
+                  <div className="df-field">
+                    <label className="df-field__label" htmlFor={`${fieldId}-${item.id}`}>
+                      {translate('upload.title.label')}
+                    </label>
+                    <input
+                      id={`${fieldId}-${item.id}`}
+                      className="df-field__input"
+                      value={item.title}
+                      disabled={pending}
+                      aria-invalid={attempted && item.title.trim() === '' ? 'true' : undefined}
+                      onChange={(event) => {
+                        const title = event.target.value;
+                        setItems((current) =>
+                          current.map((candidate) =>
+                            candidate.id === item.id ? { ...candidate, title } : candidate,
+                          ),
+                        );
+                      }}
+                    />
+                  </div>
+                  <div className="df-upload-list__state" aria-live="polite">
+                    {state.kind === 'active' ? (
+                      <>
+                        <progress className="df-progress" max={100} value={state.percent}>
+                          {translate('upload.progress', { percent: state.percent })}
+                        </progress>
+                        <span className="df-field__help" data-numeric="true">
+                          {translate('upload.progress', { percent: state.percent })}
+                        </span>
+                      </>
+                    ) : state.kind === 'failed' ? (
+                      <span className="df-field__error">{state.message}</span>
+                    ) : (
+                      <span
+                        className="df-state"
+                        data-live={state.kind === 'done' ? 'true' : 'false'}
+                      >
+                        {translate(`upload.state.${state.kind}`)}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
 
       <div className="df-panel__actions">
         <button
@@ -166,8 +321,8 @@ export function UploadPanel({
           disabled={pending}
           onClick={() => {
             setAttempted(true);
-            if (file === null || title.trim() === '') return;
-            onUpload({ file, title: title.trim() });
+            if (items.length === 0 || items.some((item) => item.title.trim() === '')) return;
+            onUpload(items.map((item) => ({ ...item, title: item.title.trim() })));
           }}
         >
           {pending ? translate('upload.pending') : translate('upload.submit')}

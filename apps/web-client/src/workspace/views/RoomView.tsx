@@ -38,7 +38,12 @@ import { SectionNav } from '../../components/SectionNav.tsx';
 import { StructureControls } from '../../components/StructureControls.tsx';
 import { StructureTable } from '../../components/StructureTable.tsx';
 import { TrashView } from '../../components/TrashView.tsx';
-import { UploadPanel, planParts } from '../../components/UploadPanel.tsx';
+import {
+  UploadPanel,
+  planParts,
+  type UploadItem,
+  type UploadItemState,
+} from '../../components/UploadPanel.tsx';
 import type { SectionTab } from '../../contract.ts';
 import { translate } from '../../i18n/translate.ts';
 import { presentFailure, type PresentedFailure } from '../failures.ts';
@@ -89,22 +94,28 @@ const CORE_ROOM_TABS = [
     order: 10,
   },
   {
+    id: 'upload',
+    scope: 'room',
+    label: () => translate('workspace.tab.upload'),
+    order: 20,
+  },
+  {
     id: 'participants',
     scope: 'room',
     label: () => translate('workspace.tab.participants'),
-    order: 20,
+    order: 30,
   },
   {
     id: 'processing',
     scope: 'room',
     label: () => translate('workspace.tab.processing'),
-    order: 30,
+    order: 40,
   },
   {
     id: 'exports',
     scope: 'room',
     label: () => translate('workspace.tab.exports'),
-    order: 40,
+    order: 50,
   },
 ] as const satisfies readonly SectionTab[];
 
@@ -140,9 +151,11 @@ export function RoomView({
     readonly total: number;
   } | null>(null);
   const [uploadPending, setUploadPending] = useState(false);
-  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [uploadStates, setUploadStates] = useState<ReadonlyMap<string, UploadItemState>>(
+    new Map(),
+  );
   const [uploadFailure, setUploadFailure] = useState<PresentedFailure | null>(null);
-  const [uploadDone, setUploadDone] = useState(false);
+  const [uploadDoneCount, setUploadDoneCount] = useState(0);
   const uploadAbort = useRef<AbortController | null>(null);
 
   /*
@@ -368,58 +381,78 @@ export function RoomView({
   };
 
   /**
-   * Intent, then sequential part transfer, then finalize.
-   *
-   * A cancelled or failed transfer finalizes NOTHING: the server reaps the
-   * abandoned intent rather than assembling a partial object, so an interrupted
-   * upload cannot produce a half document.
+   * Uploads a reviewed queue sequentially. Each file keeps its own result, so one
+   * rejected source cannot make already-quarantined files look absent or turn a
+   * partial batch into a false all-or-nothing success.
    */
-  const upload = (input: { readonly file: File; readonly title: string }): void => {
+  const upload = (items: readonly UploadItem[]): void => {
     const controller = new AbortController();
     uploadAbort.current = controller;
     setUploadPending(true);
-    setUploadPercent(0);
     setUploadFailure(null);
-    setUploadDone(false);
-    const plan = planParts(input.file.size);
+    setUploadDoneCount(0);
+    setUploadStates(new Map(items.map((item) => [item.id, { kind: 'waiting' } as const])));
+
     void (async () => {
-      try {
-        const intent = await createUploadIntent({
-          roomId,
-          displayTitle: input.title,
-          originalFilename: input.file.name,
-          declaredMediaType:
-            input.file.type === '' ? 'application/octet-stream' : input.file.type,
-          declaredSize: input.file.size,
-          parts: plan,
-        });
-        const parts = await transferParts({
-          file: input.file,
-          intent,
-          plan,
-          signal: controller.signal,
-          onProgress: setUploadPercent,
-        });
-        await finalizeUpload({
-          intentId: intent.intentId,
-          uploadId: intent.uploadId,
-          parts,
-        });
-        setUploadPending(false);
-        setUploadPercent(null);
-        setUploadDone(true);
-        onStatus(translate('upload.done'));
-        refreshWorkspace();
-        if (currentId === 'processing') processingSection.refresh(roomId);
-      } catch (error: unknown) {
-        setUploadPending(false);
-        setUploadPercent(null);
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          onStatus(translate('upload.cancelled'));
-          return;
+      let completed = 0;
+      for (const item of items) {
+        if (controller.signal.aborted) break;
+        const plan = planParts(item.file.size);
+        setUploadStates((current) =>
+          new Map(current).set(item.id, { kind: 'active', percent: 0 }),
+        );
+        try {
+          const intent = await createUploadIntent({
+            roomId,
+            displayTitle: item.title,
+            originalFilename: item.file.name,
+            declaredMediaType:
+              item.file.type === '' ? 'application/octet-stream' : item.file.type,
+            declaredSize: item.file.size,
+            parts: plan,
+          });
+          const parts = await transferParts({
+            file: item.file,
+            intent,
+            plan,
+            signal: controller.signal,
+            onProgress: (percent) => {
+              setUploadStates((current) =>
+                new Map(current).set(item.id, { kind: 'active', percent }),
+              );
+            },
+          });
+          await finalizeUpload({ intentId: intent.intentId, uploadId: intent.uploadId, parts });
+          completed += 1;
+          setUploadDoneCount(completed);
+          setUploadStates((current) => new Map(current).set(item.id, { kind: 'done' }));
+        } catch (error: unknown) {
+          if (error instanceof DOMException && error.name === 'AbortError') break;
+          const presented = presentFailure(error);
+          setUploadStates((current) =>
+            new Map(current).set(item.id, { kind: 'failed', message: presented.body }),
+          );
         }
-        setUploadFailure(presentFailure(error));
       }
+
+      setUploadPending(false);
+      uploadAbort.current = null;
+      if (controller.signal.aborted) {
+        setUploadStates((current) => {
+          const next = new Map(current);
+          for (const item of items) {
+            const state = next.get(item.id);
+            if (state?.kind === 'waiting' || state?.kind === 'active')
+              next.set(item.id, { kind: 'cancelled' });
+          }
+          return next;
+        });
+        onStatus(translate('upload.cancelled'));
+        return;
+      }
+      onStatus(translate('upload.batchDone', { count: completed, total: items.length }));
+      refreshWorkspace();
+      if (currentId === 'processing') processingSection.refresh(roomId);
     })();
   };
 
@@ -517,7 +550,7 @@ export function RoomView({
       )}
 
       <SectionNav
-        label={translate('workspace.tabs.label')}
+        label={translate('workspace.supporting.label')}
         sections={sections}
         currentId={currentId}
         onSelect={onSectionChange}
@@ -671,20 +704,6 @@ export function RoomView({
             />
           </section>
 
-          <UploadPanel
-            pending={uploadPending}
-            progressPercent={uploadPercent}
-            failure={uploadFailure}
-            done={uploadDone}
-            onUpload={upload}
-            onCancel={() => {
-              uploadAbort.current?.abort();
-            }}
-            onReload={() => {
-              refreshWorkspace();
-            }}
-          />
-
           <TrashView
             trash={workspace.value.trash}
             retentionDays={workspace.value.retentionDays}
@@ -693,6 +712,22 @@ export function RoomView({
             onRestore={restore}
           />
         </>
+      ) : null}
+
+      {currentId === 'upload' ? (
+        <UploadPanel
+          pending={uploadPending}
+          states={uploadStates}
+          failure={uploadFailure}
+          doneCount={uploadDoneCount}
+          onUpload={upload}
+          onCancel={() => {
+            uploadAbort.current?.abort();
+          }}
+          onReload={() => {
+            refreshWorkspace();
+          }}
+        />
       ) : null}
 
       {currentId === 'participants' ? (

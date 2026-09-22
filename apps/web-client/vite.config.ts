@@ -20,6 +20,27 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
+    manifest: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'member',
+              test: /apps\/web-client\/src\/(?:routes\/Workspace|workspace|components\/(?:Member|Ownership|NewRoom|OpenRoom|Room|Structure|Upload|Processing|Exports|Installation|Status|Counterparty|Participants|Grant|DownloadOverride|Publication|Trash))/u,
+            },
+            {
+              name: 'viewer',
+              test: /apps\/web-client\/src\/(?:routes\/ViewerReadingRoom|viewer|components\/(?:PageReader|FindBar|DownloadPanel|LinkInterstitial))/u,
+            },
+            {
+              name: 'authentication',
+              test: /apps\/web-client\/src\/(?:routes\/(?:MemberSignIn|ViewerSignIn)|auth|components\/(?:AuthSheet|SupportLine))/u,
+            },
+          ],
+        },
+      },
+    },
     // A predictable asset prefix lets the static handler distinguish a genuine
     // 404 on a build asset from a client-side route.
     assetsDir: 'assets',

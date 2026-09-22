@@ -322,7 +322,8 @@ test.describe('structure controls and bulk selection', () => {
       withProcessing: [{ title: 'First document', state: 'quarantine' }],
     });
     await expect(page.getByRole('button', { name: 'New folder' })).toBeVisible();
-    await expect(page.getByText('Dragging is not required')).toBeVisible();
+    await page.getByRole('button', { name: 'Reorder collection' }).click();
+    await expect(page.getByText(/Reorder mode is active/u)).toBeVisible();
     // No draggable element exists on this surface at all.
     expect(await page.locator('[draggable="true"]').count()).toBe(0);
   });
@@ -357,17 +358,16 @@ test.describe('structure controls and bulk selection', () => {
       withProcessing: [{ title: 'Editable document', state: 'quarantine' }],
     });
     const row = page.getByRole('row', { name: /Editable document/u });
+    await row.getByRole('button', { name: /Manage Editable document/u }).click();
     await row.getByRole('button', { name: /Edit title and description/u }).click();
     await expect(page.getByLabel('Title of this document')).toHaveValue('Editable document');
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await row.getByRole('button', { name: /^Move Editable document$/u }).click();
+    await row.getByRole('button', { name: /^Move$/u }).click();
     await expect(page.getByLabel('Destination folder')).toBeVisible();
     await expect(page.getByLabel('Position among siblings')).toBeVisible();
   });
 
-  test('navigates to entry and focuses row when clicking collection rail entry', async ({
-    page,
-  }) => {
+  test('keeps folders as non-interactive context in the collection rail', async ({ page }) => {
     await openRoom(page, {
       roomTitle: 'Rail navigation room',
       roomRole: 'manager',
@@ -379,23 +379,14 @@ test.describe('structure controls and bulk selection', () => {
     await expect(page.getByRole('row', { name: /Financials/ })).toBeVisible();
 
     // Click on another section (Access) to leave structure
-    await page.getByRole('button', { name: 'Access' }).click();
+    await page.getByRole('button', { name: 'Access', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
 
-    // Click the folder in the collection rail
+    // Folders are context in the finding aid, not inert buttons.
     const rail = page.getByRole('navigation', { name: 'Collection' });
-    const railFolder = rail.getByRole('button', { name: 'Financials' });
-    await expect(railFolder).toBeVisible();
-    await railFolder.click();
-
-    // Switched back to Structure section and rail entry has aria-current
-    await expect(railFolder).toHaveAttribute('aria-current', 'true');
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Rail navigation room' }),
-    ).toBeVisible();
-    await expect(page.getByText('Dragging is not required')).toBeVisible();
-    await expect(page.getByRole('row', { name: /Financials/ })).toBeVisible();
-    await expect(page.getByRole('row', { name: /Financials/ })).toBeFocused();
+    await expect(rail.getByText('Financials', { exact: true })).toBeVisible();
+    await expect(rail.getByRole('button', { name: 'Financials' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
   });
 });
 
