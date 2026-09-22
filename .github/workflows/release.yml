@@ -37,7 +37,9 @@ jobs:
           conclusion="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&branch=main&status=completed&per_page=100" --jq '.workflow_runs | map(select(.event == "push" and .conclusion == "success")) | first | .conclusion // ""')"
           test "$conclusion" = success
       # Repeat deterministic source checks even though this exact commit must
-      # already have a green CI run; a tag never becomes an unchecked path.
+      # already have a green CI run; a tag never becomes an unchecked path. The
+      # unit suite runs real sandboxes, so the runner needs the same setup as CI.
+      - run: bash .github/scripts/setup-sandbox.sh
       - run: npm run verify
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
