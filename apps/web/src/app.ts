@@ -51,6 +51,8 @@ export interface WebDependencies {
    * ignored and request.ip is the direct socket address.
    */
   readonly trustProxy?: TrustProxyOption;
+  /** Exact cross-origin object-storage origin used only for presigned upload PUTs. */
+  readonly uploadOrigin?: string;
   /** Production readiness probes. Every composition supplies the complete,
    * fail-closed dependency set; tests must do the same explicitly. */
   readonly readiness: ReadinessDependencies;
@@ -317,7 +319,10 @@ export async function buildWebApp(dependencies: WebDependencies) {
         // Fonts are self-hosted from this origin; a third-party font request
         // would disclose viewer activity.
         fontSrc: ["'self'"],
-        connectSrc: ["'self'"],
+        connectSrc: [
+          "'self'",
+          ...(dependencies.uploadOrigin === undefined ? [] : [dependencies.uploadOrigin]),
+        ],
         imgSrc: ["'self'", 'data:'],
         objectSrc: ["'none'"],
         baseUri: ["'none'"],

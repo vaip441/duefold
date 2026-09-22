@@ -536,10 +536,26 @@ describe('principal audience and CSRF matrix', () => {
     await incompatible.close();
   });
 
+  it('allows only the configured upload origin in connect-src', async () => {
+    const uploadOrigin = 'https://duefold.account.r2.cloudflarestorage.com';
+    const app = await buildTestWebApp({
+      runtime,
+      authenticate: () => Promise.resolve(null),
+      uploadOrigin,
+    });
+    const response = await app.inject({ method: 'GET', url: '/api/health/live' });
+    const policy = response.headers['content-security-policy'];
+    expect(policy).toContain(`connect-src 'self' ${uploadOrigin}`);
+    expect(policy).not.toContain('*.r2.cloudflarestorage.com');
+    await app.close();
+  });
+
   it('sets strict security and no-store headers', async () => {
     const response = await unauthenticated.inject({ method: 'GET', url: '/api/health/live' });
     expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.headers['content-security-policy']).toContain("script-src 'self'");
+    expect(response.headers['content-security-policy']).toContain("connect-src 'self'");
+    expect(response.headers['content-security-policy']).not.toContain('cloudflarestorage.com');
     expect(response.headers['content-security-policy']).not.toContain("'unsafe-inline'");
   });
 });

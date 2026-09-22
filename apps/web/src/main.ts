@@ -132,16 +132,19 @@ try {
       ? { resendApiKey: config['DUEFOLD_RESEND_API_KEY'] }
       : {}),
   });
+  const storageEndpoint = new URL(stringConfig(config, 'DUEFOLD_STORAGE_ENDPOINT'));
+  const storageBucket = stringConfig(config, 'DUEFOLD_STORAGE_BUCKET');
+  const storagePathStyle = config['DUEFOLD_STORAGE_PATH_STYLE'] === true;
   const storage = createWebStorage(
     webStorageConfig({
-      endpoint: stringConfig(config, 'DUEFOLD_STORAGE_ENDPOINT'),
+      endpoint: storageEndpoint.href,
       region: stringConfig(config, 'DUEFOLD_STORAGE_REGION'),
-      bucket: stringConfig(config, 'DUEFOLD_STORAGE_BUCKET'),
+      bucket: storageBucket,
       credentials: {
         accessKeyId: stringConfig(config, 'DUEFOLD_STORAGE_WEB_ACCESS_KEY_ID'),
         secretAccessKey: stringConfig(config, 'DUEFOLD_STORAGE_WEB_SECRET_ACCESS_KEY'),
       },
-      pathStyle: config['DUEFOLD_STORAGE_PATH_STYLE'] === true,
+      pathStyle: storagePathStyle,
       checksumSupport: config['DUEFOLD_STORAGE_CHECKSUM_SUPPORT'] === true,
     }),
   );
@@ -219,6 +222,9 @@ try {
   startupStage = 'application';
   const app = await buildWebApp({
     runtime,
+    uploadOrigin: storagePathStyle
+      ? storageEndpoint.origin
+      : `${storageEndpoint.protocol}//${storageBucket}.${storageEndpoint.host}`,
     readiness: {
       database: pool,
       extensions: [
