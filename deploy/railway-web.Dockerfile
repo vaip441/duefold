@@ -33,7 +33,10 @@ WORKDIR /srv/duefold
 
 COPY deploy/debian-snapshot.sources /etc/apt/sources.list.d/debian.sources
 
+# Upgrade the base image's own packages from the same pinned snapshot, so the
+# image carries the snapshot's security fixes rather than the base image's.
 RUN apt-get update \
+  && apt-get upgrade --yes --with-new-pkgs --no-install-recommends \
   && apt-get install --yes --no-install-recommends \
     bubblewrap \
     fonts-noto-cjk \
@@ -51,7 +54,10 @@ COPY package.json package-lock.json ./
 COPY --from=build /srv/duefold/apps ./apps
 COPY --from=build /srv/duefold/modules ./modules
 COPY --from=build /srv/duefold/packages ./packages
-RUN npm ci --omit=dev
+# The services run node directly; npm and its bundled dependencies are not needed
+# at runtime, so they are removed rather than shipped.
+RUN npm ci --omit=dev \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /srv/duefold/.duefold ./.duefold
 COPY --from=build /srv/duefold/composition*.manifest.json ./
 COPY --from=build /srv/duefold/deploy/image-smoke.ts ./deploy/image-smoke.ts

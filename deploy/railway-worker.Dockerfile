@@ -29,7 +29,10 @@ COPY deploy/debian-snapshot.sources /etc/apt/sources.list.d/debian.sources
 #   imagemagick   raster branding and watermark composition
 #   bubblewrap    retained so this image still works on a capable host
 #   util-linux    setpriv, which drops privileges in both modes
+# Upgrade the base image's own packages from the same pinned snapshot, so the
+# image carries the snapshot's security fixes rather than the base image's.
 RUN apt-get update \
+  && apt-get upgrade --yes --with-new-pkgs --no-install-recommends \
   && apt-get install --yes --no-install-recommends \
     bubblewrap \
     fonts-noto-cjk \
@@ -48,7 +51,10 @@ COPY deploy/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
 WORKDIR /srv/duefold
 COPY . .
-RUN npm ci --omit=dev
+# The services run node directly; npm and its bundled dependencies are not needed
+# at runtime, so they are removed rather than shipped.
+RUN npm ci --omit=dev \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Invariant 17: an omitted module must be ABSENT from the artifact, not merely
 # unreachable. This generates the registries and then deletes the source of every

@@ -27,7 +27,10 @@ COPY deploy/debian-snapshot.sources /etc/apt/sources.list.d/debian.sources
 #   imagemagick   raster branding and watermark composition
 #   bubblewrap    the unprivileged sandbox itself
 #   util-linux    setpriv, used to drop capabilities before exec
+# Upgrade the base image's own packages from the same pinned snapshot, so the
+# image carries the snapshot's security fixes rather than the base image's.
 RUN apt-get update \
+  && apt-get upgrade --yes --with-new-pkgs --no-install-recommends \
   && apt-get install --yes --no-install-recommends \
     bubblewrap \
     fonts-noto-cjk \
@@ -46,7 +49,10 @@ COPY deploy/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
 WORKDIR /srv/duefold
 COPY . .
-RUN npm ci --omit=dev
+# The services run node directly; npm and its bundled dependencies are not needed
+# at runtime, so they are removed rather than shipped.
+RUN npm ci --omit=dev \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # The composed registry is a build-time artifact: an omitted module must be absent
 # from the image, not merely disabled at runtime. `prune` verifies the registries
