@@ -58,6 +58,14 @@ export const workerPool = new Pool({
   max: 4,
 });
 
+/*
+ * A killed idle connection makes `pg` emit `error` on the pool, and an unlistened emitter
+ * ends the test process. A suite that injects database faults must not take the run with it,
+ * and the product's pools carry the same listener for the same reason.
+ */
+for (const pool of [bootstrapPool, migrationPool, databasePool, authPool, workerPool])
+  pool.on('error', () => undefined);
+
 /** Drops and re-migrates `public`, so a suite starts from the declared schema. */
 export async function resetSchema(): Promise<void> {
   await bootstrapPool.query(

@@ -1,4 +1,3 @@
-import { Pool } from 'pg';
 import { fileURLToPath } from 'node:url';
 import {
   discoverOidc,
@@ -6,6 +5,7 @@ import {
 } from '../../../modules/core-security/src/auth/oidc.ts';
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
 import { systemClock } from '@duefold/shared/clock';
+import { createResilientPool } from '@duefold/shared/database-pool';
 import { installProcessFailureHandlers } from '@duefold/shared/process-errors';
 import { loadConfig } from '../../../modules/core-security/src/config.ts';
 import { appendAudit } from '../../../modules/core-security/src/audit.ts';
@@ -104,8 +104,13 @@ try {
   });
   const oidcDiscoveryConformedAt = new Date();
   startupStage = 'database';
-  const pool = new Pool({ connectionString: databaseUrl, application_name: 'duefold-web' });
-  const authPool = new Pool({
+  const pool = createResilientPool({
+    role: 'runtime',
+    connectionString: databaseUrl,
+    application_name: 'duefold-web',
+  });
+  const authPool = createResilientPool({
+    role: 'authenticator',
     connectionString: authenticatorDatabaseUrl,
     application_name: 'duefold-authenticator',
   });

@@ -1,6 +1,6 @@
-import { Pool } from 'pg';
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
 import { systemClock } from '@duefold/shared/clock';
+import { createResilientPool } from '@duefold/shared/database-pool';
 import { installProcessFailureHandlers } from '@duefold/shared/process-errors';
 import { loadConfig } from '../../../modules/core-security/src/config.ts';
 import { createConfiguredMailer } from '../../../modules/core-security/src/auth/mail.ts';
@@ -81,7 +81,8 @@ try {
           'untrusted document parsing runs as a separate unprivileged uid without filesystem or network isolation',
       })}\n`,
     );
-  const pool = new Pool({
+  const pool = createResilientPool({
+    role: 'worker',
     connectionString: stringConfig(config, 'DUEFOLD_WORKER_DATABASE_URL'),
     application_name: 'duefold-worker',
   });

@@ -1,4 +1,9 @@
-const TELEMETRY_EVENTS = ['request.failed', 'process.failure', 'auth.oidc.refused'] as const;
+const TELEMETRY_EVENTS = [
+  'request.failed',
+  'process.failure',
+  'auth.oidc.refused',
+  'database.connection.lost',
+] as const;
 const TELEMETRY_CODES = [
   'REQUEST_FAILED',
   'PROCESS_FAILED',
@@ -29,9 +34,29 @@ const TELEMETRY_CODES = [
   'MEMBER_INVITATION_REQUIRED',
   'BOOTSTRAP_IDENTITY_NOT_ALLOWED',
   'OWNER_ALREADY_EXISTS',
+  /*
+   * A lost database connection reports the SQLSTATE the driver gave and nothing else. The
+   * class is what an operator acts on — an administrator command, a crash, an idle timeout —
+   * and a `pg` error object carries the connection parameters, so it is never emitted.
+   */
+  '57P01',
+  '57P02',
+  '57P03',
+  '08006',
+  '08003',
+  'UNKNOWN',
 ] as const;
 const TELEMETRY_LEVELS = ['info', 'warn', 'error'] as const;
 const TELEMETRY_SERVICES = ['web', 'worker', 'cli'] as const;
+/** Which credential a pool holds. Not free text: an operator matches it to a role grant. */
+const TELEMETRY_ROLES = [
+  'runtime',
+  'authenticator',
+  'worker',
+  'migration',
+  'probe',
+  'failure-injection',
+] as const;
 const TELEMETRY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const;
 const TELEMETRY_STAGES = ['config', 'oidc', 'database', 'application', 'listen'] as const;
 
@@ -71,6 +96,7 @@ export function allowlistedTelemetry(value: unknown): TelemetryRecord {
   if (isOneOf(value['method'], TELEMETRY_METHODS)) output['method'] = value['method'];
   if (isOneOf(value['service'], TELEMETRY_SERVICES)) output['service'] = value['service'];
   if (isOneOf(value['stage'], TELEMETRY_STAGES)) output['stage'] = value['stage'];
+  if (isOneOf(value['role'], TELEMETRY_ROLES)) output['role'] = value['role'];
   if (
     typeof value['version'] === 'string' &&
     /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/u.test(value['version'])

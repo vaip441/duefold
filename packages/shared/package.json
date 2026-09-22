@@ -15,6 +15,7 @@
     "./support-contact": "./src/support-contact.ts",
     "./brand-mark": "./src/brand-mark.ts",
     "./process-errors": "./src/process-errors.ts",
+    "./database-pool": "./src/database-pool.ts",
     "./ordering": "./src/ordering.ts",
     "./assert": "./src/assert.ts"
   }

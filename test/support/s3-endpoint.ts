@@ -217,6 +217,14 @@ function keyFrom(url: URL, bucket: string): string | undefined {
 export interface S3TestEndpointOptions {
   /** What `GetBucketVersioning` answers. A bucket with versioning enabled by default. */
   readonly versioning?: 'Enabled' | 'Suspended' | 'absent' | 'not-implemented';
+  /**
+   * Injects a storage fault before the endpoint answers, so a caller's timeout and retry
+   * behaviour can be exercised against something that really does not answer.
+   *
+   * `stall` accepts the request and never responds; `reset` destroys the socket mid-request.
+   * Returning undefined answers normally. The default injects nothing.
+   */
+  readonly fault?: (request: IncomingMessage) => 'stall' | 'reset' | undefined;
 }
 
 export async function startS3TestEndpoint(
@@ -230,6 +238,13 @@ export async function startS3TestEndpoint(
   const objects = new Map<string, Stored>();
   const server: Server = createServer((request, response) => {
     void (async () => {
+      const injected = options.fault?.(request);
+      if (injected === 'stall') return;
+      if (injected === 'reset') {
+        request.destroy();
+        response.destroy();
+        return;
+      }
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
       if (!authorized(request, url, accessKeyId, secretAccessKey)) {
         xml(response, 403, '<Error><Code>SignatureDoesNotMatch</Code></Error>');
