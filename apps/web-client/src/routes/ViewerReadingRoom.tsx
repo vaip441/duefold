@@ -330,10 +330,10 @@ export function ViewerReadingRoom({
   // Depth for the finding-aid indent, derived from the parent chain the server
   // disclosed. An entry whose parent is not in the response is a grant root and
   // sits at depth 0.
+  const byResource = new Map(entries.map((item) => [item.resourceId, item]));
   const depthOf = (entry: ViewerEntry): number => {
     let depth = 0;
     let parent = entry.parentFolderId;
-    const byResource = new Map(entries.map((item) => [item.resourceId, item]));
     while (parent !== null) {
       const next = byResource.get(parent);
       if (next === undefined) break;
@@ -588,7 +588,10 @@ export function ViewerReadingRoom({
             }}
           />
 
-          {activityId === null ? (
+          {/* Selecting another document renders once with the previous document's
+              metadata and activity before they reset; without the id check that
+              render requests a page of the new document it has no activity for. */}
+          {activityId === null || openDocument.documentId !== openDocumentId ? (
             <p className="df-field__help">{translate('viewer.document.loading')}</p>
           ) : (
             <PageReader

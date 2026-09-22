@@ -46,6 +46,30 @@ export interface PageReaderProps {
   readonly onUnauthorized: () => void;
 }
 
+type ProtectedPage = Awaited<ReturnType<typeof createProtectedPage>>;
+
+/*
+ * Composing a watermarked page is the slow step, so the next page is composed
+ * while the current one is read. Composition records nothing: evidence is
+ * written only when the image is delivered. An in-flight composition is shared
+ * with a reader who arrives at that page before it finishes, and a settled one
+ * is dropped so the next request goes back to the server, which reuses the
+ * composed page and rechecks access.
+ */
+function composeProtectedPage(
+  composing: Map<string, Promise<ProtectedPage>>,
+  input: { readonly roomId: string; readonly documentId: string; readonly pageNumber: number },
+): Promise<ProtectedPage> {
+  const key = `${input.roomId}/${input.documentId}/${String(input.pageNumber)}`;
+  const inFlight = composing.get(key);
+  if (inFlight !== undefined) return inFlight;
+  const request = createProtectedPage(input).finally(() => {
+    composing.delete(key);
+  });
+  composing.set(key, request);
+  return request;
+}
+
 type PageState =
   | { readonly kind: 'loading' }
   | {
@@ -71,6 +95,7 @@ export function PageReader({
   const [attempt, setAttempt] = useState(0);
   const captionId = useId();
   const currentMatchRef = useRef<HTMLSpanElement | null>(null);
+  const composing = useRef(new Map<string, Promise<ProtectedPage>>());
 
   /*
    * The parent callbacks are held in refs and deliberately NOT effect
@@ -93,33 +118,25 @@ export function PageReader({
     textLayerSink.current(null);
 
     /*
-     * Order matters: the cache object is created first, because the delivery
-     * endpoint requires both a cache id and the activity id. The text layer is
-     * fetched alongside and is allowed to fail independently -- a page with no
-     * extractable text still renders as an image with its accessible label.
+     * The cache object must exist before the image is requested, because the
+     * delivery endpoint requires both a cache id and the activity id. The text
+     * layer does not depend on it and is fetched in parallel.
+     *
+     * Only a SUCCESSFUL text response carrying no items is the designed
+     * extraction-failure state. Substituting null for a rejected text request
+     * turned 401, 403, and 500 into an apparently readable page with a fallback
+     * label, hiding revocation and real faults from the viewer, so a text failure
+     * fails the page.
      *
      * The abort signal is the single cancellation source; a separate boolean flag
      * would be a second source of truth that can disagree with it.
      */
     void (async () => {
       try {
-        const page = await createProtectedPage({ roomId, documentId, pageNumber });
-        if (isAborted(signal)) return;
-        let layer: TextLayer | null = null;
-        try {
-          layer = await loadTextLayer({ roomId, documentId, pageNumber }, signal);
-        } catch (error) {
-          if (error instanceof DOMException && error.name === 'AbortError') return;
-          /*
-           * Only a SUCCESSFUL response carrying no items is the designed
-           * extraction-failure state. Substituting null for every rejection
-           * turned 401, 403, and 500 into an apparently readable page with a
-           * fallback label, hiding revocation and real faults from the viewer.
-           * Rethrow so the outer handler routes access loss to the sink and
-           * everything else to the failure state.
-           */
-          throw error;
-        }
+        const [page, layer] = await Promise.all([
+          composeProtectedPage(composing.current, { roomId, documentId, pageNumber }),
+          loadTextLayer({ roomId, documentId, pageNumber }, signal),
+        ]);
         if (isAborted(signal)) return;
         setState({
           kind: 'ready',
@@ -127,6 +144,14 @@ export function PageReader({
           layer,
         });
         textLayerSink.current(layer);
+        // A failed read-ahead is not reported: arriving at that page retries it
+        // and surfaces any failure there.
+        if (pageNumber < totalPages)
+          void composeProtectedPage(composing.current, {
+            roomId,
+            documentId,
+            pageNumber: pageNumber + 1,
+          }).catch(() => undefined);
       } catch (error) {
         if (isAborted(signal)) return;
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -150,7 +175,7 @@ export function PageReader({
     return () => {
       controller.abort();
     };
-  }, [roomId, documentId, pageNumber, activityId, attempt]);
+  }, [roomId, documentId, pageNumber, totalPages, activityId, attempt]);
 
   // Bring the current find match into view without animating a potentially
   // keyboard-repeated focus jump.

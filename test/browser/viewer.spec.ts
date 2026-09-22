@@ -200,6 +200,40 @@ test.describe('viewer reading room', () => {
     await expect(next).toBeDisabled();
   });
 
+  test('composes the next page ahead without delivering it, and reuses composed pages', async ({
+    page,
+  }) => {
+    const composed: { readonly page: number; readonly cacheId: string }[] = [];
+    let delivered = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/viewer/pages/image') delivered += 1;
+    });
+    page.on('response', async (response) => {
+      if (new URL(response.url()).pathname !== '/api/viewer/pages/cache') return;
+      const { pageNumber } = response.request().postDataJSON() as { pageNumber: number };
+      const { cacheId } = (await response.json()) as { cacheId: string };
+      composed.push({ page: pageNumber, cacheId });
+    });
+    await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await expect.poll(() => composed.map((entry) => entry.page)).toEqual([1, 2]);
+    expect(delivered).toBe(1);
+
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.locator('.df-page__caption')).toContainText('Page 2 of 2');
+    await expect.poll(() => delivered).toBe(2);
+    await page.getByRole('button', { name: 'Previous page' }).click();
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await expect.poll(() => composed.map((entry) => entry.page)).toEqual([1, 2, 2, 1, 2]);
+    for (const pageNumber of [1, 2])
+      expect(
+        new Set(composed.filter((entry) => entry.page === pageNumber).map((e) => e.cacheId))
+          .size,
+        `page ${String(pageNumber)} composed once`,
+      ).toBe(1);
+  });
+
   test('refuses a denied download policy without offering the control', async ({ page }) => {
     await signIn(page, { downloadPolicy: 'deny' });
     await openDocument(page);

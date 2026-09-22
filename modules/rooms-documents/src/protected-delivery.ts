@@ -168,6 +168,14 @@ export async function createWatermarkedPage(input: {
   readonly pageNumber: number;
   readonly isolation?: SandboxIsolation;
 }): Promise<{ readonly cacheId: string; readonly expiresAt: Date }> {
+  const reusable = (
+    await input.pool.query<{ cache_id: string; expires_at: Date }>(
+      'SELECT * FROM find_active_watermark_cache($1,$2,$3,$4)',
+      [sessionProof(input.identity), input.roomId, input.documentId, input.pageNumber],
+    )
+  ).rows[0];
+  if (reusable !== undefined)
+    return { cacheId: reusable.cache_id, expiresAt: reusable.expires_at };
   const cacheId = createOpaqueId();
   const objectKey = `watermarks/${createOpaqueId()}/${createOpaqueId()}`;
   const selected = (

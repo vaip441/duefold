@@ -62,6 +62,12 @@ const UNIFORM_MESSAGE = new Map<number, string>([
 const FRESH_OIDC_MARKER = 'fresh OIDC required';
 const FRESH_OIDC_APPLICATION_ERROR = 'FRESH_OIDC_REQUIRED';
 
+/*
+ * The protected-page functions return nothing both for a page that does not exist
+ * and for one the viewer may not see, so one non-enumerating 404 answers both.
+ */
+const PROTECTED_PAGE_UNAVAILABLE = 'PROTECTED_PAGE_UNAVAILABLE';
+
 function messageOf(error: unknown): string {
   return typeof (error as { message?: unknown }).message === 'string'
     ? (error as { message: string }).message
@@ -77,6 +83,11 @@ export function classifyFailure(error: unknown): ClassifiedFailure | null {
         code: 'FRESH_AUTHENTICATION_REQUIRED',
         message: 'This change needs a fresh sign-in.',
       },
+    };
+  if (messageOf(error) === PROTECTED_PAGE_UNAVAILABLE)
+    return {
+      status: 404,
+      body: { code: 'NOT_FOUND', message: 'The requested resource was not found.' },
     };
   const sqlState =
     typeof (error as { code?: unknown }).code === 'string'

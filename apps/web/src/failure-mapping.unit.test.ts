@@ -75,6 +75,13 @@ describe('failure classification', () => {
     ).toBe(400);
   });
 
+  it('answers an unavailable protected page as not found, whether absent or denied', () => {
+    expect(classifyFailure(new Error('PROTECTED_PAGE_UNAVAILABLE'))).toEqual({
+      status: 404,
+      body: { code: 'NOT_FOUND', message: 'The requested resource was not found.' },
+    });
+  });
+
   it('returns null for a genuine fault so it stays a 500', () => {
     /*
      * The point of the mapping is that a refusal is not a fault. The inverse must

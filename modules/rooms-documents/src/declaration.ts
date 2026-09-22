@@ -249,6 +249,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '025_content_status', file: '025_content_status.sql' },
     { id: '027_upload_structure_attachment', file: '027_upload_structure_attachment.sql' },
     { id: '029_processed_version_draft', file: '029_processed_version_draft.sql' },
+    { id: '030_watermark_cache_reuse', file: '030_watermark_cache_reuse.sql' },
   ],
   jobs: [
     {

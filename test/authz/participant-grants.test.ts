@@ -15,7 +15,11 @@ import {
   canViewerPreviewDocument,
 } from '../../modules/rooms-documents/src/viewer-authorization.ts';
 import { createDownloadLease } from '../../modules/rooms-documents/src/downloads.ts';
-import { readProtectedTextLayer } from '../../modules/rooms-documents/src/protected-delivery.ts';
+import {
+  createWatermarkedPage,
+  readProtectedTextLayer,
+} from '../../modules/rooms-documents/src/protected-delivery.ts';
+import { sandboxProgram } from '../../modules/rooms-documents/src/processing/sandbox.ts';
 import {
   readViewerDocumentMetadata,
   readViewerRooms,
@@ -2239,6 +2243,88 @@ describe('Participant and allow-only grant boundary', () => {
     ).toBe(1);
   });
 
+  it('reuses an active watermarked page only within the same session, publication, and UTC day', async () => {
+    await createViewerSession(viewerId);
+    const identity = viewerIdentity(viewerId);
+    const beginCache = async (): Promise<string> => {
+      const cacheId = createOpaqueId();
+      await runtimePool.query('SELECT * FROM begin_watermark_cache($1,$2,$3,$4,$5,$6)', [
+        cacheId,
+        identity.sessionProof,
+        roomId,
+        documentId,
+        1,
+        `watermarks/${createOpaqueId()}/${createOpaqueId()}`,
+      ]);
+      return cacheId;
+    };
+    const reusable = async (proof = identity.sessionProof): Promise<string | undefined> =>
+      (
+        await runtimePool.query<{ cache_id: string }>(
+          'SELECT * FROM find_active_watermark_cache($1,$2,$3,$4)',
+          [proof, roomId, documentId, 1],
+        )
+      ).rows[0]?.cache_id;
+
+    const creating = await beginCache();
+    expect(await reusable()).toBeUndefined();
+    await runtimePool.query('SELECT finish_watermark_cache($1,$2)', [
+      creating,
+      identity.sessionProof,
+    ]);
+    expect(await reusable()).toBe(creating);
+    expect(await reusable(viewerIdentity(deniedViewerId).sessionProof)).toBeUndefined();
+
+    // Composition is skipped entirely: storage and the compositor would both fail.
+    await expect(
+      createWatermarkedPage({
+        pool: runtimePool,
+        storage: {
+          getObjectBytes: () => Promise.reject(new Error('storage touched')),
+          streamObjectRange: () => Promise.reject(new Error('storage touched')),
+          putWatermark: () => Promise.reject(new Error('storage touched')),
+          putExport: () => Promise.reject(new Error('storage touched')),
+          deleteObject: () => Promise.reject(new Error('storage touched')),
+        },
+        watermarkProgram: sandboxProgram('/nonexistent/compositor'),
+        identity,
+        roomId,
+        documentId,
+        pageNumber: 1,
+      }),
+    ).resolves.toMatchObject({ cacheId: creating });
+
+    await migrationPool.query(
+      'UPDATE watermark_cache SET access_date=access_date-1 WHERE id=$1',
+      [creating],
+    );
+    expect(await reusable()).toBeUndefined();
+    await migrationPool.query(
+      `UPDATE watermark_cache SET access_date=(statement_timestamp() AT TIME ZONE 'UTC')::date,
+         created_at=statement_timestamp()-interval '2 hours',
+         expires_at=statement_timestamp()-interval '1 hour' WHERE id=$1`,
+      [creating],
+    );
+    expect(await reusable()).toBeUndefined();
+
+    const current = await beginCache();
+    await runtimePool.query('SELECT finish_watermark_cache($1,$2)', [
+      current,
+      identity.sessionProof,
+    ]);
+    expect(await reusable()).toBe(current);
+    const previousSession = identity.sessionProof;
+    await createViewerSession(viewerId);
+    expect(await reusable(viewerIdentity(viewerId).sessionProof)).toBeUndefined();
+    expect(await reusable(previousSession)).toBe(current);
+
+    await migrationPool.query('UPDATE watermark_cache SET version_id=$2 WHERE id=$1', [
+      current,
+      unreadyVersionId,
+    ]);
+    expect(await reusable(previousSession)).toBeUndefined();
+  });
+
   it('binds a warm watermark cache to viewer/session and revokes next delivery immediately', async () => {
     const identity = viewerIdentity(directViewerId);
     const cacheId = createOpaqueId();
@@ -2404,6 +2490,7 @@ describe('Participant and allow-only grant boundary', () => {
         ).toBe(false);
     for (const functionName of [
       'begin_watermark_cache(text,text,text,text,integer,text)',
+      'find_active_watermark_cache(text,text,text,integer)',
       'create_download_lease(text,text,text,text,text)',
       'authorize_download_range(text,text,text)',
       'read_presented_viewer_rooms(text)',
