@@ -28,6 +28,9 @@ test.afterAll(async () => {
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 async function scan(page: Page): Promise<void> {
+  // A theme switch runs short colour transitions; contrast sampled mid-transition
+  // measures colours that are never at rest on screen.
+  await page.waitForFunction(() => document.getAnimations().length === 0);
   const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   // Report the rule ids rather than the raw object, so a failure names the
   // criterion instead of dumping a DOM tree.
