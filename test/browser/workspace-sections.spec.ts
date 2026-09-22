@@ -376,7 +376,11 @@ test.describe('structure controls and bulk selection', () => {
     await page.getByRole('button', { name: 'New folder' }).click();
     await page.getByLabel('Folder name').fill('Financials');
     await page.getByRole('button', { name: 'Create folder' }).click();
-    await expect(page.getByRole('row', { name: /Financials/ })).toBeVisible();
+    // Creation is a round trip followed by a workspace reload, which a loaded CI
+    // runner does not always finish inside the default expect timeout.
+    await expect(page.getByRole('row', { name: /Financials/ })).toBeVisible({
+      timeout: 15_000,
+    });
 
     // Click on another section (Access) to leave structure
     await page.getByRole('button', { name: 'Access', exact: true }).click();
