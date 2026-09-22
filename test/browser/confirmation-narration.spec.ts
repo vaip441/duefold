@@ -58,6 +58,8 @@ async function assertConsequenceBeforeField(
   dialog: Locator,
   options: { readonly title: string; readonly phrase: string; readonly consequence: RegExp },
 ): Promise<void> {
+  // The consequence comes from the server's review, which arrives after the dialog opens.
+  await expect(dialog).toContainText(options.consequence);
   const lines = await narration(dialog);
   expect(lines[0], 'the dialog is announced by its accessible name').toContain(
     `dialog "${options.title}"`,
@@ -178,6 +180,7 @@ test.describe('what a reader is told before confirming', () => {
     const dialog = page.getByRole('dialog', { name: 'Schedule a purge of this room' });
 
     /* Nothing typed yet: an error beside an untouched field would be noise. */
+    await expect(dialog.getByRole('textbox')).toBeVisible();
     expect(await narration(dialog), 'an untouched field carries no alert').not.toContainEqual(
       expect.stringMatching(/^- alert:/u),
     );
