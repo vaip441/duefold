@@ -8,8 +8,8 @@ Owns external participants, viewer invitations, allow-only grants, expiry and re
 - [Grant model](src/grant-model.ts) — grant vocabulary and shapes.
 - [Grant operations](src/grant-operations.ts) — server-facing capability operations.
 - [Room settings](src/room-settings.ts) — settings reader, capabilities, room visibility, policies, and counterparties.
-- [Installation settings](src/installation-settings.ts) with its [read route](src/routes/installation.ts) and [download default route](src/routes/installation-download.ts) — the installation-wide original-download default as a reviewed change; see the [installation status HTTP contract](../../docs/installation-status-http-contract.md) and the [installation download suite](../../test/authz/installation-download.test.ts).
-- [Routes](src/routes/) — participant listing/invitation, grant changes, room settings, visibility, policies, and counterparties; see the [room administration HTTP contract](../../docs/room-administration-http-contract.md).
+- [Installation settings](src/installation-settings.ts) with its [read route](src/routes/installation.ts) and [download default route](src/routes/installation-download.ts) — the installation-wide original-download default as a reviewed change, covered by the [installation download suite](../../test/authz/installation-download.test.ts).
+- [Routes](src/routes/) — participant listing/invitation, grant changes, room settings, visibility, policies, and counterparties.
 - [Database functions](migrations/) — authoritative grant and invitation transitions.
 - [Browser API](../../apps/web-client/src/api/participants.ts) and [room settings API](../../apps/web-client/src/api/room-settings.ts)
 - [Browser installation API](../../apps/web-client/src/api/installation.ts), [state](../../apps/web-client/src/workspace/useInstallationSettings.ts) and [panel](../../apps/web-client/src/components/InstallationPanel.tsx)

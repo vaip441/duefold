@@ -24,21 +24,15 @@ export const messages = {
   'app.support.email': 'Contact support',
   'app.support.url': 'Support',
 
-  'shell.landmark.index': 'Collection',
-  'shell.landmark.worktable': 'Worktable',
-  'shell.landmark.notes': 'Access notes',
   'shell.landmark.roomFacts': 'Room',
   'shell.index.heading': 'Collection',
   'shell.index.empty': 'No rooms yet.',
   'shell.index.emptyHelp': 'A room appears here once one is created.',
   'shell.index.toggle': 'Collection',
-  'shell.index.controls': 'Selecting an entry changes the worktable.',
   'shell.notes.heading': 'Access notes',
   'shell.notes.empty': 'Select an item to see who can read it.',
   'shell.worktable.empty': 'Nothing selected.',
   'shell.worktable.emptyHelp': 'Choose an entry in the collection to begin.',
-  /** Worktable heading before a room is open. Names the task, not the product. */
-  'shell.worktable.title': 'Rooms',
   'shell.status.region': 'Status',
   'shell.signOut': 'Sign out',
   'shell.signOutEverywhere': 'Sign out everywhere',
@@ -76,7 +70,6 @@ export const messages = {
   'otp.sent.notice': 'Code requested. Enter it below once it arrives.',
   'otp.code.label': 'Eight-digit code',
   'otp.code.help': 'Enter the code from the email. Digits only.',
-  'otp.code.invalidFormat': 'Enter the eight digits from the email.',
   'otp.code.action': 'Verify code',
   'otp.code.pending': 'Verifying…',
   'otp.code.rejected':
@@ -100,8 +93,6 @@ export const messages = {
   'error.notFound.body': 'That address does not point to anything you can open.',
   'error.expired.title': 'Your session ended',
   'error.expired.body': 'Sign in again to continue.',
-  'error.revoked.title': 'Access has ended',
-  'error.revoked.body': 'Your access to this room has been withdrawn.',
 
   /*
    * Member workspace.
@@ -182,7 +173,6 @@ export const messages = {
   'workspace.change.version': 'New version staged',
   'workspace.change.replace': 'Replaced since publication',
   'workspace.needsVersion': 'No processed version yet, so it cannot be published.',
-  'workspace.depthLimit': 'Folders can be five levels deep. This folder is at the limit.',
 
   'structure.createFolder': 'New folder',
   'structure.createFolder.name': 'Folder name',
@@ -198,29 +188,18 @@ export const messages = {
   'structure.move.submit': 'Move here',
   'structure.moveUp': 'Move up',
   'structure.moveDown': 'Move down',
-  'structure.reorder.help':
-    'Use Move up and Move down, or set a position. Dragging is not required.',
   'structure.reorder.start': 'Reorder collection',
   'structure.reorder.done': 'Finish reordering',
   'structure.reorder.activeHelp':
     'Reorder mode is active. Move items one position at a time, then finish reordering.',
   'structure.manage': 'Manage',
-  'structure.manage.help':
-    'Open Manage for naming, placement, metadata, download policy, and removal.',
   'structure.downloadPolicy': 'Download policy',
   'structure.stageRemoval': 'Stage removal',
   'structure.stageRemoval.help':
     'Draft-only items move to trash immediately. Published items stay visible to viewers until you publish the removal.',
-  'structure.description': 'Edit description',
-  'structure.description.submit': 'Save description',
-  'structure.title.label': 'Title',
   'structure.cancel': 'Cancel',
   'structure.saving': 'Saving…',
-  'structure.stale':
-    'Someone else changed this room. Refresh to see the current structure before saving.',
   'structure.refresh': 'Refresh',
-  'structure.nameConflict':
-    'A folder or document with that name already exists here. Choose a different name.',
   'structure.rejected': 'That change was not accepted. Check the name and try again.',
 
   'publish.action': 'Review and publish',
@@ -238,12 +217,7 @@ export const messages = {
   'publish.confirm.submit': 'Publish now',
   'publish.pending': 'Publishing…',
   'publish.done': 'Published. Viewers now see the current structure.',
-  'publish.failed': 'Publishing did not complete. Nothing was published.',
-  'publish.stale':
-    'The room changed while you were reviewing. Review the new change list before publishing.',
   'publish.freshSignIn': 'Publishing needs a recent sign-in. Sign in again, then publish.',
-  'publish.needsEvidence':
-    'A document in this room has no processed version yet. Publishing is blocked until processing finishes.',
 
   'trash.empty': 'Trash is empty.',
   'trash.retention': 'Items are kept for exactly {days} days, then permanently removed.',
@@ -259,15 +233,12 @@ export const messages = {
   'trash.restore.destination': 'Restore into',
   'trash.restore.submit': 'Restore item',
   'trash.restore.pending': 'Restoring…',
-  'trash.restore.conflict': 'That name is already used in the destination. Choose another.',
 
   'search.label': 'Search this room',
   'search.placeholder': 'Titles and descriptions',
   'search.submit': 'Search',
   'search.pending': 'Searching…',
   'search.empty': 'Nothing in this room matches that search.',
-  'search.results': '{count} result(s).',
-  'search.scope': 'Search covers titles and descriptions in this room only.',
 
   /*
    * Viewer reading room.
@@ -283,24 +254,15 @@ export const messages = {
   'viewer.rooms.loading': 'Loading rooms',
   'viewer.rooms.empty': 'No rooms are shared with you yet.',
   'viewer.rooms.emptyHelp': 'When someone shares a room with this address, it appears here.',
-  'viewer.rooms.open': 'Open room',
-  'viewer.rooms.count': '{count} rooms shared with you.',
   'viewer.index.heading': 'Documents',
   'viewer.index.empty': 'This room has no documents you can read.',
   'viewer.index.emptyHelp': 'Only published documents shared with you appear here.',
   'viewer.structure.loading': 'Loading documents',
-  'viewer.folder': 'Folder',
-  'viewer.document': 'Document',
-  'viewer.document.open': 'Read',
-  'viewer.document.pages': '{count} pages',
   'viewer.document.loading': 'Opening document',
   'viewer.document.unavailable': 'This document is not available to read.',
   'viewer.document.unavailableHelp':
     'It may have been withdrawn, or access may have changed. Ask the person who shared the room.',
   'viewer.document.selectPrompt': 'Choose a document from the collection index.',
-  'viewer.document.selectHelp':
-    'Folders organize the index. Documents open here without repeating the collection as a second table.',
-  'viewer.document.folderPrompt': 'This is a folder. Choose a document inside it to read.',
 
   'viewer.page.caption': 'Page {page} of {total}',
   'viewer.page.loading': 'Loading page {page}',
@@ -308,8 +270,6 @@ export const messages = {
   'viewer.page.retry': 'Load this page again',
   'viewer.page.previous': 'Previous page',
   'viewer.page.next': 'Next page',
-  'viewer.page.jumpLabel': 'Go to page',
-  'viewer.page.jumpSubmit': 'Go',
   'viewer.page.announce': 'Page {page} of {total}.',
   'viewer.page.imageFallback': 'Page {page}. No text could be extracted from this page.',
   'viewer.page.textUnavailable':
@@ -319,30 +279,24 @@ export const messages = {
     'Every page you see is marked with your email address, the date you opened it, and the room name.',
   'viewer.screenshot.honesty':
     'Screenshots, screen recording, and other browser workarounds are outside Duefold’s control. Treat what you read here as confidential.',
-  'viewer.print.unavailable':
-    'Duefold has no print action, and document pages are left out of anything you print from your browser.',
   'viewer.introduction.failed':
     'The room introduction could not be loaded. The document access shown here is unchanged.',
   'viewer.print.omitted': 'Document pages are not included in printed output.',
 
   'viewer.find.label': 'Find on this page',
   'viewer.find.placeholder': 'Text on the current page',
-  'viewer.find.submit': 'Find on page',
   'viewer.find.clear': 'Clear search',
   'viewer.find.next': 'Next match',
   'viewer.find.previous': 'Previous match',
   'viewer.find.none': 'No matches on this page.',
   'viewer.find.count': '{count} matches on this page.',
   'viewer.find.position': 'Match {index} of {count}.',
-  'viewer.find.scope': 'Find searches the page you are reading.',
   'viewer.page.navigation': 'Document pages',
 
   'viewer.link.leaving': 'You are leaving Duefold',
   'viewer.link.destination': 'This link goes to',
   'viewer.link.continue': 'Continue to this site',
   'viewer.link.cancel': 'Stay in Duefold',
-  'viewer.link.inert':
-    'This link could not be checked, so it is shown as plain text and cannot be opened.',
   'viewer.link.resolving': 'Checking this link',
   'viewer.link.failed': 'This link could not be checked. It has not been opened.',
 
@@ -362,7 +316,6 @@ export const messages = {
   'viewer.download.cancel': 'Cancel download',
   'viewer.download.cancelled': 'Download cancelled. Nothing was saved.',
 
-  'viewer.notes.heading': 'What you can do',
   'viewer.revoked': 'Your access to this room has changed. Nothing further is shown.',
   'viewer.expired': 'Your session has ended. Sign in again to keep reading.',
 
@@ -380,12 +333,9 @@ export const messages = {
    * - Irreversible actions say what cannot be undone BEFORE the control.
    */
   /*
-   * NOT "this room": the same 409 reaches member administration, where nothing is a room.
-   *
-   * Mapping SQLSTATE 23505 to 409 gave the member surface this copy, and an Admin inviting
-   * an address that was already invited was told someone had changed a room. The phrasing is
-   * now true of whatever was being changed, which is all a uniform conflict may claim: the
-   * server forwards no wording, so the client cannot name the thing without guessing.
+   * NOT "this room": the same 409 reaches member administration, where nothing is a room,
+   * including an invitation to an address already invited. The server forwards no wording,
+   * so the copy must be true of whatever was being changed.
    */
   'error.conflict.title': 'This changed while you were working',
   'error.conflict.body':
@@ -403,7 +353,6 @@ export const messages = {
   'workspace.tab.processing': 'Processing',
   'workspace.tab.exports': 'Exports',
   'workspace.tab.settings': 'Settings',
-  'workspace.tabs.label': 'Room sections',
   'workspace.tab.rooms': 'Rooms',
   'workspace.tab.members': 'Members',
   'workspace.tab.administration': 'Administration',
@@ -760,20 +709,16 @@ export const messages = {
   'upload.summary': '{count} files · {size} MB',
   'upload.clear': 'Clear queue',
   'upload.title.label': 'Document title',
-  'upload.title.help': 'Readers see this title, not the file name.',
   'upload.submit': 'Upload',
   'upload.pending': 'Uploading\u2026',
   'upload.progress': '{percent}% uploaded',
-  'upload.done': 'Uploaded. Duefold is now checking the file.',
   'upload.doneCount': '{count} files accepted for checking.',
   'upload.batchDone': '{count} of {total} files accepted for checking.',
   'upload.state.waiting': 'Waiting',
   'upload.state.done': 'Accepted',
   'upload.state.cancelled': 'Cancelled',
-  'upload.failed': 'The upload did not finish. Nothing was added.',
   'upload.cancel': 'Cancel upload',
   'upload.cancelled': 'Upload cancelled. Nothing was added.',
-  'upload.tooLarge': 'That file is larger than this installation accepts.',
   'upload.note':
     'Choose files or one directory, then review every title. Each file is scanned and converted before anyone can read it.',
   'upload.noFile': 'Choose one or more files to upload.',
@@ -866,10 +811,7 @@ export const messages = {
   'exports.download': 'Download once',
   'exports.download.pending': 'Downloading\u2026',
   'exports.download.done': 'Downloaded. This export is now used up.',
-  'exports.download.failed': 'The download did not finish. This export may already be used up.',
   'exports.expiry': 'An export expires one hour after it is created.',
-  'exports.freshSignIn':
-    'Creating an export needs a recent sign-in. Sign in again, then retry.',
 
   'bulk.label': 'Select items',
   'bulk.selectAll': 'Select all',
@@ -878,8 +820,6 @@ export const messages = {
   'bulk.none': 'Nothing selected.',
   'bulk.selectRow': 'Select {name}',
   'bulk.action.stageRemoval': 'Stage removal of selected',
-  'bulk.action.move': 'Move selected',
-  'bulk.confirm.stageRemoval': 'Stage removal of {count} selected items?',
   'bulk.pending': 'Applying to {count} selected items…',
   'bulk.partial': '{done} of {total} items changed before an error stopped the rest.',
 
@@ -899,8 +839,6 @@ export const messages = {
   'structure.metadata.pending': 'Saving\u2026',
 
   'status.heading': 'Security and deployment status',
-  'status.intro':
-    'Read-only. Status reports what this installation can observe; it does not configure infrastructure, components, providers or secrets.',
   'status.loading': 'Loading status',
   'status.denied': 'Status is not available to your role.',
   'status.refresh': 'Check again',

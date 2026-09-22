@@ -96,10 +96,9 @@ async function openReader(page: Page): Promise<void> {
     .getByRole('main')
     .getByRole('button', { name: new RegExp(ROOM, 'u') })
     .click();
-  await expect(page.getByRole('row', { name: new RegExp(DOCUMENT, 'u') })).toBeVisible();
   await page
-    .getByRole('button', { name: new RegExp(`Read ${DOCUMENT}`, 'u') })
-    .first()
+    .getByRole('navigation', { name: 'Collection' })
+    .getByRole('button', { name: DOCUMENT })
     .click();
   const sheet = page.getByRole('img').first();
   await expect(sheet).toBeVisible();
@@ -163,7 +162,7 @@ test('member access', async ({ page }) => {
   await page.setViewportSize(GRID);
   await page.emulateMedia({ colorScheme: 'light' });
   await openRoomSection(page, 'Access', {
-    globalRole: 'admin',
+    globalRole: 'member',
     roomTitle: 'Larkspur Series A',
     roomRole: 'manager',
     withParticipant: { email: 'maria.lindqvist@example.com', grant: 'active' },
@@ -175,7 +174,7 @@ test('member processing', async ({ page }) => {
   await page.setViewportSize(GRID);
   await page.emulateMedia({ colorScheme: 'light' });
   await openRoomSection(page, 'Processing', {
-    globalRole: 'admin',
+    globalRole: 'member',
     roomTitle: 'Seed extension',
     roomRole: 'manager',
     withProcessing: [

@@ -159,8 +159,7 @@ contract, with no provider-specific code.
 
 - Reference sizing: web at 2 vCPU / 2 GiB, worker at 4 vCPU / 4 GiB. Limits must
   be real cgroup limits, since the sandbox preflight requires finite values.
-- Both images support `linux/amd64` and `linux/arm64`.
-- `linux/amd64` and `linux/arm64` release images are published per tag; run
+- Release images are published for `linux/amd64` and `linux/arm64`; run
   `updates check-file` against the signed release manifest before upgrading.
 - The web service exposes `/api/health/live` and `/api/health/ready`. Use
   `ready` for deployment gating: it also verifies migrations, storage, and the
@@ -186,10 +185,6 @@ cannot be enabled by accident, and it requires the ability to change UID, so the
 service must run with `CAP_SETUID`. It is not equivalent to the namespaced
 boundary and does not satisfy the release gate.
 
-Provider-specific notes:
-
-- [Railway + R2 + Resend](railway-deployment.md) — managed deployment guide. Uses
-  degraded isolation, because Railway denies namespace creation; read its
-  trade-off section before choosing it.
-- [Railway platform measurement](railway.md) — what was tested and why the
-  sandbox cannot run there.
+[Railway + R2 + Resend](railway-deployment.md) is a managed deployment guide that
+uses degraded isolation, because Railway denies namespace creation; read its
+trade-off section before choosing it.

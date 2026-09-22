@@ -187,6 +187,7 @@ test.describe('download exceptions', () => {
     if (seeded.roomId === null) throw new Error('room not seeded');
     await addDocument(server.migrationPool, seeded.roomId, seeded.memberId, 'Teaser');
     await page.getByRole('button', { name: /Open room Series C/u }).click();
+    await page.getByRole('button', { name: /Manage Teaser/u }).click();
     await page.getByLabel('Downloads for Teaser').selectOption('allow');
     const dialog = page.getByRole('dialog', { name: 'Change downloads for Teaser' });
     await dialog.getByRole('button', { name: 'Change downloads' }).click();
@@ -195,7 +196,10 @@ test.describe('download exceptions', () => {
       'Downloads allowed here',
     );
 
-    await page.getByRole('button', { name: /Edit title and description Teaser/u }).click();
+    await page
+      .getByRole('row', { name: /Teaser/u })
+      .getByRole('button', { name: 'Edit title and description' })
+      .click();
     await page.getByLabel('Title of this document').fill('Teaser Overview');
     await page.getByRole('button', { name: 'Save details' }).click();
     await expect(page.getByRole('row', { name: /Teaser Overview/u })).toBeVisible();

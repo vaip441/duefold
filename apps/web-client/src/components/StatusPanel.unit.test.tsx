@@ -81,7 +81,6 @@ describe('StatusPanel', () => {
     expect(markup).toContain(messages['status.state.unchecked']);
     expect(markup).toMatch(/<time datetime="2026-09-21T09:00:00.000Z"/iu);
     expect(markup).toContain(`data-label="${messages['status.column.state']}"`);
-    expect(markup).toContain(messages['status.intro']);
   });
 
   it('leads with how many checks are failing', () => {

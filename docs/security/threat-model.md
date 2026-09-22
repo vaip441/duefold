@@ -1,6 +1,6 @@
 # Duefold threat model
 
-**Version:** 1.0-draft · **Updated:** 2026-09-20 · **Status:** maintainer review complete; independent review pending
+**Version:** 1.0 · **Status:** maintainer review complete; independent review pending
 
 This model covers secure core, the optional branding module, the qualified Docker Compose deployment, and the explicitly non-qualified Railway degraded-isolation path. It uses synthetic examples only.
 
@@ -59,7 +59,7 @@ Primary boundaries:
 | Backup/restore resurrection | Provider-owned backups/versioning disclosed; tested restore required; private deletion markers block external enablement until reconciled. No universal RPO/RTO claim. |
 | Secret leakage through status | Observations store a pattern-bound `code`, not prose, so no issuer URL, endpoint, bucket, host, credential or object key can be written; the response is asserted free of every configured value. |
 | Forged status | Each check has one writer, granted only to the process that runs it; the web credential writes nothing. A green check says what was tested and when, and turns stale on its own. |
-| Installation-wide download exposure | Allowing original downloads installation-wide needs a review naming the inheriting rooms and reachable documents, the typed phrase and a fresh sign-in; the 007 setter is no longer callable by the web credential. |
+| Installation-wide download exposure | Allowing original downloads installation-wide needs a review naming the inheriting rooms and reachable documents, the typed phrase and a fresh sign-in; the web credential cannot set the default directly. |
 
 ## Abuse cases that must remain in tests
 

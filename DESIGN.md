@@ -149,10 +149,6 @@ is; everything else is ink on paper in two weights of ground. Density is high an
 unapologetic, because a person publishing a diligence room needs to see the
 collection, not scroll through it.
 
-This build ships the design system, the app shell, and the authentication
-surfaces. Room browsing, the document register, the viewer, and admin surfaces
-land on this system later rather than reinventing it.
-
 **Key Characteristics:**
 
 - One plane; regions are separated by rules, ground shifts, and space
@@ -277,7 +273,7 @@ three weights below cost one file per subset.
 
 ### Hierarchy
 
-Five sizes. A sixth was drafted and deleted because nothing consumed it. Sizes are
+Five sizes. Sizes are
 fixed rem rather than fluid: a product interface is read at consistent DPI, and a
 heading that shrinks inside a narrow region reads as a bug. Because they are rem,
 a reader's browser font-size setting scales the whole interface.
@@ -288,8 +284,8 @@ a reader's browser font-size setting scales the whole interface.
   Sans. Prose is bounded at 68ch.
 - **Meta** (400, 0.8125rem, 1.55): metadata, help text, notices, secondary rows.
   Sans.
-- **Label** (600, 0.6875rem, 0.08em, uppercase): region labels only — Collection,
-  Access notes, Counterparties. Sans.
+- **Label** (600, 0.6875rem, 0.08em, uppercase): region labels only — Collection
+  and Access notes. Sans.
 
 The ratio between steps is roughly 1.15–1.33, tighter than a brand scale because
 there are more type elements here and exaggerated contrast would read as noise.
@@ -307,9 +303,8 @@ Monospace is never used as a costume for "technical".
 
 ## Layout
 
-The shell is one CSS grid with five named areas: `facts` across the top,
-`index | worktable | notes` across the middle, and `counterparties` across the
-bottom. DOM order matches visual order, so focus order needs no `tabindex`.
+The shell is one CSS grid with four named areas: `facts` across the top and
+`index | worktable | notes` below it. DOM order matches visual order, so focus order needs no `tabindex`.
 
 - **Index:** fixed `15rem`. A finding aid is scanned, not read, so it does not
   flex.
@@ -379,7 +374,7 @@ marker, a rotated 0.5rem square border used at narrow widths.
   children must exist exactly once in the DOM; it provides the same Escape,
   outside-dismissal, focus-return, and exit behavior without cloning labelled controls.
 - **Status table:** the Status section is one `df-register` table, twelve rows in
-  §20.2's order. Every state is a word — Passing, Needs attention, Failing, Not yet
+  a fixed order. Every state is a word — Passing, Needs attention, Failing, Not yet
   checked, Out of date — and only Passing carries the accent. Every recorded instant is a
   `<time>` whose `dateTime` and title hold the UTC value; rows read live say "Now". A failing
   check stays Failing when its answer is also old, because the last known answer to it is a
@@ -525,15 +520,13 @@ real participant, a real grant, and real processing rows:
   arithmetic, or transcription step exists.
 - 3.2.6 consistent help, with a support contact actually configured in the
   database, present on both sign-in surfaces at the same relative focus position.
-  An earlier version of this test passed with help absent from both, proving
-  nothing; it now requires presence first.
+  The test requires help to be present first, so its absence cannot pass.
 
-**Engine coverage is two engines, not three.** Chromium and Gecko run the whole
-suite; `mobile-chromium` is a third project on the same engine as `chromium`.
-WebKit is not configured because launching it needs roughly twenty-five system
-libraries this host lacks and root to install them. **Safari and iOS behaviour is
-therefore unverified**, and the release evidence must say so rather than implying
-three engines were covered.
+**Engine coverage.** CI runs the whole suite in Chromium, Firefox, and WebKit;
+`mobile-chromium` is a fourth project on the same engine as `chromium`. WebKit
+needs system libraries many development hosts lack, so locally the suite usually
+runs in Chromium and Firefox only. WebKit is desktop Safari's engine; iOS Safari
+itself is not tested.
 
 2.4.3 focus order is only PARTIALLY automated: the keyboard suite asserts the skip
 link is first and that a sign-out control is reachable, which would not catch many
@@ -640,13 +633,13 @@ English is the only 1.0 locale, but every UI string resolves through a key in
 `apps/web-client/src/i18n/en.ts`. A later locale is a catalogue addition, not a
 source rewrite. Security and legal text is never machine-translated.
 
-## 2026-09-22 workspace preparation and reading-room refinement
+## Workspace and reading room
 
-- Room work now begins with one explicit preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion, Access owns readers and counterparties, Review opens processing readiness, and Publish remains consequence-first behind the server dry-run dialog. Processing, exports, branding, and settings remain supporting sections below the path rather than competing as equal preparation steps.
-- The shell no longer owns a global counterparty footer. Counterparties are rendered only by the authorized member Access surface; the viewer reading room never receives or emits that concept in its DOM.
-- The viewer collection index is canonical. Folders are non-interactive finding-aid headings, documents activate the worktable, and the previous duplicate collection register was removed.
-- Collection rows expose one **Manage** disclosure. Reordering is a dedicated mode, while rename, placement, metadata, download policy, and staged removal stay inside the selected row’s focused task.
-- Upload is a reviewed multi-file or directory queue. Browser preflight applies the shared path, depth, count, total-size, collision, and extension rules before transfer; each file then uses the existing per-file intent, multipart transfer, and finalization contract and keeps an independent waiting, progress, accepted, or failed state. Relative paths are review context only because the current server attachment contract does not accept a destination folder.
+- Room work follows one preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion, Access owns readers and counterparties, Review opens processing readiness, and Publish stays consequence-first behind the server dry-run dialog. Processing, exports, branding, and settings are supporting sections below the path, not equal preparation steps.
+- Counterparties appear only in the member Access surface; the viewer reading room never receives or emits that concept in its DOM.
+- The viewer collection index is the only document navigator. Folders are non-interactive finding-aid headings; documents open in the worktable.
+- Collection rows expose one **Manage** disclosure. Reordering is a dedicated mode, while rename, placement, metadata, download policy, and staged removal stay inside the selected row's focused task.
+- Upload is a reviewed multi-file or directory queue. Browser preflight applies the shared path, depth, count, total-size, collision, and extension rules before transfer; each file then uses its own intent, multipart transfer, and finalization, and keeps an independent waiting, progress, accepted, or failed state. Uploads join the collection at its top level; relative paths are shown for review only.
 - Responsive registers carry visible cell labels when headers move off-screen. The preparation path, upload queue, and focused row task restack to one column at 48rem without changing source or focus order.
 
 ## Do's and Don'ts

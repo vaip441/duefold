@@ -1,6 +1,6 @@
 # Security incident response runbook
 
-**Updated:** 2026-09-20 · **Audience:** Duefold installation Owner/operator
+**Audience:** Duefold installation Owner/operator
 
 Do not place document names, viewer emails, tokens, object keys, raw IPs, or file contents in tickets, chat, logs, or support bundles. Use opaque incident IDs and synthetic reproductions.
 

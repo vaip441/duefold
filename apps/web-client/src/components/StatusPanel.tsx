@@ -78,7 +78,6 @@ export function StatusPanel({
   return (
     <section aria-labelledby={headingId}>
       {heading}
-      <p className="df-field__help">{translate('status.intro')}</p>
       {failing === 0 ? null : (
         <Notice tone="problem" role="alert">
           {translate('status.summary.failing', { count: failing })}

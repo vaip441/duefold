@@ -122,10 +122,8 @@ export function StructureTable({
   return (
     <>
       <div className="df-collection-toolbar">
-        <p className="df-field__help" id={`${renameFieldId}-reorder-help`}>
-          {reordering
-            ? translate('structure.reorder.activeHelp')
-            : translate('structure.manage.help')}
+        <p className="df-field__help">
+          {reordering ? translate('structure.reorder.activeHelp') : null}
         </p>
         <button
           type="button"

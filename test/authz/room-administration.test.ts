@@ -466,10 +466,10 @@ describe('document revision in the working structure', () => {
 });
 
 /**
- * §20.3 ACROSS EVERY EVENT THIS MILESTONE WRITES, not one suite's subset.
+ * §20.3 ACROSS EVERY EVENT ROOM ADMINISTRATION WRITES, not one suite's subset.
  *
- * `docs/room-administration-http-contract.md` states that no detail field carries an email, a
- * title, a token or an object key. That is a compliance claim, so it is asserted over whatever
+ * No audit detail field may carry an email, a title, a token or an object key. That is a
+ * compliance claim, so it is asserted over whatever
  * the whole suite produced rather than trusted per function: a new event type added later is
  * covered the moment any case exercises it.
  */

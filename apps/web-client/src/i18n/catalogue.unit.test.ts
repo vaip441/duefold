@@ -78,29 +78,10 @@ describe('optional module copy', () => {
   });
 });
 
-describe('administration copy is reachable', () => {
-  /*
-   * Scoped to the keys this surface added. The catalogue carries older keys that no
-   * surface reads today; adopting that backlog here would mean either deleting copy a
-   * reviewer approved for a planned state or pinning a long allow-list, and neither is
-   * this check's business. What it does guarantee is that the administration surface
-   * added no copy nobody reads, and reads no copy that does not exist.
-   */
-  const OWNED = KEYS.filter(
-    (key) =>
-      key.startsWith('members.') ||
-      key.startsWith('workspace.tab.') ||
-      key === 'workspace.views.label',
-  );
-
-  it('added no key that no surface reads', () => {
+describe('every key is reachable', () => {
+  it('holds no key that no surface reads', () => {
     const used = usedKeys();
-    expect(OWNED.filter((key) => !used.has(key))).toStrictEqual([]);
-  });
-
-  it('covers a non-trivial number of keys, so the filter cannot silently match none', () => {
-    // A scoped check that matched nothing would pass while proving nothing.
-    expect(OWNED.length).toBeGreaterThan(50);
+    expect(KEYS.filter((key) => !used.has(key))).toStrictEqual([]);
   });
 });
 

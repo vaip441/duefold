@@ -227,21 +227,22 @@ test.describe('WCAG 2.2 criteria beyond automated scanning', () => {
       ).toBe(0);
     }
     /*
-     * And the single-pointer alternative for ordering really exists: opening Move on
-     * a real entry exposes a destination select and a numeric position field, both
-     * operable by keyboard and by a single click.
+     * And the single-pointer alternative for ordering really exists: reorder mode
+     * offers Move up and Move down, and says in words how it works.
      */
+    await page.getByRole('button', { name: 'Reorder collection' }).click();
+    await expect(page.getByText(/Reorder mode is active/u)).toBeVisible();
     await expect(page.getByRole('button', { name: /Move up/u }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Move down/u }).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Finish reordering' }).click();
     /*
      * The numeric position field is the non-drag way to make an arbitrary jump rather
-     * than stepping. It lives in the per-entry Move form, so open that: the exact
-     * "Move" button, not "Move up"/"Move down".
+     * than stepping. It lives in the entry's Move form, inside Manage.
      */
-    await page.getByRole('button', { name: /^Move Quarantined upload$/u }).click();
+    const row = page.getByRole('row', { name: /Quarantined upload/u });
+    await row.getByRole('button', { name: /Manage Quarantined upload/u }).click();
+    await row.getByRole('button', { name: /^Move$/u }).click();
     await expect(page.getByRole('spinbutton')).toBeVisible();
-    // And the instruction says so in words, so it is discoverable, not just possible.
-    await expect(page.getByText(/Dragging is not required/u)).toBeVisible();
   });
 
   test('3.3.8 authentication accepts a pasted one-time code and sets no cognitive test', async ({

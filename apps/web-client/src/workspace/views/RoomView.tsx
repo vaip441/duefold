@@ -605,7 +605,6 @@ export function RoomView({
                 {searchPending ? translate('search.pending') : translate('search.submit')}
               </button>
             </div>
-            <p className="df-field__help">{translate('search.scope')}</p>
             {hits === null ? null : hits.length === 0 ? (
               <p className="df-field__help">{translate('search.empty')}</p>
             ) : (

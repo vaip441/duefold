@@ -1,6 +1,6 @@
 # OWASP ASVS 5.0 traceability map
 
-**Profile:** Duefold secure document-room core · **Updated:** 2026-09-20 · **Status:** implementation mapping; independent verification pending
+**Profile:** Duefold 1.0 secure document-room core · **Status:** implementation mapping; independent verification pending
 
 This is a control-family traceability map, not an ASVS certification. Evidence references are repository paths and repeatable suites; deployment-dependent rows remain open until dated release evidence exists.
 

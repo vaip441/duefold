@@ -1,6 +1,6 @@
 # Duefold data flow and trust boundaries
 
-**Updated:** 2026-09-20 · **Scope:** secure core and optional branding
+**Scope:** secure core and optional branding
 
 ```text
 Internet browser

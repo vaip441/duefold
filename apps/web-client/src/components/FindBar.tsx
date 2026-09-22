@@ -84,7 +84,7 @@ export function FindBar({
       <p className="df-field__help" id={helpId}>
         {/* Count in words, never colour alone; the live region announces it too. */}
         {!active
-          ? translate('viewer.find.scope')
+          ? null
           : matchCount === 0
             ? translate('viewer.find.none')
             : `${translate('viewer.find.count').replace('{count}', String(matchCount))} ${

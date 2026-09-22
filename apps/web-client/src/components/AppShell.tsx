@@ -130,7 +130,6 @@ export function AppShell({
             )
           ) : (
             <ul className="df-index__tree">
-              <li className="df-visually-hidden">{translate('shell.index.controls')}</li>
               {entries.map((entry) => (
                 <li key={entry.id}>
                   {entry.kind === 'group' ? (

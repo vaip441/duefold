@@ -321,7 +321,11 @@ test.describe('viewer reading room', () => {
       .getByRole('button', { name: /Open room|Series B diligence/u })
       .first()
       .click();
-    await page.getByRole('button', { name: 'Collection' }).click();
+    // The collection disclosure starts expanded, so the index is reachable at once.
+    await expect(page.getByRole('button', { name: 'Collection' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
     await page
       .getByRole('navigation', { name: 'Collection' })
       .getByRole('button', { name: 'Investor model' })

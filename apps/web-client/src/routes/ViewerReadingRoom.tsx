@@ -435,7 +435,6 @@ export function ViewerReadingRoom({
               optional branding slot contributes organization-owned copy. */}
           <p>{translate('viewer.watermark.notice')}</p>
           <p>{translate('viewer.screenshot.honesty')}</p>
-          <p>{translate('viewer.print.unavailable')}</p>
           {roomIntroduction.kind === 'loaded' && roomIntroduction.value !== '' ? (
             <p className="df-reading-room__introduction">{roomIntroduction.value}</p>
           ) : roomIntroduction.kind === 'failed' ? (
@@ -551,7 +550,6 @@ export function ViewerReadingRoom({
         ) : (
           <div className="df-reading-intro">
             <p className="df-worktable__lead">{translate('viewer.document.selectPrompt')}</p>
-            <p className="df-field__help">{translate('viewer.document.selectHelp')}</p>
           </div>
         )
       ) : document.kind === 'loading' ? (

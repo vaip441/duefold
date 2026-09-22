@@ -5,8 +5,10 @@ Railway cannot provide Duefold's filesystem and network processing sandbox, so d
 not use this path for real investor documents or external viewers. Managed setup:
 no server to patch and no HTTPS to configure. Roughly 30 minutes.
 
-**Read this first.** Railway's container runtime denies namespace creation, so the
-document processing sandbox cannot run there. This guide uses
+**Read this first.** Railway's container runtime denies namespace creation
+(Bubblewrap fails with `Creating new namespace failed: Permission denied`, and
+services get no `CAP_SYS_ADMIN`), so the document processing sandbox cannot run
+there. This guide uses
 `DUEFOLD_SANDBOX_ISOLATION=degraded`, which parses untrusted documents without
 filesystem or network isolation. [What you are accepting](#what-you-are-accepting)
 states precisely what is and is not preserved. For the fully isolated deployment,
@@ -162,11 +164,9 @@ and about 2 GB of memory. Note its private domain, `clamav.railway.internal`.
 
 The upstream image starts freshclam before clamd, so its first update cannot
 notify the daemon and clamd keeps serving the signatures baked into the image
-until the next scheduled cycle — observed on a real deployment as clamd reporting
-signature 28123 while its own database directory held 28129. Duefold then refuses
-to publish anything, correctly. `deploy/clamav.Dockerfile` starts clamd first and
-runs one notified update before the daemon, so the scanner is current as soon as
-it is reachable.
+until the next scheduled cycle; Duefold then refuses to publish anything.
+`deploy/clamav.Dockerfile` starts clamd first and runs one notified update, so the
+scanner is current as soon as it is reachable.
 
 ## 6. Web and worker services
 

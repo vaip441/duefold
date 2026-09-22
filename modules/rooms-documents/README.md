@@ -10,7 +10,7 @@ Owns the private content lifecycle: rooms and structure, uploads and quarantine,
 - [Uploads](src/uploads.ts), [source validation](src/source-validation.ts), and [processing](src/processing/) — quarantine through derived artifacts.
 - [Release policy](src/release-policy.ts) — publication boundary.
 - [Lifecycle](src/lifecycle.ts) and [jobs](src/jobs/) — trash, purge, retention, cleanup, and scheduled work.
-- [Routes](src/routes/) — HTTP adapters, described in the [room administration HTTP contract](../../docs/room-administration-http-contract.md).
+- [Routes](src/routes/) — HTTP adapters.
 - [Database functions](migrations/) — authoritative authorization, audit, and lifecycle transitions.
 - [Browser room API](../../apps/web-client/src/api/rooms.ts) and [member operations API](../../apps/web-client/src/api/member-operations.ts)
 - [Room view](../../apps/web-client/src/workspace/views/RoomView.tsx)

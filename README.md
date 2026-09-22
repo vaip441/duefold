@@ -71,12 +71,7 @@ docker compose up -d
 
 The [self-hosting guide](docs/self-hosting.md) walks through each setting.
 
-Prefer a managed-host experiment? The [Railway + Cloudflare R2 + Resend](docs/railway-deployment.md)
-guide is explicitly **non-qualified and synthetic-data-only** because Railway cannot
-provide Duefold's filesystem and network sandbox. For production evaluation, start
-with the [host requirements](docs/host-requirements.md) —
-the document sandbox needs specific kernel features that many managed platforms
-do not grant.
+Before choosing another host, read the [host requirements](docs/host-requirements.md): the document sandbox needs kernel features that many managed platforms don't grant. The [Railway + Cloudflare R2 + Resend](docs/railway-deployment.md) guide is for evaluation with synthetic data only, because Railway can't provide that sandbox.
 
 ## Good to know
 
@@ -88,11 +83,11 @@ Duefold deliberately leaves out NDAs, Q&A, engagement analytics, and DRM.
 
 ## Security
 
-Duefold's maintained security documentation includes the [threat model](docs/security/threat-model.md), [data-flow and trust boundaries](docs/security/data-flow.md), [ASVS traceability map](docs/security/asvs-map.md), and [incident-response runbook](docs/security/incident-response.md). Security issues must be reported privately as described in [SECURITY.md](SECURITY.md).
+Read the [threat model](docs/security/threat-model.md), [data flow and trust boundaries](docs/security/data-flow.md), [ASVS map](docs/security/asvs-map.md), and [incident-response runbook](docs/security/incident-response.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems privately as described in [SECURITY.md](SECURITY.md).
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

@@ -150,7 +150,8 @@ test.describe('structural landmarks', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
     await expect(page.getByRole('navigation', { name: 'Collection' })).toHaveCount(1);
     await expect(page.getByRole('complementary', { name: 'Access notes' })).toHaveCount(1);
-    await expect(page.getByRole('contentinfo')).toHaveCount(1);
+    // The shell has no footer; counterparties belong to the member Access surface only.
+    await expect(page.getByRole('contentinfo')).toHaveCount(0);
     await expect(page.getByRole('banner', { name: 'Room' })).toHaveCount(1);
     await expect(page.getByRole('status')).toHaveCount(1);
   });
