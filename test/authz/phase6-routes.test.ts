@@ -11,6 +11,7 @@ import { createHandler as createPublicBrandingHandler } from '../../modules/bran
 import { createHandler as createViewerIntroductionHandler } from '../../modules/branding-notifications/src/routes/viewer-introduction.ts';
 import { createHandler as createAssetDeliveryHandler } from '../../modules/branding-notifications/src/routes/branding-asset-delivery.ts';
 import { createHandler as createAssetDeleteHandler } from '../../modules/branding-notifications/src/routes/branding-asset-delete.ts';
+import { createHandler as createBrandingUploadHandler } from '../../modules/branding-notifications/src/routes/branding-upload.ts';
 import { buildTestWebApp } from '../support/web-runtime.ts';
 import { testWebRuntime } from '../support/web-runtime.ts';
 
@@ -160,6 +161,79 @@ describe('Member state and branding routes', () => {
       )({ query: { roomId, limit: '50' } } as never),
     ).rejects.toMatchObject({ code: '42501' });
     expect(JSON.stringify(allowed)).not.toContain('exports/');
+  });
+
+  it('binds branding multipart checksums and exposes processing state only to the creating administrator', async () => {
+    const checksum = 'A'.repeat(43) + '=';
+    let presignedChecksum: string | undefined;
+    const uploadRuntime = {
+      ...runtime,
+      storage: {
+        ...runtime.storage,
+        checksumSupport: true,
+        createMultipart: ({ key }: { readonly key: string }) =>
+          Promise.resolve({ key, uploadId: 'brand-upload' }),
+        presignPart: (input: { readonly checksumSha256?: string }) => {
+          presignedChecksum = input.checksumSha256;
+          return Promise.resolve('https://storage.example.test/part');
+        },
+      },
+    };
+    const owner = {
+      kind: 'member' as const,
+      id: ownerId,
+      globalRole: 'owner' as const,
+      roomRoles: {},
+    };
+    const reply = { code: () => reply };
+    const created = await createBrandingUploadHandler(uploadRuntime, owner)(
+      {
+        body: {
+          action: 'create',
+          assetKind: 'logo',
+          mediaType: 'image/png',
+          size: 4,
+          parts: [{ partNumber: 1, size: 4, checksumSha256: checksum }],
+        },
+      } as never,
+      reply as never,
+    );
+    expect(presignedChecksum).toBe(checksum);
+    const intentId = created.intentId;
+    await expect(
+      createBrandingUploadHandler(uploadRuntime, owner)(
+        {
+          body: {
+            action: 'finalize',
+            intentId,
+            uploadId: 'brand-upload',
+            parts: [
+              { partNumber: 1, etag: 'a'.repeat(32), checksumSha256: 'B'.repeat(43) + '=' },
+            ],
+          },
+        } as never,
+        reply as never,
+      ),
+    ).rejects.toThrow('BRANDING_UPLOAD_PARTS_MISMATCH');
+    await runtimePool.query('SELECT finalize_branding_upload($1,$2,$3,$4,$5,$6)', [
+      intentId,
+      ownerId,
+      4,
+      createOpaqueId(),
+      ...audit(),
+    ]);
+    await expect(
+      createBrandingUploadHandler(uploadRuntime, owner)(
+        { body: { action: 'status', intentId } } as never,
+        reply as never,
+      ),
+    ).resolves.toEqual({ intentId, state: 'processing' });
+    await expect(
+      createBrandingUploadHandler(uploadRuntime, contributor)(
+        { body: { action: 'status', intentId } } as never,
+        reply as never,
+      ),
+    ).rejects.toThrow('BRANDING_UPLOAD_FORBIDDEN');
   });
 
   it('accepts email and HTTPS support contacts, accepts absent, and rejects hostile schemes and controls', async () => {

@@ -5,6 +5,7 @@ import type {
   invokeSandboxed,
   SandboxProgram,
 } from '../../../rooms-documents/src/processing/sandbox.ts';
+import type { SandboxIsolation } from '../../../rooms-documents/src/processing/preflight.ts';
 import type { WorkerStorage } from '../../../rooms-documents/src/storage/s3-compatible.ts';
 import type { JobContext, LeasedJob } from '../../../../apps/worker/src/runner.ts';
 import { processBrandImage } from '../branding.ts';
@@ -14,6 +15,9 @@ export interface BrandingImageDependencies {
   readonly storage: WorkerStorage;
   readonly scanner: ClamAvClient;
   readonly processorPrograms: { readonly image: SandboxProgram };
+  /** Absent means the namespaced boundary. Set only by a deployment that has
+   * explicitly acknowledged a host without namespace support. */
+  readonly isolation?: SandboxIsolation;
   readonly invokeBrandingSandbox?: typeof invokeSandboxed;
 }
 function intentId(payload: Readonly<Record<string, unknown>>): string {
@@ -43,6 +47,7 @@ export function createHandler(dependencies: BrandingImageDependencies) {
       declaredMediaType: selected.declared_media_type,
       scanner: dependencies.scanner,
       program: dependencies.processorPrograms.image,
+      ...(dependencies.isolation === undefined ? {} : { isolation: dependencies.isolation }),
       ...(dependencies.invokeBrandingSandbox === undefined
         ? {}
         : { invoke: dependencies.invokeBrandingSandbox }),

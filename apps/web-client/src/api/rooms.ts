@@ -149,6 +149,7 @@ export interface TrashEntry {
 }
 
 export interface RoomWorkspace {
+  readonly workingRevision: number;
   readonly entries: readonly WorkingEntry[];
   readonly trash: readonly TrashEntry[];
   readonly retentionDays: number;
@@ -163,6 +164,8 @@ export interface PublicationItem {
 export interface PublicationImpact {
   readonly message: string;
   readonly affectedCount: number;
+  readonly workingRevision: number;
+  readonly publishedRevision: number;
   readonly paths: readonly string[];
   readonly confirmation: string;
   readonly items: readonly PublicationItem[];
@@ -301,9 +304,14 @@ export async function loadRoomWorkspace(
     path: `/api/rooms/workspace?roomId=${encodeURIComponent(roomId)}`,
     ...(signal === undefined ? {} : { signal }),
   });
-  if (!isRecord(payload) || typeof payload['retentionDays'] !== 'number')
+  if (
+    !isRecord(payload) ||
+    typeof payload['retentionDays'] !== 'number' ||
+    typeof payload['workingRevision'] !== 'number'
+  )
     throw new ApiError('unavailable');
   return {
+    workingRevision: requireInteger(payload, 'workingRevision'),
     entries: requireArray(payload, 'entries').map(parseEntry),
     trash: requireArray(payload, 'trash') as readonly TrashEntry[],
     retentionDays: payload['retentionDays'],
@@ -360,6 +368,8 @@ export async function publicationDryRun(roomId: string): Promise<PublicationImpa
   return {
     message: impact['message'],
     affectedCount: impact['affectedCount'],
+    workingRevision: requireInteger(impact, 'workingRevision'),
+    publishedRevision: requireInteger(impact, 'publishedRevision'),
     confirmation: impact['confirmation'],
     paths: Array.isArray(impact['paths']) ? (impact['paths'] as readonly string[]) : [],
     items,

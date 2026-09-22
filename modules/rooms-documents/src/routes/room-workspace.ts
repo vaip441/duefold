@@ -71,6 +71,7 @@ export const schema = {
             { additionalProperties: false },
           ),
         ),
+        workingRevision: Type.Integer(),
         retentionDays: Type.Integer(),
       },
       { additionalProperties: false },
@@ -88,14 +89,21 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   ): Promise<{
     readonly entries: readonly WorkingStructureEntry[];
     readonly trash: readonly TrashEntry[];
+    readonly workingRevision: number;
     readonly retentionDays: number;
   }> => {
     const { roomId } = query(request.query);
-    const [entries, trash] = await Promise.all([
+    const [entries, trash, revisions] = await Promise.all([
       readWorkingStructure({ pool: runtime.pool, identity, roomId }),
       readTrash({ pool: runtime.pool, identity, roomId }),
+      runtime.pool.query<{ working_revision: number }>(
+        'SELECT working_revision FROM read_room_structure_revisions($1,$2)',
+        [roomId, identity.id],
+      ),
     ]);
-    return { entries, trash, retentionDays: TRASH_RETENTION_DAYS };
+    const workingRevision = revisions.rows[0]?.working_revision;
+    if (workingRevision === undefined) throw new Error('ROOM_WORKSPACE_FORBIDDEN');
+    return { entries, trash, workingRevision, retentionDays: TRASH_RETENTION_DAYS };
   };
 }
 export function handler(): never {

@@ -104,6 +104,8 @@ export interface BulkMoveItem {
 export interface BulkImpact {
   readonly message: string;
   readonly affectedCount: number;
+  readonly workingRevision: number;
+  readonly publishedRevision: number;
   readonly paths: readonly string[];
   readonly confirmation: string;
 }
@@ -170,13 +172,22 @@ export async function dryRunBulkPublish(input: {
   readonly identity: MemberIdentity;
   readonly roomId: string;
 }): Promise<BulkImpact> {
-  const result = await input.pool.query<{ dry_run_bulk_publish: BulkImpact }>(
-    'SELECT dry_run_bulk_publish($1,$2)',
+  const result = await input.pool.query<{
+    impact: Omit<BulkImpact, 'workingRevision' | 'publishedRevision'>;
+    working_revision: number;
+    published_revision: number;
+  }>(
+    `SELECT dry_run_bulk_publish($1,$2) AS impact,r.working_revision,r.published_revision
+     FROM read_room_structure_revisions($2,$1) r`,
     [input.identity.id, input.roomId],
   );
-  const impact = result.rows[0]?.dry_run_bulk_publish;
-  if (impact === undefined) throw new Error('BULK_DRY_RUN_FAILED');
-  return impact;
+  const row = result.rows[0];
+  if (row === undefined) throw new Error('BULK_DRY_RUN_FAILED');
+  return {
+    ...row.impact,
+    workingRevision: row.working_revision,
+    publishedRevision: row.published_revision,
+  };
 }
 export async function applyBulkPublish(input: {
   readonly pool: Pool;

@@ -74,6 +74,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '012_branding_assets', file: '012_branding_assets.sql' },
     { id: '015_branding_configuration', file: '015_branding_configuration.sql' },
     { id: '016_public_branding', file: '016_public_branding.sql' },
+    { id: '028_branding_upload_state', file: '028_branding_upload_state.sql' },
   ],
   jobs: [
     {

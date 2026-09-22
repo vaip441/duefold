@@ -35,7 +35,7 @@ export interface ProcessingSection {
   readonly versions: Load<readonly ProcessingVersion[]>;
   readonly failure: PresentedFailure | null;
   readonly busyVersionId: string | null;
-  readonly refresh: (roomId: string, signal?: AbortSignal) => void;
+  readonly refresh: (roomId: string, signal?: AbortSignal) => Promise<void>;
   readonly beginLoading: () => void;
   readonly retry: (version: ProcessingVersion) => void;
   readonly deleteSource: (version: ProcessingVersion) => void;
@@ -52,19 +52,18 @@ export function useProcessingSection(handlers: {
   const [failure, setFailure] = useState<PresentedFailure | null>(null);
   const [busyVersionId, setBusyVersionId] = useState<string | null>(null);
 
-  const refresh = useCallback((roomId: string, signal?: AbortSignal): void => {
+  const refresh = useCallback(async (roomId: string, signal?: AbortSignal): Promise<void> => {
     setFailure(null);
-    loadProcessingState(roomId, signal).then(
-      (value) => {
-        setVersions({ kind: 'ready', value });
-      },
-      (error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        const presented = presentFailure(error);
-        setVersions({ kind: 'failed', failure: presented.title });
-        setFailure(presented);
-      },
-    );
+    try {
+      const value = await loadProcessingState(roomId, signal);
+      setVersions({ kind: 'ready', value });
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      const presented = presentFailure(error);
+      setVersions({ kind: 'failed', failure: presented.title });
+      setFailure(presented);
+      throw error;
+    }
   }, []);
 
   const beginLoading = useCallback((): void => {
@@ -84,7 +83,7 @@ export function useProcessingSection(handlers: {
       () => {
         setBusyVersionId(null);
         done();
-        refresh(roomId);
+        void refresh(roomId);
       },
       (error: unknown) => {
         setBusyVersionId(null);

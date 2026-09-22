@@ -26,6 +26,24 @@ function png(extra = new Uint8Array()): Uint8Array {
   return bytes;
 }
 
+function processorOutput(image: Uint8Array = png()): Uint8Array {
+  return Buffer.from(
+    JSON.stringify({
+      pages: [
+        {
+          mediaType: 'image/png',
+          imageBase64: Buffer.from(image).toString('base64'),
+          width: 1,
+          height: 1,
+          accessibleLabel: 'Page 1',
+          textLayer: null,
+        },
+      ],
+      hiddenSheets: [],
+    }),
+  );
+}
+
 describe('constrained branding', () => {
   it('accepts a contrast-valid accent and reports both measured ratios when one fails', () => {
     expect(validateAccentColor('#08766a')).toBe('#08766a');
@@ -87,7 +105,7 @@ describe('constrained branding', () => {
     };
     const invoke = vi.fn(() => {
       order.push('sandbox');
-      return Promise.resolve(png());
+      return Promise.resolve(processorOutput());
     });
     const result = await processBrandImage({
       bytes: png(),
@@ -98,6 +116,15 @@ describe('constrained branding', () => {
     });
     expect(order).toEqual(['scan', 'sandbox']);
     expect(result).toMatchObject({ mediaType: 'image/png', width: 1, height: 1 });
+    await expect(
+      processBrandImage({
+        bytes: png(),
+        declaredMediaType: 'image/png',
+        scanner,
+        program: sandboxProgram('/fixture/branding-image'),
+        invoke: () => Promise.resolve(png()),
+      }),
+    ).rejects.toThrow('PROCESSOR_RESPONSE_INVALID');
     const invocation = invoke.mock.calls[0] as unknown as readonly [
       { readonly limits: Readonly<Record<string, number>> },
     ];

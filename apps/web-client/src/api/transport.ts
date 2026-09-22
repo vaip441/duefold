@@ -6,11 +6,12 @@
  * in the `x-duefold-csrf` header, which the server compares against the stored
  * digest.
  *
- * Nothing here persists anything. No token, session value, or protected content
- * is written to localStorage, sessionStorage, IndexedDB, a service worker, or a
- * cache. The CSRF token lives only in the cookie the server
- * controls, and responses are held in component state for the lifetime of the
- * view.
+ * Nothing here persists session or protected data. No token, session value,
+ * identity, or protected content is written to localStorage, sessionStorage,
+ * IndexedDB, a service worker, or a cache. The separate theme control may store
+ * only its non-sensitive light/dark appearance preference. The CSRF token lives
+ * only in the cookie the server controls, and responses are held in component
+ * state for the lifetime of the view.
  *
  * The browser is never the authorization boundary: these helpers report what the
  * server decided, and no client-side check substitutes for it.

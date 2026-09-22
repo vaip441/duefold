@@ -257,7 +257,13 @@ export function RoomView({
     }
     if (currentId === 'processing') {
       processingSection.beginLoading();
-      processingSection.refresh(roomId, controller.signal);
+      void processingSection.refresh(roomId, controller.signal).then(
+        () => {
+          refreshWorkspace();
+          onRoomsChanged();
+        },
+        () => undefined,
+      );
     }
     if (currentId === 'exports') {
       exportsSection.beginLoading();
@@ -329,7 +335,7 @@ export function RoomView({
       destinationFolderId: input.destinationFolderId,
       displayName: input.displayName,
       expectedEntryRevision: input.entry.entryRevision,
-      expectedWorkingRevision: room?.workingRevision ?? 0,
+      expectedWorkingRevision: workspace.value.workingRevision,
     }).then(
       () => {
         setBusyTrashId(null);
@@ -457,7 +463,16 @@ export function RoomView({
       }
       onStatus(translate('upload.batchDone', { count: completed, total: items.length }));
       refreshWorkspace();
-      if (currentId === 'processing') processingSection.refresh(roomId);
+      if (completed > 0) onRoomsChanged();
+      if (currentId === 'processing') {
+        void processingSection.refresh(roomId).then(
+          () => {
+            refreshWorkspace();
+            onRoomsChanged();
+          },
+          () => undefined,
+        );
+      }
     })();
   };
 
@@ -491,13 +506,13 @@ export function RoomView({
            */
           const current = await loadRoomWorkspace(roomId);
           const fresh = current.entries.find((item) => item.entryId === entry.entryId);
-          if (fresh === undefined || room === null) break;
+          if (fresh === undefined) break;
           await mutateStructure({
             action: 'stage-removal',
             roomId,
             entryId: entry.entryId,
             expectedEntryRevision: fresh.revision,
-            expectedWorkingRevision: room.workingRevision,
+            expectedWorkingRevision: current.workingRevision,
           });
           done += 1;
           setBulkProgress({ done, total: targets.length });
@@ -623,7 +638,7 @@ export function RoomView({
                       : { parentFolderId: input.parentFolderId }),
                     displayName: input.displayName,
                     description: input.description,
-                    expectedWorkingRevision: room?.workingRevision ?? 0,
+                    expectedWorkingRevision: workspace.value.workingRevision,
                   },
                   null,
                 );
@@ -648,7 +663,7 @@ export function RoomView({
                     entryId: entry.entryId,
                     displayName,
                     expectedEntryRevision: entry.revision,
-                    expectedWorkingRevision: room?.workingRevision ?? 0,
+                    expectedWorkingRevision: workspace.value.workingRevision,
                   },
                   entry.entryId,
                 );
@@ -661,7 +676,7 @@ export function RoomView({
                     entryId: entry.entryId,
                     targetPosition,
                     expectedEntryRevision: entry.revision,
-                    expectedWorkingRevision: room?.workingRevision ?? 0,
+                    expectedWorkingRevision: workspace.value.workingRevision,
                   },
                   entry.entryId,
                 );
@@ -673,7 +688,7 @@ export function RoomView({
                     roomId,
                     entryId: entry.entryId,
                     expectedEntryRevision: entry.revision,
-                    expectedWorkingRevision: room?.workingRevision ?? 0,
+                    expectedWorkingRevision: workspace.value.workingRevision,
                   },
                   entry.entryId,
                 );
@@ -687,7 +702,7 @@ export function RoomView({
                     destinationFolderId: input.destinationFolderId,
                     targetPosition: input.targetPosition,
                     expectedEntryRevision: input.entry.revision,
-                    expectedWorkingRevision: room?.workingRevision ?? 0,
+                    expectedWorkingRevision: workspace.value.workingRevision,
                   },
                   input.entry.entryId,
                 );
@@ -701,7 +716,7 @@ export function RoomView({
                     title: input.title,
                     description: input.description,
                     expectedDocumentRevision: input.entry.documentRevision,
-                    expectedWorkingRevision: room?.workingRevision ?? 0,
+                    expectedWorkingRevision: workspace.value.workingRevision,
                   },
                   input.entry.entryId,
                 );
@@ -758,11 +773,23 @@ export function RoomView({
           onRetry={processingSection.retry}
           onDeleteSource={processingSection.deleteSource}
           onRefresh={() => {
-            processingSection.refresh(roomId);
+            void processingSection.refresh(roomId).then(
+              () => {
+                refreshWorkspace();
+                onRoomsChanged();
+              },
+              () => undefined,
+            );
           }}
           onReload={() => {
             processingSection.beginLoading();
-            processingSection.refresh(roomId);
+            void processingSection.refresh(roomId).then(
+              () => {
+                refreshWorkspace();
+                onRoomsChanged();
+              },
+              () => undefined,
+            );
           }}
         />
       ) : null}

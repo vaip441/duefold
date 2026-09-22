@@ -4,6 +4,7 @@ import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
 import { migrate } from '../../modules/core-security/src/db/migrate.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import { sandboxProgram } from '../../modules/rooms-documents/src/processing/sandbox.ts';
+import { ConverterIdentityPool } from '../../modules/rooms-documents/src/processing/privilege-separation.ts';
 import { createHandler } from '../../modules/branding-notifications/src/jobs/branding-image.ts';
 import type { WorkerStorage } from '../../modules/rooms-documents/src/storage/s3-compatible.ts';
 
@@ -29,6 +30,23 @@ function png(): Buffer {
   b.writeUInt32BE(0, 33);
   b.write('IEND', 37, 'ascii');
   return b;
+}
+function processorOutput(): Buffer {
+  return Buffer.from(
+    JSON.stringify({
+      pages: [
+        {
+          mediaType: 'image/png',
+          imageBase64: png().toString('base64'),
+          width: 1,
+          height: 1,
+          accessibleLabel: 'Page 1',
+          textLayer: null,
+        },
+      ],
+      hiddenSheets: [],
+    }),
+  );
 }
 beforeAll(async () => {
   await bootstrapPool.query(
@@ -67,7 +85,7 @@ describe('branding quarantine lifecycle', () => {
       jobId = createOpaqueId(),
       sourceKey = `quarantine/${createOpaqueId()}/${createOpaqueId()}`;
     await runtimePool.query(
-      'SELECT create_branding_upload_intent($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      'SELECT create_branding_upload_intent($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)',
       [
         intentId,
         ownerId,
@@ -78,6 +96,13 @@ describe('branding quarantine lifecycle', () => {
         'upload-1',
         createOpaqueId(),
         createCorrelationId(),
+        JSON.stringify([
+          {
+            partNumber: 1,
+            size: png().length,
+            checksumSha256: 'A'.repeat(43) + '=',
+          },
+        ]),
       ],
     );
     await runtimePool.query('SELECT finalize_branding_upload($1,$2,$3,$4,$5,$6)', [
@@ -119,6 +144,11 @@ describe('branding quarantine lifecycle', () => {
         return Promise.resolve();
       },
     } satisfies WorkerStorage;
+    const isolation = {
+      mode: 'degraded' as const,
+      identities: new ConverterIdentityPool(10_200, 1),
+    };
+    let observedIsolation = false;
     const handler = createHandler({
       pool: workerPool,
       storage,
@@ -135,7 +165,12 @@ describe('branding quarantine lifecycle', () => {
           }),
       },
       processorPrograms: { image: sandboxProgram(process.execPath) },
-      invokeBrandingSandbox: () => Promise.resolve(png()),
+      isolation,
+      invokeBrandingSandbox: (invocation) => {
+        observedIsolation =
+          invocation.mode === 'degraded' && invocation.identities === isolation.identities;
+        return Promise.resolve(processorOutput());
+      },
     });
     await handler(
       {
@@ -152,6 +187,7 @@ describe('branding quarantine lifecycle', () => {
         assertLease: () => Promise.resolve(),
       },
     );
+    expect(observedIsolation).toBe(true);
     expect(written.size).toBe(1);
     expect([...written.keys()][0]).toMatch(/^branding\/.+\.png$/u);
     expect(deleted).toContain(sourceKey);

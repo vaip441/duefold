@@ -297,13 +297,13 @@ export function Workspace({
   };
 
   const confirmPublish = (confirmation: string): void => {
-    if (openRoomId === null || openRoom === null) return;
+    if (openRoomId === null || impact === null) return;
     setPublishPending(true);
     setPublishFailure(null);
     publicationApply({
       roomId: openRoomId,
-      expectedWorkingRevision: openRoom.workingRevision,
-      expectedPublishedRevision: openRoom.publishedRevision,
+      expectedWorkingRevision: impact.workingRevision,
+      expectedPublishedRevision: impact.publishedRevision,
       confirmation,
     }).then(
       () => {
@@ -316,7 +316,7 @@ export function Workspace({
       (error: unknown) => {
         setPublishPending(false);
         setPublishFailure(
-          error instanceof ApiError && error.failure === 'denied'
+          error instanceof ApiError && error.failure === 'fresh-authentication-required'
             ? translate('publish.freshSignIn')
             : failureMessage(error),
         );

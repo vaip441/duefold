@@ -233,10 +233,11 @@ test.describe('session and sign-out', () => {
 });
 
 test.describe('client storage discipline', () => {
-  test('persists nothing to localStorage, sessionStorage, or IndexedDB', async ({ page }) => {
+  test('persists no session or protected data to browser storage', async ({ page }) => {
     const email = 'storage-flow@example.com';
     await server.inviteViewer(email);
     await page.goto(`${server.baseUrl}/read`);
+    await page.getByLabel('Appearance').selectOption('dark');
     await page.getByLabel('Email address').fill(email);
     await page.getByRole('button', { name: 'Send code' }).click();
     await page.getByLabel('Eight-digit code').fill(await server.deliveredCode(email));
@@ -247,7 +248,8 @@ test.describe('client storage discipline', () => {
       const databases =
         typeof indexedDB.databases === 'function' ? await indexedDB.databases() : [];
       return {
-        local: window.localStorage.length,
+        localKeys: Object.keys(window.localStorage),
+        theme: window.localStorage.getItem('duefold.theme'),
         session: window.sessionStorage.length,
         databases: databases.length,
         workers: (await navigator.serviceWorker?.getRegistrations())?.length ?? 0,
@@ -255,7 +257,8 @@ test.describe('client storage discipline', () => {
       };
     });
     expect(stored).toEqual({
-      local: 0,
+      localKeys: ['duefold.theme'],
+      theme: 'dark',
       session: 0,
       databases: 0,
       workers: 0,

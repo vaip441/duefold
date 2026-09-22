@@ -34,7 +34,7 @@ export { Notice } from './components/Notice.tsx';
 export { planParts } from './components/UploadPanel.tsx';
 export { presentFailure, type PresentedFailure } from './workspace/failures.ts';
 export { validateAccent, validateSupportContact } from './workspace/state.ts';
-export { transferParts } from './workspace/upload.ts';
+export { checksumPartPlan, transferParts } from './workspace/upload.ts';
 export type {
   BrandingSlot,
   BrowserContribution,

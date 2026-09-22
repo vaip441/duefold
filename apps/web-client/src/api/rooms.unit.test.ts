@@ -235,6 +235,9 @@ describe('loadRoomWorkspace', () => {
   const stubJson = (body: unknown): void => {
     stub(() => respond(200, body));
   };
+  const stubWorkspace = (entries: readonly unknown[]): void => {
+    stubJson({ entries, trash: [], workingRevision: 3, retentionDays: 30 });
+  };
   const base = {
     entryId: 'e'.repeat(32),
     resourceId: 'r'.repeat(32),
@@ -253,12 +256,9 @@ describe('loadRoomWorkspace', () => {
   };
 
   it('keeps a document revision that differs from the entry revision', async () => {
-    stubJson({
-      entries: [{ ...base, resourceKind: 'document', documentRevision: 4 }],
-      trash: [],
-      retentionDays: 30,
-    });
-    const { entries } = await loadRoomWorkspace('x'.repeat(32));
+    stubWorkspace([{ ...base, resourceKind: 'document', documentRevision: 4 }]);
+    const { entries, workingRevision } = await loadRoomWorkspace('x'.repeat(32));
+    expect(workingRevision).toBe(3);
     expect(entries[0]).toMatchObject({
       resourceKind: 'document',
       revision: 1,
@@ -270,29 +270,21 @@ describe('loadRoomWorkspace', () => {
     [{ ...base, resourceKind: 'document', documentRevision: null }],
     [{ ...base, resourceKind: 'folder', documentRevision: 2 }],
   ])('fails closed on a revision that contradicts the kind', async (entry) => {
-    stubJson({ entries: [entry], trash: [], retentionDays: 30 });
+    stubWorkspace([entry]);
     await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
       failure: 'unavailable',
     });
   });
 
   it('fails closed on a fractional revision', async () => {
-    stubJson({
-      entries: [{ ...base, revision: 1.5, resourceKind: 'document', documentRevision: 4 }],
-      trash: [],
-      retentionDays: 30,
-    });
+    stubWorkspace([{ ...base, revision: 1.5, resourceKind: 'document', documentRevision: 4 }]);
     await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
       failure: 'unavailable',
     });
   });
 
   it('fails closed on a fractional documentRevision', async () => {
-    stubJson({
-      entries: [{ ...base, resourceKind: 'document', documentRevision: 4.5 }],
-      trash: [],
-      retentionDays: 30,
-    });
+    stubWorkspace([{ ...base, resourceKind: 'document', documentRevision: 4.5 }]);
     await expect(loadRoomWorkspace('x'.repeat(32))).rejects.toMatchObject({
       failure: 'unavailable',
     });

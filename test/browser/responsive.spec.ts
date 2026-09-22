@@ -277,14 +277,32 @@ test.describe('theme handling', () => {
     await context.close();
   });
 
-  test('persists no theme choice to client storage', async ({ page }) => {
+  test('retains an individual override across refreshes', async ({ page }) => {
     await page.goto(server.baseUrl);
     await page.getByLabel('Appearance').selectOption('dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    const stored = await page.evaluate(() => ({
-      local: window.localStorage.length,
-      session: window.sessionStorage.length,
-    }));
-    expect(stored).toEqual({ local: 0, session: 0 });
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem('duefold.theme')))
+      .toBe('dark');
+
+    await page.reload();
+    await expect(page.getByLabel('Appearance')).toHaveValue('dark');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+    await page.getByLabel('Appearance').selectOption('system');
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.+/u);
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem('duefold.theme')))
+      .toBeNull();
+    expect(await page.evaluate(() => window.sessionStorage.length)).toBe(0);
+  });
+
+  test('ignores an invalid stored theme choice', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('duefold.theme', 'sepia');
+    });
+    await page.goto(server.baseUrl);
+    await expect(page.getByLabel('Appearance')).toHaveValue('system');
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.+/u);
   });
 });

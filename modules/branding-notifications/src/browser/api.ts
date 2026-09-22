@@ -76,12 +76,17 @@ export async function updateBranding(input: BrandingUpdate): Promise<BrandingCon
 }
 
 export type BrandingAssetKind = 'logo' | 'square-mark';
+export type BrandingUploadState = 'processing' | 'ready' | 'failed';
 
 export async function createBrandingUploadIntent(input: {
   readonly assetKind: BrandingAssetKind;
   readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp';
   readonly size: number;
-  readonly parts: readonly { readonly partNumber: number; readonly size: number }[];
+  readonly parts: readonly {
+    readonly partNumber: number;
+    readonly size: number;
+    readonly checksumSha256: string;
+  }[];
 }): Promise<UploadIntentResponse> {
   const payload = await json({
     method: 'POST',
@@ -109,13 +114,30 @@ export async function createBrandingUploadIntent(input: {
 export async function finalizeBrandingUpload(input: {
   readonly intentId: string;
   readonly uploadId: string;
-  readonly parts: readonly { readonly partNumber: number; readonly etag: string }[];
+  readonly parts: readonly {
+    readonly partNumber: number;
+    readonly etag: string;
+    readonly checksumSha256: string;
+  }[];
 }): Promise<void> {
   await json({
     method: 'POST',
     path: '/api/branding/assets',
     body: { action: 'finalize', ...input },
   });
+}
+
+export async function loadBrandingUploadState(intentId: string): Promise<BrandingUploadState> {
+  const payload = await json({
+    method: 'POST',
+    path: '/api/branding/assets',
+    body: { action: 'status', intentId },
+  });
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  const state = requireString(payload, 'state');
+  if (state !== 'processing' && state !== 'ready' && state !== 'failed')
+    throw new ApiError('unavailable');
+  return state;
 }
 
 export async function deleteBrandingAsset(input: {

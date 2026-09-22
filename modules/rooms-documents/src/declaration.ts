@@ -247,6 +247,8 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '020_room_register_paging', file: '020_room_register_paging.sql' },
     { id: '022_room_administration', file: '022_room_administration.sql' },
     { id: '025_content_status', file: '025_content_status.sql' },
+    { id: '027_upload_structure_attachment', file: '027_upload_structure_attachment.sql' },
+    { id: '029_processed_version_draft', file: '029_processed_version_draft.sql' },
   ],
   jobs: [
     {

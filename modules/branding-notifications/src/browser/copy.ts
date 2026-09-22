@@ -42,8 +42,9 @@ const messages = {
   squareMark: 'Square mark (favicon)',
   'squareMark.help': '1:1 square icon used in browser tabs and mobile shortcuts.',
   'squareMark.remove': 'Remove square mark',
-  'upload.pending': 'Uploading image\u2026',
-  'upload.failed': 'Image upload failed. Try a smaller PNG or JPEG.',
+  'upload.pending': 'Uploading and checking image\u2026',
+  'upload.failed':
+    'Image could not be processed. Confirm it is a valid PNG, JPEG, or WebP and try again.',
 } as const;
 
 export type BrandingMessageKey = keyof typeof messages;

@@ -88,11 +88,12 @@ async function roomAuthorized(
   identity: MemberIdentity,
   roomId: string,
   _now: Date,
+  displayTitle: string,
   documentId?: string,
 ): Promise<boolean> {
   const result = await client.query<{ authorize_upload_destination: boolean }>(
-    'SELECT authorize_upload_destination($1,$2,$3)',
-    [identity.id, roomId, documentId ?? null],
+    'SELECT authorize_upload_destination($1,$2,$3,$4)',
+    [identity.id, roomId, documentId ?? null, displayTitle],
   );
   return result.rows[0]?.authorize_upload_destination === true;
 }
@@ -122,6 +123,7 @@ export async function createUploadIntent(dependencies: {
         dependencies.identity,
         input.roomId,
         dependencies.now,
+        input.displayTitle,
         input.documentId,
       ))
     )
@@ -148,6 +150,7 @@ export async function createUploadIntent(dependencies: {
         dependencies.identity,
         input.roomId,
         dependencies.now,
+        input.displayTitle,
         input.documentId,
       ))
     )
@@ -249,6 +252,7 @@ export async function finalizeUpload(dependencies: {
       dependencies.identity,
       intent.room_id,
       dependencies.now,
+      intent.display_title,
       intent.document_id ?? undefined,
     ))
   )
@@ -308,6 +312,7 @@ export async function finalizeUpload(dependencies: {
           dependencies.identity,
           intent.room_id,
           dependencies.now,
+          intent.display_title,
           intent.document_id ?? undefined,
         ))
       )

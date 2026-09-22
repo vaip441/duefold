@@ -12,7 +12,7 @@ function pgError(code: string, message: string): unknown {
 }
 
 describe('failure classification', () => {
-  it('names a stale-OIDC refusal distinctly from an ordinary denial', () => {
+  it('names both database and application stale-OIDC refusals', () => {
     /*
      * Both are SQLSTATE 42501, so status alone cannot separate them. The client
      * must not infer the cause from which operation it called -- that labelled
@@ -21,6 +21,7 @@ describe('failure classification', () => {
     const stale = classifyFailure(pgError('42501', 'fresh OIDC required'));
     expect(stale?.status).toBe(403);
     expect(stale?.body.code).toBe('FRESH_AUTHENTICATION_REQUIRED');
+    expect(classifyFailure(new Error('FRESH_OIDC_REQUIRED'))).toEqual(stale);
 
     const ordinary = classifyFailure(pgError('42501', 'room management forbidden'));
     expect(ordinary?.status).toBe(403);

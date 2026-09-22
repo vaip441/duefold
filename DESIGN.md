@@ -598,10 +598,12 @@ a cross-origin *read*, which the cookie jar and the absence of CORS carry. The
 wires `rotateSession` into a live route must set this cookie in the same reply**;
 rotation mints a new digest and a stale cookie would surface as opaque 403s.
 
-**Nothing is persisted.** No token, session value, or protected content is written
-to `localStorage`, `sessionStorage`, IndexedDB, a service worker, or a cache. The
-theme override is held in React state rather than storage for the same reason. A
-browser test asserts all five are empty after a full sign-in.
+**Only non-sensitive appearance is persisted.** No token, session value, identity,
+or protected content is written to `localStorage`, `sessionStorage`, IndexedDB, a
+service worker, or a cache. The sole browser-storage entry is the optional
+`duefold.theme` local-storage preference, constrained to `light` or `dark`; choosing
+System removes it. Browser tests assert that the preference survives refresh while
+all session and protected data remain absent.
 
 **The browser is never the authorization boundary.** The client renders what the
 server said; it makes no access decision, and a hidden control is never treated as
@@ -683,8 +685,10 @@ source rewrite. Security and legal text is never machine-translated.
 - **Don't** animate on first paint, add `@keyframes`, or use `transition: all`.
 - **Don't** theme-invert document pixels; use `.df-document-pixels`.
 - **Don't** fetch a font, script, style, or image from a third-party origin.
-- **Don't** persist anything to `localStorage`, `sessionStorage`, IndexedDB, a
-  service worker, or a cache.
+- **Don't** persist tokens, session values, identities, or protected content to
+  `localStorage`, `sessionStorage`, IndexedDB, a service worker, or a cache. The
+  only permitted browser-storage entry is the constrained `duefold.theme`
+  appearance preference.
 - **Don't** show an internal code, correlation id, object key, SHA-256 digest,
   storage URL, internal filename, module name, or provider detail in the UI.
 - **Don't** let authentication copy differ by whether an address was invited.

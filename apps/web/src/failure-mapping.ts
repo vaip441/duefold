@@ -60,6 +60,7 @@ const UNIFORM_MESSAGE = new Map<number, string>([
  * distinguishes "re-authenticate" from "you may not do this at all".
  */
 const FRESH_OIDC_MARKER = 'fresh OIDC required';
+const FRESH_OIDC_APPLICATION_ERROR = 'FRESH_OIDC_REQUIRED';
 
 function messageOf(error: unknown): string {
   return typeof (error as { message?: unknown }).message === 'string'
@@ -69,6 +70,14 @@ function messageOf(error: unknown): string {
 
 /** Returns `null` when the failure is not a recognized refusal, i.e. a real fault. */
 export function classifyFailure(error: unknown): ClassifiedFailure | null {
+  if (messageOf(error) === FRESH_OIDC_APPLICATION_ERROR)
+    return {
+      status: 403,
+      body: {
+        code: 'FRESH_AUTHENTICATION_REQUIRED',
+        message: 'This change needs a fresh sign-in.',
+      },
+    };
   const sqlState =
     typeof (error as { code?: unknown }).code === 'string'
       ? (error as { code: string }).code

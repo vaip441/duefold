@@ -176,7 +176,7 @@ function inspectedImage(
   if (width !== expectedWidth || height !== expectedHeight)
     throw new Error('PROCESSOR_RESPONSE_INVALID');
 }
-function parseOutput(bytes: Uint8Array): ProcessedDocument {
+export function parseProcessorOutput(bytes: Uint8Array): ProcessedDocument {
   let value: unknown;
   try {
     value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
@@ -306,7 +306,7 @@ export async function processSource(input: {
       ? {}
       : { mode: input.isolation.mode, identities: input.isolation.identities }),
   });
-  return parseOutput(output);
+  return parseProcessorOutput(output);
 }
 export const processorArgumentsForTesting = argumentsFor;
 export const structuredHttpsLinkForTesting = structuredHttpsLink;

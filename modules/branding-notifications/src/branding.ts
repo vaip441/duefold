@@ -1,4 +1,6 @@
 import type { ClamAvClient } from '../../rooms-documents/src/scanning/clamav.ts';
+import { parseProcessorOutput } from '../../rooms-documents/src/processing/formats.ts';
+import type { SandboxIsolation } from '../../rooms-documents/src/processing/preflight.ts';
 import {
   invokeSandboxed,
   type SandboxProgram,
@@ -107,6 +109,7 @@ export async function processBrandImage(input: {
   readonly declaredMediaType: string;
   readonly scanner: ClamAvClient;
   readonly program: SandboxProgram;
+  readonly isolation?: SandboxIsolation;
   readonly invoke?: typeof invokeSandboxed;
 }): Promise<ProcessedBrandImage> {
   const mediaType = inspectBrandImage(input.bytes, input.declaredMediaType);
@@ -122,13 +125,18 @@ export async function processBrandImage(input: {
       maximumOutputBytes: MAX_IMAGE_DECODED_BYTES,
       maximumTemporaryBytes: MAX_IMAGE_DECODED_BYTES,
     },
+    ...(input.isolation === undefined || input.isolation.mode === 'namespaced'
+      ? {}
+      : { mode: input.isolation.mode, identities: input.isolation.identities }),
   });
-  // The credential-free adapter must emit a freshly encoded PNG only.
-  if (pngEnd(output) !== output.length || output.length < 24)
+  const processed = parseProcessorOutput(output);
+  if (processed.pages.length !== 1) throw new Error('BRAND_IMAGE_PROCESSOR_REJECTED');
+  const page = processed.pages[0];
+  if (page?.mediaType !== 'image/png') throw new Error('BRAND_IMAGE_PROCESSOR_REJECTED');
+  const { image, width, height } = page;
+  // The credential-free adapter must emit exactly one freshly encoded PNG.
+  if (pngEnd(image) !== image.length || image.length < 24)
     throw new Error('BRAND_IMAGE_PROCESSOR_REJECTED');
-  const view = Buffer.from(output);
-  const width = view.readUInt32BE(16);
-  const height = view.readUInt32BE(20);
   if (
     width < 1 ||
     height < 1 ||
@@ -138,7 +146,7 @@ export async function processBrandImage(input: {
     width * height * 4 > MAX_IMAGE_DECODED_BYTES
   )
     throw new Error('BRAND_IMAGE_RESOURCE_REJECTED');
-  return { mediaType: 'image/png', bytes: output, width, height };
+  return { mediaType: 'image/png', bytes: image, width, height };
 }
 
 function optionalPlainText(

@@ -123,14 +123,18 @@ afterAll(async () => {
   await bootstrapPool.end();
 });
 
-async function createAndUpload(identity: MemberIdentity = contributor, text = 'hello') {
+async function createAndUpload(
+  identity: MemberIdentity = contributor,
+  text = 'hello',
+  displayTitle = `Investor update ${createOpaqueId()}`,
+) {
   const created = await createUploadIntent({
     pool: runtimePool,
     storage,
     identity,
     input: {
       roomId,
-      displayTitle: 'Investor update',
+      displayTitle,
       originalFilename: 'private-source.txt',
       declaredMediaType: 'text/plain',
       declaredSize: Buffer.byteLength(text),
@@ -147,7 +151,7 @@ async function createAndUpload(identity: MemberIdentity = contributor, text = 'h
   );
   const objectKey = objectKeyResult.rows[0]?.object_key;
   if (objectKey === undefined) throw new Error('object key missing');
-  return { created, etag, objectKey };
+  return { created, etag, objectKey, displayTitle };
 }
 
 describe('multipart intent and quarantine transaction', () => {
@@ -230,7 +234,7 @@ describe('multipart intent and quarantine transaction', () => {
   });
 
   it('creates opaque storage identity, finalizes into quarantine, audits, and queues validation', async () => {
-    const { created, etag, objectKey } = await createAndUpload();
+    const { created, etag, objectKey, displayTitle } = await createAndUpload();
     expect(created).not.toHaveProperty('objectKey');
     expect(objectKey).toMatch(/^quarantine\/[A-Za-z0-9_-]{32}\/[A-Za-z0-9_-]{32}$/u);
     expect(objectKey).not.toContain('private-source');
@@ -253,6 +257,25 @@ describe('multipart intent and quarantine transaction', () => {
         )
       ).rows[0],
     ).toEqual({ state: 'quarantine', original_filename: 'private-source.txt', sha256: null });
+    expect(
+      (
+        await migrationPool.query<{
+          document_id: string;
+          display_name: string;
+          parent_folder_id: string | null;
+          staged_removed: boolean;
+        }>(
+          `SELECT document_id,display_name,parent_folder_id,staged_removed
+           FROM working_structure_entry WHERE document_id=$1`,
+          [finalized.documentId],
+        )
+      ).rows[0],
+    ).toEqual({
+      document_id: finalized.documentId,
+      display_name: displayTitle,
+      parent_folder_id: null,
+      staged_removed: false,
+    });
     expect(
       (
         await runtimePool.query<{ n: number }>(
@@ -324,6 +347,22 @@ describe('multipart intent and quarantine transaction', () => {
       detected_media_type: 'text/plain',
     });
     expect(validated?.sha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(
+      (
+        await migrationPool.query<{ working_version_id: string | null }>(
+          'SELECT working_version_id FROM document WHERE id=$1',
+          [finalized.documentId],
+        )
+      ).rows[0]?.working_version_id,
+    ).toBe(finalized.versionId);
+    expect(
+      (
+        await migrationPool.query<{ affected_count: number }>(
+          `SELECT (dry_run_bulk_publish($1,$2)->>'affectedCount')::int AS affected_count`,
+          [ownerId, roomId],
+        )
+      ).rows[0]?.affected_count,
+    ).toBeGreaterThan(0);
     const derivative = (
       await migrationPool.query<{
         object_key: string;

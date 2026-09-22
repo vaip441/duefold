@@ -1,26 +1,50 @@
 /**
  * Theme control: light, dark, system default, and an individual override.
  *
- * The override is a session-scoped choice held in React state and applied to the
- * document element. It is deliberately NOT persisted: `localStorage` and friends
- * must hold nothing for a Duefold session, and a theme
- * preference is not worth carving an exception into that rule. Without an
- * override the CSS `prefers-color-scheme` block follows the system.
+ * The override is non-sensitive presentation state, so light or dark is retained
+ * in this browser across visits. Choosing system removes the stored override and
+ * lets the CSS `prefers-color-scheme` block follow the operating system.
  */
 
-import { useEffect, useId, useState } from 'react';
+import { useId, useLayoutEffect, useState } from 'react';
 import { translate } from '../i18n/translate.ts';
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
+const THEME_STORAGE_KEY = 'duefold.theme';
+
+function storedThemeChoice(): ThemeChoice {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return stored === 'light' || stored === 'dark' ? stored : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function persistThemeChoice(choice: ThemeChoice): void {
+  try {
+    if (choice === 'system') window.localStorage.removeItem(THEME_STORAGE_KEY);
+    else window.localStorage.setItem(THEME_STORAGE_KEY, choice);
+  } catch {
+    // Storage can be disabled; the in-memory override still works for this visit.
+  }
+}
+
 export function useThemeChoice(): readonly [ThemeChoice, (choice: ThemeChoice) => void] {
-  const [choice, setChoice] = useState<ThemeChoice>('system');
-  useEffect(() => {
+  const [choice, setChoice] = useState<ThemeChoice>(storedThemeChoice);
+  useLayoutEffect(() => {
     const root = document.documentElement;
     if (choice === 'system') root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', choice);
   }, [choice]);
-  return [choice, setChoice];
+  return [
+    choice,
+    (next) => {
+      persistThemeChoice(next);
+      setChoice(next);
+    },
+  ];
 }
 
 export interface ThemeSelectProps {

@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useState } from 'react';
+import { checksumPartPlan } from '@duefold/web-client/module-api';
 import { presentFailure, type PresentedFailure } from '@duefold/web-client/module-api';
 import { planParts } from '@duefold/web-client/module-api';
 import { transferParts } from '@duefold/web-client/module-api';
@@ -17,6 +18,7 @@ import {
   deleteBrandingAsset,
   finalizeBrandingUpload,
   loadBranding,
+  loadBrandingUploadState,
   updateBranding,
   type BrandingAssetKind,
   type BrandingConfiguration,
@@ -82,16 +84,24 @@ export function useBrandingSection(handlers: {
       );
     },
     uploadAsset: async (assetKind, file) => {
-      const plan = planParts(file.size);
+      const controller = new AbortController();
+      const plan = await checksumPartPlan({
+        file,
+        plan: planParts(file.size),
+        signal: controller.signal,
+      });
       const mediaType =
         file.type === 'image/jpeg' || file.type === 'image/webp' ? file.type : 'image/png';
       const intent = await createBrandingUploadIntent({
         assetKind,
         mediaType,
         size: file.size,
-        parts: plan,
+        parts: plan.map((part) => ({
+          partNumber: part.partNumber,
+          size: part.size,
+          checksumSha256: part.checksumSha256 ?? '',
+        })),
       });
-      const controller = new AbortController();
       const parts = await transferParts({
         file,
         intent,
@@ -102,8 +112,21 @@ export function useBrandingSection(handlers: {
       await finalizeBrandingUpload({
         intentId: intent.intentId,
         uploadId: intent.uploadId,
-        parts,
+        parts: parts.map((part) => ({
+          partNumber: part.partNumber,
+          etag: part.etag,
+          checksumSha256: part.checksumSha256 ?? '',
+        })),
       });
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const state = await loadBrandingUploadState(intent.intentId);
+        if (state === 'ready') return;
+        if (state === 'failed') throw new Error('BRANDING_PROCESSING_FAILED');
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 1_000);
+        });
+      }
+      throw new Error('BRANDING_PROCESSING_TIMEOUT');
     },
     deleteAsset: async (roomId, assetKind) => {
       await deleteBrandingAsset({ roomId, assetKind });

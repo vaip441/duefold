@@ -70,6 +70,8 @@ export const schema = {
             {
               message: Type.String(),
               affectedCount: Type.Integer(),
+              workingRevision: Type.Integer(),
+              publishedRevision: Type.Integer(),
               paths: Type.Array(Type.String()),
               confirmation: Type.String(),
               /*
