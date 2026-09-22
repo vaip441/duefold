@@ -1,6 +1,6 @@
 {
   "name": "@duefold/core-security",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -16,8 +16,8 @@
     "./config": "./src/config.ts"
   },
   "dependencies": {
-    "@duefold/composition": "0.1.0",
-    "@duefold/shared": "0.1.0",
+    "@duefold/composition": "1.0.0",
+    "@duefold/shared": "1.0.0",
     "@sinclair/typebox": "0.34.52",
     "@types/pg": "8.23.1",
     "kysely": "0.29.6",

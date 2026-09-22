@@ -1,12 +1,12 @@
 {
   "name": "@duefold/web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
   "dependencies": {
-    "@duefold/shared": "0.1.0",
-    "@duefold/core-security": "0.1.0",
+    "@duefold/shared": "1.0.0",
+    "@duefold/core-security": "1.0.0",
     "@fastify/cookie": "11.1.2",
     "@fastify/helmet": "13.1.1",
     "@sinclair/typebox": "0.34.52",

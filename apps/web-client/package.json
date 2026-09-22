@@ -1,6 +1,6 @@
 {
   "name": "@duefold/web-client",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
-    "@duefold/shared": "0.1.0",
+    "@duefold/shared": "1.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   }
