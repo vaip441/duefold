@@ -1,6 +1,6 @@
 {
   "name": "@duefold/participants-access",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -8,9 +8,9 @@
     "./declaration": "./src/declaration.ts"
   },
   "dependencies": {
-    "@duefold/shared": "1.1.0",
-    "@duefold/composition": "1.1.0",
-    "@duefold/core-security": "1.1.0",
-    "@duefold/rooms-documents": "1.1.0"
+    "@duefold/shared": "1.1.1",
+    "@duefold/composition": "1.1.1",
+    "@duefold/core-security": "1.1.1",
+    "@duefold/rooms-documents": "1.1.1"
   }
 }
