@@ -233,14 +233,14 @@
 /* --- Empty states teach the region rather than announcing nothing -------- */
 
 .df-empty {
-  padding-inline: var(--space-5);
   color: var(--ink-faint);
   font-size: var(--size-meta);
   max-width: var(--measure-prose);
 }
 
-.df-empty--worktable {
-  padding-inline: 0;
+/* Only the collection rail insets its empty state, to align with its entries. */
+.df-index__empty {
+  padding-inline: var(--space-5);
 }
 
 .df-empty__lead {
@@ -464,7 +464,7 @@
   }
 
   .df-notes__body,
-  .df-empty:not(.df-empty--worktable),
+  .df-index__empty,
   .df-index__heading,
   .df-notes__heading {
     padding-inline: var(--space-4);

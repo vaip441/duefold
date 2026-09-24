@@ -102,6 +102,16 @@ textarea {
   color: inherit;
 }
 
+/* Native checkboxes and radios take the accent for their checked state and a size
+ * that is legible beside body text, instead of the browser's own blue. */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  margin: 0;
+}
+
 /*
  * Document pixels are never theme-inverted. Any surface
  * showing rendered document content carries this class, which pins a

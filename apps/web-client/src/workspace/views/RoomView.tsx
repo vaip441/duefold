@@ -646,7 +646,7 @@ export function RoomView({
               </h2>
               <button
                 type="button"
-                className="df-button df-button--primary"
+                className="df-button"
                 onClick={() => {
                   onSectionChange('upload');
                 }}

@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 2.5rem;
+  min-height: var(--control-height);
   padding: var(--space-2) var(--space-4);
   border: var(--hairline) solid var(--rule-strong);
   border-radius: var(--radius-control);
@@ -285,7 +285,11 @@
   font-size: var(--size-meta);
 }
 
+/* Flex, so the support link is blockified and keeps its 24px target height. */
 .df-sheet__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   padding: var(--space-4) var(--space-5);
   border-top: var(--hairline) solid var(--rule);
   color: var(--ink-faint);
@@ -339,44 +343,48 @@
   opacity: 0.85;
 }
 
-/* Guided preparation and focused collection controls. */
+/* Guided preparation: a ruled path of steps that ends in the room's one primary action. */
 .df-preparation {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  border: var(--hairline) solid var(--rule-strong);
-  background: var(--ground-sunken);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  border-block-end: var(--hairline) solid var(--rule);
 }
 .df-preparation__step {
   min-height: var(--control-height);
+  margin-block-end: -1px;
   border: 0;
-  border-inline-end: var(--hairline) solid var(--rule);
+  border-block-end: 2px solid transparent;
   background: transparent;
   color: var(--ink-muted);
-  padding: var(--space-3) var(--space-5);
-  font: var(--weight-semibold) var(--size-label) / var(--leading-tight) var(--font-ui);
-  letter-spacing: 0.04em;
+  padding: var(--space-2) 0;
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
   text-align: start;
   cursor: pointer;
+  transition:
+    color var(--duration-state) var(--ease-out),
+    border-color var(--duration-state) var(--ease-out);
 }
-.df-preparation__step:last-child {
-  border-inline-end: 0;
+@media (hover: hover) and (pointer: fine) {
+  .df-preparation__step:hover {
+    color: var(--ink);
+  }
 }
 .df-preparation__step[aria-current='step'] {
-  background: var(--accent-wash);
   color: var(--ink);
-  border-block-end: 2px solid var(--accent);
-}
-.df-preparation__step--publish {
-  color: var(--accent-strong);
+  font-weight: var(--weight-semibold);
+  border-block-end-color: var(--accent);
 }
 .df-preparation__number {
   font-variant-numeric: tabular-nums;
   color: var(--ink-faint);
   margin-inline-end: var(--space-1);
 }
-.df-preparation__step[aria-current='step'] .df-preparation__number {
-  color: var(--accent-strong);
+.df-preparation__publish {
+  margin-inline-start: auto;
+  margin-block: var(--space-2);
 }
 .df-collection-toolbar,
 .df-upload-review__summary {
@@ -386,6 +394,8 @@
   gap: var(--space-4);
 }
 .df-collection-toolbar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
   padding-block-end: var(--space-4);
   border-block-end: var(--hairline) solid var(--rule);
 }
@@ -539,9 +549,8 @@
 }
 
 /*
- * State and change wording. The accent marks the live/current case only; pending
- * and removal states are carried by words and weight, keeping to the one-green
- * rule.
+ * State and change wording. A settled, live state reads in full ink; pending and
+ * removal states stay muted. Green is never a status hue (the one-green rule).
  */
 .df-state {
   display: block;
@@ -550,7 +559,7 @@
   color: var(--ink-muted);
 }
 .df-state[data-live='true'] {
-  color: var(--accent);
+  color: var(--ink);
 }
 .df-state[data-state='archived'] {
   color: var(--ink-faint);
@@ -964,6 +973,10 @@
   gap: var(--space-3);
   max-width: 44rem;
 }
+/* Fields stretch across the block; an action keeps its own width. */
+.df-panel__block > .df-button {
+  align-self: flex-start;
+}
 .df-panel__subheading {
   font-family: var(--font-text);
   font-size: var(--size-body);
@@ -1046,7 +1059,7 @@
   color: var(--notice);
 }
 .df-state[data-tone='ready'] {
-  color: var(--accent);
+  color: var(--ink);
 }
 
 .df-controls__panel {
@@ -1121,25 +1134,23 @@
   .df-impact {
     max-width: none;
   }
-  .df-preparation,
   .df-upload-picker,
   .df-upload-list__item {
     grid-template-columns: 1fr;
   }
+  /* The publish button wraps onto its own row here, so the path drops its rule rather
+     than running it under the button; the current step keeps its accent underline. */
   .df-preparation {
-    grid-auto-flow: row;
-  }
-  .df-preparation__step {
-    border-inline-end: 0;
-    border-block-end: var(--hairline) solid var(--rule);
-  }
-  .df-preparation__step:last-child {
+    column-gap: var(--space-4);
     border-block-end: 0;
+  }
+  .df-preparation__publish {
+    flex-basis: 100%;
+    margin-inline-start: 0;
   }
   .df-upload-picker__or {
     padding: 0;
   }
-  .df-collection-toolbar,
   .df-upload-review__summary {
     align-items: stretch;
     flex-direction: column;

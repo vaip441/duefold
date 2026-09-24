@@ -5,7 +5,8 @@
  * neither manages readers nor publishes, so their path is Collection and Review;
  * offering the other steps would lead them to a refusal.
  *
- * Publish is a step, not a section: it opens the server's dry-run dialog.
+ * Publish ends the path but is not a section: it opens the server's dry-run dialog, and
+ * it is the room's one primary action, so it is not duplicated anywhere else.
  */
 
 import { translate, type MessageKey } from '../i18n/translate.ts';
@@ -18,11 +19,10 @@ const STEP_SECTIONS: Readonly<Record<StepId, readonly string[]>> = {
   review: ['processing'],
 };
 
-const STEP_LABEL: Readonly<Record<StepId | 'publish', MessageKey>> = {
+const STEP_LABEL: Readonly<Record<StepId, MessageKey>> = {
   collection: 'workspace.steps.collection',
   access: 'workspace.steps.access',
   review: 'workspace.steps.review',
-  publish: 'workspace.steps.publish',
 };
 
 export interface RoomPreparationNavProps {
@@ -62,13 +62,10 @@ export function RoomPreparationNav({
       {canManage ? (
         <button
           type="button"
-          className="df-preparation__step df-preparation__step--publish"
+          className="df-button df-button--primary df-preparation__publish"
           onClick={onPublish}
         >
-          <span className="df-preparation__number" aria-hidden="true">
-            {steps.length + 1}
-          </span>{' '}
-          {translate(STEP_LABEL.publish)}
+          {translate('publish.action')}
         </button>
       ) : null}
     </nav>

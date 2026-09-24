@@ -446,6 +446,13 @@ export function ViewerReadingRoom({
                 translate('viewer.rooms.title'))
               : translate('viewer.rooms.title')))
       }
+      pageTitle={
+        openRoomId === null
+          ? 'viewer.rooms.title'
+          : openDocumentId !== null
+            ? 'page.document'
+            : 'page.room'
+      }
       entries={indexEntries}
       currentEntryId={
         openDocumentId === null
@@ -544,7 +551,7 @@ export function ViewerReadingRoom({
             {rooms.failure}
           </Notice>
         ) : rooms.value.length === 0 ? (
-          <div className="df-empty df-empty--worktable">
+          <div className="df-empty">
             <span className="df-empty__lead">{translate('viewer.rooms.empty')}</span>
             {translate('viewer.rooms.emptyHelp')}
           </div>
@@ -576,7 +583,7 @@ export function ViewerReadingRoom({
             {structure.failure}
           </Notice>
         ) : entries.length === 0 ? (
-          <div className="df-empty df-empty--worktable">
+          <div className="df-empty">
             <span className="df-empty__lead">{translate('viewer.index.empty')}</span>
             {translate('viewer.index.emptyHelp')}
           </div>
@@ -590,7 +597,7 @@ export function ViewerReadingRoom({
           {document.failure}
         </Notice>
       ) : openDocument === null ? (
-        <div className="df-empty df-empty--worktable">
+        <div className="df-empty">
           <span className="df-empty__lead">{translate('viewer.document.unavailable')}</span>
           {translate('viewer.document.unavailableHelp')}
         </div>

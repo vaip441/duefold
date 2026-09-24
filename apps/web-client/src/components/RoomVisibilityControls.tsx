@@ -168,7 +168,7 @@ export function RoomVisibilityControls({
             <button
               key={state}
               type="button"
-              className={state === 'draft' ? 'df-button' : 'df-button df-button--primary'}
+              className="df-button"
               onClick={() => {
                 begin(state);
               }}

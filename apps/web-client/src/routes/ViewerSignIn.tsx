@@ -158,7 +158,7 @@ export function ViewerSignIn({
         : stage.notice;
     return (
       <AuthSheet
-        title={translate('otp.sent.title')}
+        title="otp.sent.title"
         lead={translate('otp.sent.body')}
         theme={theme}
         onThemeChange={onThemeChange}
@@ -275,7 +275,7 @@ export function ViewerSignIn({
 
   return (
     <AuthSheet
-      title={translate('signIn.viewer.title')}
+      title="signIn.viewer.title"
       lead={translate('signIn.viewer.lead')}
       theme={theme}
       onThemeChange={onThemeChange}

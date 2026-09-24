@@ -53,6 +53,8 @@ async function openPopulatedRoom(page: Page): Promise<void> {
   await page.goto(server.baseUrl);
   await page.getByRole('button', { name: /Open room Reading Room WCAG/u }).click();
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  // The heading paints before the room's own controls load; measure the loaded room.
+  await expect(page.getByRole('heading', { name: 'Working structure' })).toBeVisible();
 }
 
 /** Every control's rendered box, with its accessible-ish label for reporting. */

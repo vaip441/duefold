@@ -29,6 +29,7 @@ colors:
   accent-strong-dark: '#7fd8c6'
   accent-contrast-dark: '#0b0f0d'
   accent-wash-dark: '#1d2f2b'
+  selection-ground-dark: '#2c4a44'
   danger-dark: '#f0958a'
   notice-dark: '#ddb25e'
 typography:
@@ -101,7 +102,7 @@ components:
     textColor: '{colors.ink-muted}'
     typography: '{typography.body}'
     rounded: '{rounded.control}'
-    padding: '{spacing.1} {spacing.2}'
+    padding: '{spacing.2} {spacing.2}'
     height: '2.25rem'
   input:
     backgroundColor: '{colors.ground-raised}'
@@ -120,9 +121,18 @@ components:
     textColor: '{colors.ink}'
   notice:
     backgroundColor: 'transparent'
-    textColor: '{colors.ink}'
+    textColor: '{colors.ink-muted}'
     typography: '{typography.meta}'
     padding: '{spacing.2} 0 {spacing.2} {spacing.3}'
+  preparation-step:
+    backgroundColor: 'transparent'
+    textColor: '{colors.ink-muted}'
+    typography: '{typography.body}'
+    padding: '{spacing.2} 0'
+    height: '2.5rem'
+  preparation-step-current:
+    backgroundColor: 'transparent'
+    textColor: '{colors.ink}'
   region-label:
     backgroundColor: 'transparent'
     textColor: '{colors.ink-faint}'
@@ -198,8 +208,9 @@ not estimated; the ratios below are asserted by
   near-black on the dark accent fill is 9.65:1.
 - **Green Pressed** (`#00544a` light, `#7fd8c6` dark): hover and active on the
   primary action, and hovered links. 7.97:1 and 10.49:1 respectively.
-- **Green Wash** (`#dfe8e4` light, `#1d2f2b` dark): available as a current-item
-  ground. Never used as the sole ground behind body text.
+- **Green Wash** (`#dfe8e4` light, `#1d2f2b` dark): the ground of the current
+  find-on-page match in the reader, paired with a 2px accent outline. Never used as
+  the sole ground behind body text.
 
 ### Secondary
 
@@ -375,7 +386,9 @@ marker, a rotated 0.5rem square border used at narrow widths.
   outside-dismissal, focus-return, and exit behavior without cloning labelled controls.
 - **Status table:** the Status section is one `df-register` table, twelve rows in
   a fixed order. Every state is a word — Passing, Needs attention, Failing, Not yet
-  checked, Out of date — and only Passing carries the accent. Every recorded instant is a
+  checked, Out of date. Passing reads in full ink, Failing in the problem tone, and Needs
+  attention and Out of date in the caution tone; none of them is green, because the accent
+  is never a status hue. Every recorded instant is a
   `<time>` whose `dateTime` and title hold the UTC value; rows read live say "Now". A failing
   check stays Failing when its answer is also old, because the last known answer to it is a
   failure. When any row fails, a problem notice leads with the count.
@@ -390,7 +403,10 @@ marker, a rotated 0.5rem square border used at narrow widths.
 - **Default:** paper ground, ink text, `--rule-strong` border, `2.5rem` min
   height, `0.5rem 1rem` padding.
 - **Primary:** accent fill, `--accent-contrast` text, semibold. One primary action
-  per surface.
+  per surface at rest. In a room that is the preparation path's **Publish changes**;
+  a section's own actions are default buttons until the member opens a task (a row's
+  Manage form, a grant change, a dialog), whose submit may then be primary. Navigation,
+  archive, and policy changes are never primary.
 - **Quiet:** transparent border and ground, muted ink, `2.25rem` min height. For
   secondary actions such as sign-out-everywhere.
 - **Hover:** border darkens to `--ink-faint`, ground lifts to `--ground-raised`;
@@ -425,6 +441,12 @@ height so they satisfy WCAG 2.2 2.5.8 without looking like controls.
 - **Invalid:** `aria-invalid` plus a danger-coloured border plus a text error
   referenced by `aria-describedby`. Three signals, never colour alone.
 - **Disabled:** sunken ground, faint ink.
+- **Checkboxes and radios:** native controls at `1.125rem` with `accent-color:
+  var(--accent)`, so the checked state is the system green in both themes rather than
+  the browser's blue. A radio row's whole label is its target; a register's selection
+  checkbox sits in a `2.75rem` label target.
+- **Fieldsets:** a fieldset is a panel block — one rule above, its legend flowing as the
+  block's subheading — never a bordered box.
 - **Code field:** tracked 0.32em at 1.25rem with tabular figures and an `11em`
   width, so eight tracked digits fit without clipping (`ch` ignores tracking).
 
@@ -436,6 +458,12 @@ inline-start bar, a `--ground-raised` ground, and `aria-current="true"`. Entries
 declare `aria-controls` pointing at the worktable, so the relationship between
 index and worktable is programmatic rather than visual. At ≤48rem the index
 collapses behind a disclosure with a rotating marker and `aria-expanded`.
+
+Inside a room, the **preparation path** is the task navigation: numbered steps in
+body-size muted ink on one hairline, the current step in semibold ink over a 2px
+accent underline with `aria-current="step"`. It ends in the room's only primary
+button, so the path reads as a sequence that finishes in publication. Supporting
+sections (Exports, Settings) sit below it as plain underlined tabs without numbers.
 
 ### Notices (signature component)
 
@@ -635,7 +663,8 @@ source rewrite. Security and legal text is never machine-translated.
 
 ## Workspace and reading room
 
-- Room work follows one preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion (Add documents is an action inside it), Access owns readers and counterparties, Review is processing readiness, and Publish stays consequence-first behind the server dry-run dialog. Only Exports and Settings sit in the supporting strip below the path; nothing appears in both. A Contributor's path is Collection → Review, with no Access, Publish, or Exports, because each would only lead to a refusal.
+- Room work follows one preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion (Add documents is an action inside it), Access owns readers and counterparties, Review is processing readiness, and Publish stays consequence-first behind the server dry-run dialog. The path is a ruled row of numbered steps (the current one carries an accent underline and `aria-current="step"`) that ends in the room's one primary button, **Publish changes**; no other control publishes. Only Exports and Settings sit in the supporting strip below the path; nothing appears in both. A Contributor's path is Collection → Review, with no Access, Publish, or Exports, because each would only lead to a refusal.
+- The browser title names the kind of view (Rooms, Room, Document, Administration, or the sign-in task) followed by the organization name, so tabs and assistive technology tell views apart. It is built only from message keys and never carries a room or document name, because browser history, synced history, and session restore keep titles after sign-out or revocation. The viewer sign-in title is the same for every address, like the rest of that surface.
 - The address bar carries the location: `/rooms/{id}/{section}` and `/administration/{section}` for members, `/rooms/{id}/documents/{id}?page=n` for viewers. Refresh, Back, and a copied link return to the same place; a path grants nothing, since every view still loads through the server. Page turns replace the history entry so Back leaves the document rather than stepping through pages.
 - Branding is organization-wide and lives under Administration, edited by Owners and Admins only; it never appears as a room section.
 - The notes margin is drawn only when the view has something to note. The register and Administration give that column back to the worktable.
@@ -648,7 +677,7 @@ source rewrite. Security and legal text is never machine-translated.
 - The viewer collection index is the only document navigator. Folders are non-interactive finding-aid headings; documents open in the worktable.
 - Collection rows expose one **Manage** disclosure. Reordering is a dedicated mode, while rename, placement, metadata, download policy, and staged removal stay inside the selected row's focused task.
 - Upload is a reviewed multi-file or directory queue. Browser preflight applies the shared path, depth, count, total-size, collision, and extension rules before transfer; each file then uses its own intent, multipart transfer, and finalization, and keeps an independent waiting, progress, accepted, or failed state. Uploads join the collection at its top level; relative paths are shown for review only.
-- Responsive registers carry visible cell labels when headers move off-screen. The preparation path, upload queue, and focused row task restack to one column at 48rem without changing source or focus order.
+- Responsive registers carry visible cell labels when headers move off-screen. At 48rem the preparation path wraps with its publish button on a row of its own, and the upload queue and focused row task restack to one column, without changing source or focus order.
 
 ## Do's and Don'ts
 

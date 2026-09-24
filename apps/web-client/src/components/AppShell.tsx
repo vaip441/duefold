@@ -3,7 +3,7 @@
  *
  * Structure is the accessibility contract, and it is settled here so later
  * surfaces inherit it rather than each re-deriving it:
- *   - `banner` holds the room-facts line and the primary action;
+ *   - `banner` holds the room-facts line and the account controls;
  *   - `navigation` holds the collection index;
  *   - `main` holds the worktable and owns the single `h1` for the view;
  *   - `complementary` holds the access-notes margin;
@@ -18,7 +18,8 @@
  */
 
 import { useId, useState, type ReactNode } from 'react';
-import { translate } from '../i18n/translate.ts';
+import { usePageTitle } from '../branding/usePageTitle.ts';
+import { translate, type MessageKey } from '../i18n/translate.ts';
 import { AccountMenu } from './AccountMenu.tsx';
 import { BrandLogo } from './BrandLogo.tsx';
 import { StatusRegion } from './StatusRegion.tsx';
@@ -41,14 +42,16 @@ export interface CollectionEmptyState {
 export interface AppShellProps {
   /** Worktable heading; exactly one h1 per view. */
   readonly title: string;
+  /** The kind of view for the browser title, which must never carry a room or document name. */
+  readonly pageTitle: MessageKey;
   readonly entries: readonly CollectionEntry[];
   readonly currentEntryId: string | null;
   readonly onSelectEntry: (id: string) => void;
   /** Required because each surface owns the meaning of an empty collection.
    * Null leaves the rail silent when the worktable already explains emptiness. */
   readonly indexEmpty: CollectionEmptyState | null;
-  /** The room-facts primary action, when the current surface has one. */
-  readonly primaryAction?: ReactNode;
+  /** A short room fact beside the account controls, such as why this member cannot publish. */
+  readonly roomFact?: ReactNode;
   /** Task navigation that remains visible beside the compact account menu. */
   readonly contextActions?: ReactNode;
   readonly accountActions?: ReactNode;
@@ -63,17 +66,19 @@ const WORKTABLE_ID = 'df-worktable';
 
 export function AppShell({
   title,
+  pageTitle,
   entries,
   currentEntryId,
   onSelectEntry,
   indexEmpty,
-  primaryAction,
+  roomFact,
   contextActions,
   accountActions,
   notes,
   status,
   children,
 }: AppShellProps): React.ReactElement {
+  usePageTitle(pageTitle);
   const indexHeadingId = useId();
   const notesHeadingId = useId();
   const treeId = useId();
@@ -92,7 +97,7 @@ export function AppShell({
           <BrandLogo />
         </span>
         <span className="df-facts__actions">
-          {primaryAction}
+          {roomFact}
           {contextActions}
           {accountActions === undefined ? null : <AccountMenu>{accountActions}</AccountMenu>}
         </span>
@@ -168,7 +173,7 @@ export function AppShell({
       <main className="df-worktable" id={WORKTABLE_ID} tabIndex={-1}>
         <h1 className="df-worktable__title">{title}</h1>
         {children ?? (
-          <div className="df-empty df-empty--worktable">
+          <div className="df-empty">
             <span className="df-empty__lead">{translate('shell.worktable.empty')}</span>
             {translate('shell.worktable.emptyHelp')}
           </div>

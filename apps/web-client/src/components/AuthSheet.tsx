@@ -5,13 +5,15 @@
 
 import { useLayoutEffect, useRef, type ReactNode, type Ref } from 'react';
 import { useBrand } from '../branding/useBrand.ts';
+import { usePageTitle } from '../branding/usePageTitle.ts';
 import { BrandLogo, isOrganizationBrand } from './BrandLogo.tsx';
-import { translate } from '../i18n/translate.ts';
+import { translate, type MessageKey } from '../i18n/translate.ts';
 import { SupportLine } from './SupportLine.tsx';
 import { ThemeSelect, type ThemeChoice } from './ThemeSelect.tsx';
 
 export interface AuthSheetProps {
-  readonly title: string;
+  /** A fixed heading, never free text, because it also becomes the browser title. */
+  readonly title: MessageKey;
   readonly lead: string;
   readonly theme: ThemeChoice;
   readonly onThemeChange: (choice: ThemeChoice) => void;
@@ -34,6 +36,7 @@ export function AuthSheet({
   motionKey,
 }: AuthSheetProps): React.ReactElement {
   const { brand } = useBrand();
+  usePageTitle(title);
   const column = useRef<HTMLDivElement | null>(null);
   const previousMotionKey = useRef(motionKey);
   const hasCustomBrand = isOrganizationBrand(brand);
@@ -63,7 +66,7 @@ export function AuthSheet({
       </header>
       <main className="df-sheet__main">
         <div className="df-sheet__column" ref={setColumnRef}>
-          <h1 className="df-sheet__title">{title}</h1>
+          <h1 className="df-sheet__title">{translate(title)}</h1>
           <p className="df-sheet__lead">{lead}</p>
           {children}
           {aside === undefined ? null : <div className="df-sheet__aside">{aside}</div>}

@@ -7,7 +7,7 @@
 
 /*
  * One option in a radio group: the whole row is the label, so the clickable target is the
- * text and not only the 13-pixel control. Separate from `.df-field--check`, which is a
+ * text and not only the control itself. Separate from `.df-field--check`, which is a
  * single checkbox and needs no spacing between siblings.
  */
 .df-field__choice {
@@ -17,4 +17,33 @@
   margin-block-end: var(--space-2);
   font-weight: 400;
   cursor: pointer;
+}
+
+/* A fieldset is a panel block like any other: one rule above it, never a box. The
+ * legend is floated so it flows as the block's heading instead of notching a border. */
+fieldset.df-panel__block {
+  margin-inline: 0;
+  padding: var(--space-4) 0 0;
+  border: 0;
+  border-block-start: var(--hairline) solid var(--rule);
+  min-inline-size: 0;
+}
+fieldset.df-panel__block > legend {
+  float: inline-start;
+  inline-size: 100%;
+  padding: 0;
+}
+
+/* The selection cell is the checkbox's target, so a row can be picked by touch
+ * without aiming at the control itself. */
+.df-select-target {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  cursor: pointer;
+}
+.df-select-target:has(:disabled) {
+  cursor: default;
 }

@@ -23,6 +23,7 @@ function render(overrides: Partial<Parameters<typeof AppShell>[0]> = {}): string
   return renderToStaticMarkup(
     <AppShell
       title="Duefold"
+      pageTitle="app.name"
       entries={[]}
       currentEntryId={null}
       onSelectEntry={() => undefined}

@@ -46,7 +46,7 @@ export function MemberSignIn({
   const [pending, setPending] = useState(false);
   return (
     <AuthSheet
-      title={translate('signIn.member.title')}
+      title="signIn.member.title"
       lead={translate('signIn.member.lead')}
       theme={theme}
       onThemeChange={onThemeChange}

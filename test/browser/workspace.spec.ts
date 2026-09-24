@@ -80,13 +80,22 @@ test.describe('member workspace', () => {
   }) => {
     await openWorkspace(page, { roomTitle: 'Managed room', roomRole: 'manager' });
     await page.getByRole('button', { name: /Open room Managed room/u }).click();
-    await expect(page.getByRole('button', { name: 'Review and publish' })).toBeVisible();
+    // The room's one primary action ends the preparation path; nothing else publishes.
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Room preparation' })
+        .getByRole('button', { name: 'Publish changes' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Publish changes' })).toHaveCount(1);
+    // Browser history outlives the session, so the title names the view, never the room.
+    await expect(page).toHaveTitle(/^Room( · |$)/u);
+    expect(await page.title()).not.toContain('Managed room');
 
     // A fresh context for the contributor: the control must be absent AND explained.
     await page.context().clearCookies();
     await openWorkspace(page, { roomTitle: 'Staged room', roomRole: 'contributor' });
     await page.getByRole('button', { name: /Open room Staged room/u }).click();
-    await expect(page.getByRole('button', { name: 'Review and publish' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Publish changes' })).toHaveCount(0);
     await expect(page.getByText('A room manager publishes changes')).toBeVisible();
   });
 
@@ -113,7 +122,7 @@ test.describe('member workspace', () => {
   }) => {
     await openWorkspace(page, { roomTitle: 'Publish room', roomRole: 'manager' });
     await page.getByRole('button', { name: /Open room Publish room/u }).click();
-    await page.getByRole('button', { name: 'Review and publish' }).click();
+    await page.getByRole('button', { name: 'Publish changes' }).click();
     const dialog = page.getByRole('dialog', { name: 'Publish changes' });
     await expect(dialog).toBeVisible();
     // An empty draft room has nothing to publish, and the dialog says so -- without

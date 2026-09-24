@@ -150,11 +150,7 @@ export function InstallationDownloadControls({
         {translate('installation.download.explain', { rooms: settings.inheritingRoomCount })}
       </p>
       <div className="df-panel__actions">
-        <button
-          type="button"
-          className={proposed === 'allow' ? 'df-button df-button--primary' : 'df-button'}
-          onClick={begin}
-        >
+        <button type="button" className="df-button" onClick={begin}>
           {translate(COPY[proposed].change)}
         </button>
       </div>

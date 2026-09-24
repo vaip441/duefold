@@ -9,6 +9,7 @@ import type {
   StatusCheck,
 } from '../api/client.ts';
 import { translate, translateCount, type MessageKey } from '../i18n/translate.ts';
+import type { StateTone } from './state-tone.ts';
 
 export type RowState = 'pass' | 'attention' | 'fail' | 'unchecked' | 'stale';
 
@@ -32,6 +33,14 @@ export const STATE_LABEL: Readonly<Record<RowState, MessageKey>> = {
   fail: 'status.state.fail',
   unchecked: 'status.state.unchecked',
   stale: 'status.state.stale',
+};
+
+export const STATE_TONE: Readonly<Record<RowState, StateTone>> = {
+  pass: 'ready',
+  attention: 'caution',
+  fail: 'problem',
+  unchecked: 'neutral',
+  stale: 'caution',
 };
 
 const CHECK_LABEL: Readonly<Record<StatusCheck, MessageKey>> = {

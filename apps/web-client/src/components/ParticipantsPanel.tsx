@@ -448,7 +448,7 @@ export function ParticipantsPanel({
         </div>
         <button
           type="submit"
-          className="df-button df-button--primary"
+          className="df-button"
           data-busy={invitePending ? 'true' : 'false'}
           disabled={invitePending}
         >

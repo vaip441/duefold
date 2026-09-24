@@ -11,6 +11,7 @@
 
 import type { ExportRecord, ProcessingVersion } from '../api/client.ts';
 import type { MessageKey } from '../i18n/translate.ts';
+import type { StateTone } from './state-tone.ts';
 
 /**
  * One asynchronous section's load state.
@@ -44,9 +45,7 @@ const PROCESSING_HELP: Readonly<Record<string, MessageKey>> = {
   processing_failed: 'processing.state.processingFailedHelp',
 };
 
-export type ProcessingTone = 'neutral' | 'caution' | 'problem' | 'ready';
-
-const PROCESSING_TONE: Readonly<Record<string, ProcessingTone>> = {
+const PROCESSING_TONE: Readonly<Record<string, StateTone>> = {
   quarantine: 'neutral',
   source_validated: 'neutral',
   ready_for_review: 'ready',
@@ -62,7 +61,7 @@ const PROCESSING_TONE: Readonly<Record<string, ProcessingTone>> = {
 export interface ProcessingPresentation {
   readonly label: MessageKey;
   readonly help: MessageKey | null;
-  readonly tone: ProcessingTone;
+  readonly tone: StateTone;
   /** The server allows exactly one manual retry, and only after a failure. */
   readonly canRetry: boolean;
   readonly retryExhausted: boolean;

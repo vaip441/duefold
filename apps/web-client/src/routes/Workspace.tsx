@@ -370,6 +370,13 @@ export function Workspace({
             ? translate('workspace.tab.administration')
             : translate('rooms.title')
       }
+      pageTitle={
+        openRoom !== null
+          ? 'page.room'
+          : currentView.id === 'administration'
+            ? 'workspace.tab.administration'
+            : 'rooms.title'
+      }
       entries={indexEntries}
       currentEntryId={inRoom ? selectedEntryId : null}
       indexEmpty={{
@@ -385,21 +392,12 @@ export function Workspace({
         if (roomList.some((room) => room.roomId === id)) enterRoom(id);
       }}
       status={status}
-      primaryAction={
-        openRoom !== null ? (
-          openRoom.canPublish ? (
-            <button
-              type="button"
-              className="df-button df-button--primary"
-              onClick={beginPublish}
-            >
-              {translate('publish.action')}
-            </button>
-          ) : (
-            // A Contributor stages; a Manager publishes. Rather than hiding the
-            // concept, the reason is stated so the member is not left guessing.
-            <span className="df-field__help">{translate('publish.contributorNote')}</span>
-          )
+      roomFact={
+        // A Manager publishes from the end of the preparation path. A Contributor
+        // stages; rather than hiding the concept, the reason is stated so the member
+        // is not left guessing.
+        openRoom !== null && !openRoom.canPublish ? (
+          <span className="df-field__help">{translate('publish.contributorNote')}</span>
         ) : null
       }
       notes={

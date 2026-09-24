@@ -116,7 +116,7 @@ export function StructureTable({
 
   if (entries.length === 0)
     return (
-      <div className="df-empty df-empty--worktable">
+      <div className="df-empty">
         <span className="df-empty__lead">{translate('workspace.empty')}</span>
         {translate('workspace.emptyHelp')}
       </div>
@@ -125,9 +125,6 @@ export function StructureTable({
   return (
     <>
       <div className="df-collection-toolbar">
-        <p className="df-field__help">
-          {reordering ? translate('structure.reorder.activeHelp') : null}
-        </p>
         <button
           type="button"
           className="df-button"
@@ -141,6 +138,9 @@ export function StructureTable({
             ? translate('structure.reorder.done')
             : translate('structure.reorder.start')}
         </button>
+        <p className="df-field__help">
+          {reordering ? translate('structure.reorder.activeHelp') : null}
+        </p>
       </div>
       <table className="df-register">
         <caption className="df-visually-hidden">
@@ -177,19 +177,21 @@ export function StructureTable({
                 {selectable ? (
                   <td data-label={translate('bulk.label')}>
                     {/* A real checkbox: selection is keyboard-operable by construction. */}
-                    <input
-                      type="checkbox"
-                      checked={selection.includes(entry.entryId)}
-                      disabled={busy || entry.stagedRemoved}
-                      aria-label={translate('bulk.selectRow', { name: entry.displayName })}
-                      onChange={(event) => {
-                        onSelectionChange(
-                          event.target.checked
-                            ? [...selection, entry.entryId]
-                            : selection.filter((id) => id !== entry.entryId),
-                        );
-                      }}
-                    />
+                    <label className="df-select-target">
+                      <input
+                        type="checkbox"
+                        checked={selection.includes(entry.entryId)}
+                        disabled={busy || entry.stagedRemoved}
+                        aria-label={translate('bulk.selectRow', { name: entry.displayName })}
+                        onChange={(event) => {
+                          onSelectionChange(
+                            event.target.checked
+                              ? [...selection, entry.entryId]
+                              : selection.filter((id) => id !== entry.entryId),
+                          );
+                        }}
+                      />
+                    </label>
                   </td>
                 ) : null}
                 <th

@@ -13,7 +13,7 @@ export function SupportLine({
   const label =
     contact.kind === 'email' ? translate('app.support.email') : translate('app.support.url');
   return (
-    <a href={href} rel="noopener noreferrer">
+    <a className="df-textlink" href={href} rel="noopener noreferrer">
       {label}
     </a>
   );

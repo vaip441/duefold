@@ -315,7 +315,7 @@ export function UploadPanel({
       <div className="df-panel__actions">
         <button
           type="button"
-          className="df-button df-button--primary"
+          className="df-button"
           data-busy={pending ? 'true' : 'false'}
           disabled={pending}
           onClick={() => {

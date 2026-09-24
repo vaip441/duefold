@@ -33,7 +33,7 @@ export interface RoomRegisterProps {
 export function RoomRegister({ rooms, onOpen }: RoomRegisterProps): React.ReactElement {
   if (rooms.length === 0)
     return (
-      <div className="df-empty df-empty--worktable">
+      <div className="df-empty">
         <span className="df-empty__lead">{translate('rooms.empty')}</span>
         {translate('rooms.emptyHelp')}
       </div>

@@ -21,9 +21,20 @@ describe('room preparation path', () => {
       'workspace.steps.collection',
       'workspace.steps.access',
       'workspace.steps.review',
-      'workspace.steps.publish',
+      'publish.action',
     ] as const)
       expect(markup).toContain(messages[key]);
+  });
+
+  it("ends the path in the room's one primary action", () => {
+    const markup = render(true);
+    expect(markup.match(/df-button--primary/gu)).toHaveLength(1);
+    expect(markup).toMatch(
+      new RegExp(
+        `class="[^"]*df-button--primary[^"]*"[^>]*>${messages['publish.action']}</button></nav>$`,
+        'u',
+      ),
+    );
   });
 
   it('offers a Contributor only the steps they can take', () => {
@@ -32,7 +43,7 @@ describe('room preparation path', () => {
     expect(markup).toContain(messages['workspace.steps.collection']);
     expect(markup).toContain(messages['workspace.steps.review']);
     expect(markup).not.toContain(messages['workspace.steps.access']);
-    expect(markup).not.toContain(messages['workspace.steps.publish']);
+    expect(markup).not.toContain(messages['publish.action']);
   });
 
   it('marks Collection current while adding documents', () => {

@@ -239,7 +239,7 @@ export function RoomLifecycleControls({
             {capabilities.cancelPurge && purge !== null ? (
               <button
                 type="button"
-                className="df-button df-button--primary"
+                className="df-button"
                 onClick={() => {
                   beginCancel(purge.purgeId);
                 }}

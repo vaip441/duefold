@@ -17,6 +17,8 @@ export const messages = {
   'app.theme.light': 'Light',
   'app.theme.dark': 'Dark',
   'app.loading': 'Loading',
+  'page.room': 'Room',
+  'page.document': 'Document',
   'app.offline.title': 'No connection',
   'app.offline.body':
     'Your browser is offline. This page will work again once the connection returns.',
@@ -160,7 +162,6 @@ export const messages = {
   'workspace.steps.collection': 'Collection',
   'workspace.steps.access': 'Access',
   'workspace.steps.review': 'Review',
-  'workspace.steps.publish': 'Publish',
   'workspace.live': 'Live to viewers',
   'workspace.notLive': 'Not visible to viewers',
   'workspace.pending': 'Staged, not yet published',
@@ -205,7 +206,7 @@ export const messages = {
   'structure.refresh': 'Refresh',
   'structure.rejected': 'That change was not accepted. Check the name and try again.',
 
-  'publish.action': 'Review and publish',
+  'publish.action': 'Publish changes',
   'publish.contributorNote': 'A room manager publishes changes. You can stage them here.',
   'publish.preview.title': 'Publish changes',
   'publish.preview.loading': 'Preparing the change list',

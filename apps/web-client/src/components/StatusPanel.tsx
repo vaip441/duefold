@@ -8,6 +8,7 @@ import { translate } from '../i18n/translate.ts';
 import {
   formatInstant,
   STATE_LABEL,
+  STATE_TONE,
   statusRows,
   type RowTime,
 } from '../workspace/status-rows.ts';
@@ -100,7 +101,7 @@ export function StatusPanel({
                 {translate(row.label)}
               </th>
               <td data-label={columns.state}>
-                <span className="df-state" data-live={row.state === 'pass' ? 'true' : 'false'}>
+                <span className="df-state" data-tone={STATE_TONE[row.state]}>
                   {translate(STATE_LABEL[row.state])}
                 </span>
               </td>

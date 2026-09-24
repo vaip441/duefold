@@ -233,7 +233,7 @@ export function ExportsPanel({
         {preflight === null || preflightLoading ? (
           <button
             type="button"
-            className="df-button df-button--primary"
+            className="df-button"
             data-busy={preflightLoading ? 'true' : 'false'}
             disabled={
               preflightLoading ||

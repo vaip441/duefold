@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiError, loadSession } from './api/client.ts';
+import { usePageTitle } from './branding/usePageTitle.ts';
 import { Notice } from './components/Notice.tsx';
 import { StatusRegion } from './components/StatusRegion.tsx';
 import { useThemeChoice } from './components/ThemeSelect.tsx';
@@ -50,6 +51,16 @@ export function App(): React.ReactElement {
   const [signInFailed, setSignInFailed] = useState(initialFailed);
   const authContent = useRef<HTMLDivElement | null>(null);
   const pendingAuthEntry = useRef(false);
+  // The bootstrap sheets are drawn here; every other surface titles itself.
+  usePageTitle(
+    bootstrap.kind === 'loading'
+      ? 'app.loading'
+      : bootstrap.kind === 'offline'
+        ? 'app.offline.title'
+        : bootstrap.kind === 'unavailable'
+          ? 'error.unavailable.title'
+          : null,
+  );
 
   useLayoutEffect(() => {
     if (!pendingAuthEntry.current) return;

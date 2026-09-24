@@ -38,9 +38,10 @@ function usedKeys(): ReadonlySet<string> {
       const key = match[1];
       if (key !== undefined) used.add(key);
     }
-    /* Keys reached through a lookup table are named as bare literals in a
-     * `Record<..., MessageKey>`, so they are collected from those maps too. */
-    for (const match of source.matchAll(/'((?:[a-z][\w.]*\.)[\w.]+)'/gu)) {
+    /* Keys reached through a lookup table or a `MessageKey` prop are named as bare
+     * literals, single-quoted in a `Record<..., MessageKey>` and double-quoted as a JSX
+     * attribute, so they are collected from both. */
+    for (const match of source.matchAll(/['"]((?:[a-z][\w.]*\.)[\w.]+)['"]/gu)) {
       const key = match[1];
       if (key !== undefined && key in messages) used.add(key);
     }
