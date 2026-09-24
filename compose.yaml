@@ -44,7 +44,7 @@ services:
     # image's signatures until the next cycle. Duefold rejects signatures older
     # than 24 hours, so that startup state is a publication outage. See
     # deploy/clamav.Dockerfile.
-    image: ghcr.io/vaip441/duefold-clamav:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    image: ghcr.io/vaip441/duefold-clamav:${DUEFOLD_IMAGE_TAG:-v1.1.0}
     build:
       context: .
       dockerfile: deploy/clamav.Dockerfile
@@ -68,7 +68,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: ghcr.io/vaip441/duefold-web:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    image: ghcr.io/vaip441/duefold-web:${DUEFOLD_IMAGE_TAG:-v1.1.0}
     build:
       context: .
       dockerfile: deploy/web.Dockerfile
@@ -84,7 +84,7 @@ services:
     restart: 'no'
 
   web:
-    image: ghcr.io/vaip441/duefold-web:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    image: ghcr.io/vaip441/duefold-web:${DUEFOLD_IMAGE_TAG:-v1.1.0}
     build:
       context: .
       dockerfile: deploy/web.Dockerfile
@@ -152,7 +152,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: ghcr.io/vaip441/duefold-worker:${DUEFOLD_IMAGE_TAG:-v1.0.0}
+    image: ghcr.io/vaip441/duefold-worker:${DUEFOLD_IMAGE_TAG:-v1.1.0}
     build:
       context: .
       dockerfile: deploy/worker.Dockerfile

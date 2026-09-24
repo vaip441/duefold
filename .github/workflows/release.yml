@@ -169,14 +169,22 @@ jobs:
           cosign sign "ghcr.io/vaip441/duefold-web@${{ steps.build-web.outputs.digest }}"
           cosign sign "ghcr.io/vaip441/duefold-worker@${{ steps.build-worker.outputs.digest }}"
 
+      # The advisory variable names the one tag it applies to, so a flag set for
+      # one release can never mark a later one.
       - name: Generate signed release manifest
         env:
           RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+          SECURITY_ADVISORY_TAG: ${{ vars.DUEFOLD_RELEASE_SECURITY_ADVISORY }}
         run: |
+          advisory=()
+          if [ "$SECURITY_ADVISORY_TAG" = "$GITHUB_REF_NAME" ]; then
+            advisory=(--security-advisory)
+          fi
           node deploy/sign-release-manifest.ts \
             --version "${{ github.ref_name }}" \
             --web-digest "${{ steps.build-web.outputs.digest }}" \
             --worker-digest "${{ steps.build-worker.outputs.digest }}" \
+            "${advisory[@]}" \
             --output release-manifest.json
 
       - name: Create GitHub Release
