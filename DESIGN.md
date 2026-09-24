@@ -683,6 +683,7 @@ source rewrite. Security and legal text is never machine-translated.
 - Every form with a text field is a real `<form>`: Enter submits, the primary action is `type="submit"`, and opening a form moves focus into its first field.
 - The viewer lands on a room's contents list, or straight in the room when they hold exactly one. The reader's page controls and page-size control sit in one sticky toolbar above the page; ArrowLeft and ArrowRight turn pages when focus is not in a field.
 - An organization name or logo replaces the Duefold identity entirely; it is never paired with the Ribbon mark. The sign-in footer then carries a quiet "Powered by Duefold" line.
+- An uploaded logo is treated as a mark: it sits `0.5rem` before the organization name, which stays as live text, and the image is decorative (`alt=""`) because the name beside it already says who this is. Only when an Owner or Admin ticks **This logo already includes our name** does the logo stand alone, carrying the name as its alt text. The default is unticked, because a repeated name is noticed and fixed at a glance while a missing one is not.
 - A custom accent is applied through an adopted stylesheet, never a `<style>` element, because the CSP is `style-src 'self'`.
 - Counterparties appear only in the member Access surface; the viewer reading room never receives or emits that concept in its DOM.
 - The viewer collection index is the only document navigator. Folders are non-interactive finding-aid headings; documents open in the worktable.

@@ -16,6 +16,7 @@ const CONFIG = Type.Object(
     revision: Type.Integer({ minimum: 1 }),
     hasLogo: Type.Optional(Type.Boolean()),
     hasSquareMark: Type.Optional(Type.Boolean()),
+    logoIncludesName: Type.Boolean(),
   },
   { additionalProperties: false },
 );
@@ -33,6 +34,7 @@ export const schema = {
           Type.String({ minLength: 3, maxLength: 2048 }),
           Type.Null(),
         ]),
+        logoIncludesName: Type.Boolean(),
         expectedRevision: Type.Integer({ minimum: 1 }),
       },
       { additionalProperties: false },
@@ -49,6 +51,7 @@ type Body =
       readonly senderDisplayName: string;
       readonly roomIntroduction: string;
       readonly supportContact: string | null;
+      readonly logoIncludesName: boolean;
       readonly expectedRevision: number;
     };
 interface Row {
@@ -60,6 +63,7 @@ interface Row {
   readonly revision: number;
   readonly has_logo?: boolean;
   readonly has_square_mark?: boolean;
+  readonly logo_includes_name: boolean;
 }
 async function read(runtime: WebRuntime, identity: MemberIdentity) {
   const row = (
@@ -77,6 +81,7 @@ async function read(runtime: WebRuntime, identity: MemberIdentity) {
     revision: row.revision,
     hasLogo: row.has_logo ?? false,
     hasSquareMark: row.has_square_mark ?? false,
+    logoIncludesName: row.logo_includes_name,
   };
 }
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
@@ -92,7 +97,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     });
     const parsedContact = parseSupportContact(body.supportContact ?? undefined);
     await runtime.pool.query(
-      'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
       [
         identity.id,
         fields['organizationName'],
@@ -101,6 +106,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
         fields['roomIntroduction'],
         parsedContact?.value ?? null,
         parsedContact?.kind ?? null,
+        body.logoIncludesName,
         body.expectedRevision,
         createOpaqueId(),
         createCorrelationId(),

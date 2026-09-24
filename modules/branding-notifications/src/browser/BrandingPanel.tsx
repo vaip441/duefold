@@ -19,7 +19,7 @@ import { Notice } from '@duefold/web-client/module-api';
 import type { PresentedFailure } from '@duefold/web-client/module-api';
 import { validateAccent, validateSupportContact } from '@duefold/web-client/module-api';
 import { translate } from '@duefold/web-client/module-api';
-import type { BrandingAssetKind, BrandingConfiguration } from './api.ts';
+import type { BrandingAssetKind, BrandingConfiguration, BrandingUpdate } from './api.ts';
 import { brandingCopy } from './copy.ts';
 
 export interface BrandingPanelProps {
@@ -30,14 +30,7 @@ export interface BrandingPanelProps {
   readonly denied: boolean;
   readonly failure: PresentedFailure | null;
   readonly savePending: boolean;
-  readonly onSave: (input: {
-    readonly organizationName: string;
-    readonly accentColor: string;
-    readonly senderDisplayName: string;
-    readonly roomIntroduction: string;
-    readonly supportContact: string | null;
-    readonly expectedRevision: number;
-  }) => void;
+  readonly onSave: (input: BrandingUpdate) => void;
   readonly onUploadAsset: (assetKind: BrandingAssetKind, file: File) => Promise<void>;
   readonly onDeleteAsset: (assetKind: BrandingAssetKind) => Promise<void>;
   readonly onReload: () => void;
@@ -61,6 +54,7 @@ export function BrandingPanel({
   const [senderDisplayName, setSenderDisplayName] = useState('');
   const [roomIntroduction, setRoomIntroduction] = useState('');
   const [supportContact, setSupportContact] = useState('');
+  const [logoIncludesName, setLogoIncludesName] = useState(false);
   const [attempted, setAttempted] = useState(false);
 
   // Asset states
@@ -81,6 +75,7 @@ export function BrandingPanel({
     setSenderDisplayName(configuration.senderDisplayName);
     setRoomIntroduction(configuration.roomIntroduction);
     setSupportContact(configuration.supportContact ?? '');
+    setLogoIncludesName(configuration.logoIncludesName);
     setHasLogo(configuration.hasLogo);
     setHasSquareMark(configuration.hasSquareMark);
   }, [configuration]);
@@ -163,6 +158,7 @@ export function BrandingPanel({
               senderDisplayName: senderDisplayName.trim(),
               roomIntroduction,
               supportContact: supportContact.trim() === '' ? null : supportContact.trim(),
+              logoIncludesName,
               expectedRevision: configuration.revision,
             });
           }}
@@ -306,6 +302,26 @@ export function BrandingPanel({
                 >
                   {brandingCopy('logo.remove')}
                 </button>
+              </div>
+            ) : null}
+            {hasLogo ? (
+              <div className="df-field df-field--check">
+                <label className="df-field__label" htmlFor={`${fieldId}-logo-name`}>
+                  <input
+                    id={`${fieldId}-logo-name`}
+                    type="checkbox"
+                    checked={logoIncludesName}
+                    disabled={savePending}
+                    aria-describedby={`${fieldId}-logo-name-help`}
+                    onChange={(event) => {
+                      setLogoIncludesName(event.target.checked);
+                    }}
+                  />{' '}
+                  {brandingCopy('logo.includesName')}
+                </label>
+                <p className="df-field__help" id={`${fieldId}-logo-name-help`}>
+                  {brandingCopy('logo.includesName.help')}
+                </p>
               </div>
             ) : null}
             <input

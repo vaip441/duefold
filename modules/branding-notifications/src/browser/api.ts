@@ -11,6 +11,7 @@ import {
   ApiError,
   isRecord,
   json,
+  requireBoolean,
   requireNumber,
   requireString,
   type UploadIntentResponse,
@@ -25,6 +26,7 @@ export interface BrandingConfiguration {
   readonly revision: number;
   readonly hasLogo: boolean;
   readonly hasSquareMark: boolean;
+  readonly logoIncludesName: boolean;
 }
 
 function parseBranding(payload: unknown): BrandingConfiguration {
@@ -42,6 +44,7 @@ function parseBranding(payload: unknown): BrandingConfiguration {
     revision: requireNumber(payload, 'revision'),
     hasLogo: payload['hasLogo'] === true,
     hasSquareMark: payload['hasSquareMark'] === true,
+    logoIncludesName: requireBoolean(payload, 'logoIncludesName'),
   };
 }
 
@@ -61,6 +64,7 @@ export interface BrandingUpdate {
   readonly senderDisplayName: string;
   readonly roomIntroduction: string;
   readonly supportContact: string | null;
+  readonly logoIncludesName: boolean;
   readonly expectedRevision: number;
 }
 

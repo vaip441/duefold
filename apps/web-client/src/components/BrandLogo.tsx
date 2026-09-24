@@ -17,13 +17,22 @@ function BrandIdentity({
   readonly brand: EffectiveBrand | null;
 }): ReactElement {
   if (brand?.logoUrl) {
+    /* A wordmark logo already names the organization. Any other logo is a mark, so
+       the name stays beside it as text and the image is decorative. */
+    if (brand.logoIncludesName)
+      return (
+        <span className={`df-brand-identity ${className ?? ''}`.trim()}>
+          <img
+            src={brand.logoUrl}
+            alt={brand.organizationName}
+            className="df-brand-identity__custom-logo"
+          />
+        </span>
+      );
     return (
-      <span className={`df-brand-identity ${className ?? ''}`.trim()}>
-        <img
-          src={brand.logoUrl}
-          alt={brand.organizationName}
-          className="df-brand-identity__custom-logo"
-        />
+      <span className={`df-brand-identity df-brand-identity--lockup ${className ?? ''}`.trim()}>
+        <img src={brand.logoUrl} alt="" className="df-brand-identity__custom-logo" />
+        <span className="df-facts__wordmark">{brand.organizationName}</span>
       </span>
     );
   }

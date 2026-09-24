@@ -38,7 +38,11 @@ const messages = {
   saved: 'Branding saved.',
   note: 'Duefold accepts a name, one accent colour, a sender name, an introduction, and a support contact. Custom styles, fonts, and scripts are not accepted.',
   logo: 'Organization logo',
-  'logo.help': 'PNG, JPEG, or WebP.',
+  'logo.help':
+    'PNG, JPEG, or WebP. The header shows it beside your organization name unless it already includes the name.',
+  'logo.includesName': 'This logo already includes our name',
+  'logo.includesName.help':
+    'Tick this for a wordmark logo. The name is then left out of the header, and the logo stands for it.',
   'logo.remove': 'Remove logo',
   squareMark: 'Square mark (favicon)',
   'squareMark.help': '1:1 square icon used in browser tabs and mobile shortcuts.',

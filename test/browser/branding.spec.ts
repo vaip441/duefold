@@ -38,9 +38,8 @@ test('lets the organization identity replace Duefold, with attribution, loading 
   await expect(page.getByText('Powered by Duefold')).toBeVisible();
   await expect.poll(() => brandingRequests).toBe(1);
 
-  // A processed logo replaces it too.
+  // A processed logo is a mark: the name stays beside it, and the image is decorative.
   const objectKey = `branding/${'a'.repeat(32)}/${'b'.repeat(32)}.png`;
-  await server.migrationPool.query("UPDATE organization SET name='Duefold'");
   await server.migrationPool.query(
     `INSERT INTO branding_asset(asset_kind,object_key,media_type,size_bytes,width,height)
      VALUES('logo',$1,'image/png',4,100,100)
@@ -49,7 +48,18 @@ test('lets the organization identity replace Duefold, with attribution, loading 
   );
   brandingRequests = 0;
   await page.reload();
-  await expect(page.getByRole('img', { name: 'Duefold' })).toBeVisible();
+  const identity = page.locator('.df-sheet__header .df-brand-identity');
+  await expect(identity.locator('.df-brand-identity__custom-logo')).toHaveAttribute('alt', '');
+  await expect(identity).toHaveText('Acme Capital');
   await expect(page.getByText('Powered by Duefold')).toBeVisible();
   await expect.poll(() => brandingRequests).toBe(1);
+
+  // A logo an administrator marks as including the name stands for the name alone.
+  await server.migrationPool.query('UPDATE branding_configuration SET logo_includes_name=true');
+  await page.reload();
+  await expect(identity.getByRole('img', { name: 'Acme Capital' })).toBeAttached();
+  await expect(identity.locator('.df-facts__wordmark')).toHaveCount(0);
+  await server.migrationPool.query(
+    "UPDATE branding_configuration SET logo_includes_name=false; DELETE FROM branding_asset WHERE asset_kind='logo'",
+  );
 });

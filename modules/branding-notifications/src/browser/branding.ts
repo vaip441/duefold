@@ -18,6 +18,7 @@ interface PublicBrandingPayload {
   readonly accentColor?: unknown;
   readonly hasLogo?: unknown;
   readonly hasSquareMark?: unknown;
+  readonly logoIncludesName?: unknown;
   readonly supportContact?: unknown;
 }
 
@@ -48,6 +49,7 @@ function parsePayload(value: unknown): EffectiveBrand | null {
     organizationName: orgName === '' ? 'Duefold' : orgName,
     accentColor: accent,
     logoUrl: hasLogo ? '/api/branding/assets/logo' : null,
+    logoIncludesName: raw.logoIncludesName === true,
     squareMarkUrl: hasSquare ? '/api/branding/assets/square-mark' : null,
     supportContact: parseSupportContact(raw.supportContact),
   };

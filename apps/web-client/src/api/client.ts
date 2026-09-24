@@ -31,6 +31,7 @@ export {
   readJson,
   request,
   requireArray,
+  requireBoolean,
   requireNumber,
   requireString,
   type ApiFailure,

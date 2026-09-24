@@ -21,6 +21,7 @@ export {
   ApiError,
   isRecord,
   json,
+  requireBoolean,
   requireNumber,
   requireString,
   type UploadIntentResponse,

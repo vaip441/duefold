@@ -24,6 +24,8 @@ export interface EffectiveBrand {
   readonly organizationName: string;
   readonly accentColor: string;
   readonly logoUrl: string | null;
+  /** Set by an administrator when the logo is a wordmark that already carries the name. */
+  readonly logoIncludesName: boolean;
   readonly squareMarkUrl: string | null;
   readonly supportContact: SupportContact | null;
 }

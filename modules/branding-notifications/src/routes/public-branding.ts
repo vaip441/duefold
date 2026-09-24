@@ -1,7 +1,8 @@
 /**
  * Public branding projection from the single persisted branding configuration.
  *
- * Exposes organization name, accent, asset presence, and support contact. Leaks
+ * Exposes organization name, accent, asset presence, whether the logo already
+ * carries the name, and support contact. Leaks
  * no internal object keys, digest values, room ids, room content, or member
  * identities.
  */
@@ -18,6 +19,7 @@ export const schema = {
         accentColor: Type.String({ pattern: '^#[0-9A-Fa-f]{6}$' }),
         hasLogo: Type.Boolean(),
         hasSquareMark: Type.Boolean(),
+        logoIncludesName: Type.Boolean(),
         supportContact: Type.Union([
           Type.Null(),
           Type.Object(
@@ -39,6 +41,7 @@ export interface PublicBrandingResponse {
   readonly accentColor: string;
   readonly hasLogo: boolean;
   readonly hasSquareMark: boolean;
+  readonly logoIncludesName: boolean;
   readonly supportContact: SupportContact | null;
 }
 
@@ -47,6 +50,7 @@ interface Row {
   readonly accent_color: string;
   readonly has_logo: boolean;
   readonly has_square_mark: boolean;
+  readonly logo_includes_name: boolean;
   readonly support_contact_kind: 'email' | 'url' | null;
   readonly support_contact: string | null;
 }
@@ -60,6 +64,7 @@ export function createHandler(runtime: WebRuntime): () => Promise<PublicBranding
         accentColor: '#006b5e',
         hasLogo: false,
         hasSquareMark: false,
+        logoIncludesName: false,
         supportContact: null,
       };
     }
@@ -68,6 +73,7 @@ export function createHandler(runtime: WebRuntime): () => Promise<PublicBranding
       accentColor: row.accent_color,
       hasLogo: row.has_logo,
       hasSquareMark: row.has_square_mark,
+      logoIncludesName: row.logo_includes_name,
       supportContact:
         row.support_contact_kind !== null && row.support_contact !== null
           ? { kind: row.support_contact_kind, value: row.support_contact }

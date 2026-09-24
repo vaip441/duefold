@@ -259,6 +259,7 @@ describe('Member state and branding routes', () => {
           senderDisplayName: 'North Star Data Room',
           roomIntroduction: 'Review securely.',
           supportContact,
+          logoIncludesName: false,
           expectedRevision,
         },
       } as never);
@@ -297,13 +298,33 @@ describe('Member state and branding routes', () => {
       await expect(update(value, absent.revision)).rejects.toThrow();
     await expect(
       runtimePool.query(
-        'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
         [
           ownerId,
           'North Star',
           '#ffffff',
           'North Star Data Room',
           'Review securely.',
+          null,
+          null,
+          false,
+          absent.revision,
+          createOpaqueId(),
+          createCorrelationId(),
+        ],
+      ),
+    ).rejects.toMatchObject({ code: '22023' });
+    // The logo-name flag is a stated choice, never an unknown.
+    await expect(
+      runtimePool.query(
+        'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [
+          ownerId,
+          'North Star',
+          '#08766a',
+          'North Star Data Room',
+          'Review securely.',
+          null,
           null,
           null,
           absent.revision,
@@ -507,7 +528,34 @@ describe('Member state and branding routes', () => {
     // Now public branding reflects hasLogo: true
     const updatedBrand = await createPublicBrandingHandler(runtime)();
     expect(updatedBrand.hasLogo).toBe(true);
+    // A logo is a mark beside the name until an administrator says it carries the name.
+    expect(updatedBrand.logoIncludesName).toBe(false);
     expect(updatedBrand).not.toHaveProperty('customized');
+
+    const nameRoute = createBrandingHandler(runtime, administrator);
+    const beforeFlag = await nameRoute({ body: { action: 'read' } } as never);
+    const flagged = await nameRoute({
+      body: {
+        action: 'update',
+        organizationName: beforeFlag.organizationName,
+        accentColor: beforeFlag.accentColor,
+        senderDisplayName: beforeFlag.senderDisplayName,
+        roomIntroduction: beforeFlag.roomIntroduction,
+        supportContact: beforeFlag.supportContact,
+        logoIncludesName: true,
+        expectedRevision: beforeFlag.revision,
+      },
+    } as never);
+    expect(flagged.logoIncludesName).toBe(true);
+    expect((await createPublicBrandingHandler(runtime)()).logoIncludesName).toBe(true);
+    expect(
+      (
+        await migrationPool.query<{ detail: { logoIncludesName: boolean } }>(
+          "SELECT detail FROM audit_event WHERE event_type='branding.configuration' AND (detail->>'revision')::int=$1",
+          [flagged.revision],
+        )
+      ).rows[0]?.detail.logoIncludesName,
+    ).toBe(true);
 
     // Deliver the seeded logo asset
     statusCode = 200;
@@ -563,6 +611,7 @@ describe('Member state and branding routes', () => {
         senderDisplayName: 'Duefold',
         roomIntroduction: '',
         supportContact: null,
+        logoIncludesName: false,
         expectedRevision: currentConfig.revision,
       },
     } as never);

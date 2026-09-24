@@ -75,6 +75,12 @@
   object-fit: contain;
 }
 
+/* An organization's mark beside its name: a mark has no built-in clear space, so the
+   gap is explicit rather than the Ribbon's tuned 2px. */
+.df-brand-identity--lockup {
+  gap: var(--space-2);
+}
+
 .df-sheet__powered {
   font-size: var(--size-meta);
   color: var(--ink-faint);
