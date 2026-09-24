@@ -4,6 +4,10 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    ignore:
+      # typescript-eslint cannot run on TypeScript 7's native compiler yet.
+      - dependency-name: 'typescript'
+        versions: ['>=7']
 
   - package-ecosystem: 'docker'
     directory: '/deploy'
