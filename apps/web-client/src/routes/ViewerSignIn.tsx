@@ -82,6 +82,9 @@ export function ViewerSignIn({
   const [state, dispatch] = useReducer(otpReducer, initialOtpState);
   const [now, setNow] = useState(() => Date.now());
   const codeInput = useRef<HTMLInputElement>(null);
+  /* Enter on a short code: the submit button is disabled, so without this the key did
+     nothing and said nothing. A format check only, never an eligibility answer. */
+  const [codeIncomplete, setCodeIncomplete] = useState(false);
   const stage = state.stage;
 
   // One second tick, live only while a challenge is open: it drives the resend
@@ -206,15 +209,30 @@ export function ViewerSignIn({
               autoComplete="one-time-code"
               maxLength={OTP_CODE_LENGTH}
               value={state.code}
-              aria-describedby="df-otp-code-help df-otp-attempts"
+              aria-describedby={
+                codeIncomplete
+                  ? 'df-otp-code-error df-otp-code-help df-otp-attempts'
+                  : 'df-otp-code-help df-otp-attempts'
+              }
+              aria-invalid={codeIncomplete ? 'true' : undefined}
               disabled={state.busy === 'verifying' || blocked}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !codeSyntaxValid(state.code))
+                  setCodeIncomplete(true);
+              }}
               onChange={(event) => {
+                setCodeIncomplete(false);
                 dispatch({
                   kind: 'code-changed',
                   code: event.target.value.replace(/\D/gu, '').slice(0, OTP_CODE_LENGTH),
                 });
               }}
             />
+            {codeIncomplete ? (
+              <span className="df-field__error" id="df-otp-code-error" role="alert">
+                {translate('otp.code.incomplete')}
+              </span>
+            ) : null}
             <span className="df-field__help" id="df-otp-attempts">
               {translate('otp.attempts', {
                 current: Math.min(stage.attempts + 1, OTP_MAX_ATTEMPTS),

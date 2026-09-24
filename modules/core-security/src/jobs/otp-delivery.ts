@@ -1,7 +1,7 @@
 import type { Clock } from '@duefold/shared/clock';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { Pool } from 'pg';
-import type { OtpMailer } from '../auth/mail.ts';
+import { readMailIdentity, type OtpMailer } from '../auth/mail.ts';
 import { digestOtp, generateOtp, OTP_LIFETIME_SECONDS } from '../auth/otp.ts';
 import type { JobContext, LeasedJob } from '../../../../apps/worker/src/runner.ts';
 
@@ -74,6 +74,7 @@ export function createHandler(dependencies: OtpDeliveryDependencies) {
         emailDisplay: challenge.email_display,
         code,
         challengeId: id,
+        identity: await readMailIdentity(dependencies.pool),
       });
     } catch (error) {
       if (job.attempts >= job.max_attempts) {

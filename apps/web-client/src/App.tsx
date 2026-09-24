@@ -139,7 +139,7 @@ export function App(): React.ReactElement {
             <Notice tone="problem" role="alert">
               {translate(offline ? 'app.offline.body' : 'error.unavailable.body')}
             </Notice>
-            <div className="df-sheet__actions" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="df-sheet__actions">
               <button
                 type="button"
                 className="df-button df-button--primary"
@@ -166,6 +166,7 @@ export function App(): React.ReactElement {
           theme={theme}
           onThemeChange={setTheme}
           onSignedOut={() => {
+            window.history.replaceState(null, '', '/read');
             setBootstrap({ kind: 'anonymous' });
             setChoice('viewer');
           }}
@@ -178,6 +179,7 @@ export function App(): React.ReactElement {
         theme={theme}
         onThemeChange={setTheme}
         onSignedOut={() => {
+          window.history.replaceState(null, '', '/');
           setBootstrap({ kind: 'anonymous' });
           setChoice('member');
         }}

@@ -97,7 +97,19 @@ export function TrashView({
                   <td>
                     <div className="df-register__actions">
                       {restoring === entry.trashId ? (
-                        <div className="df-inline-form df-inline-form--stacked">
+                        <form
+                          className="df-inline-form df-inline-form--stacked"
+                          noValidate
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            if (busy || name.trim() === '') return;
+                            onRestore({
+                              entry,
+                              displayName: name.trim(),
+                              destinationFolderId: destination === '' ? null : destination,
+                            });
+                          }}
+                        >
                           <div className="df-field">
                             <label className="df-field__label" htmlFor={nameId}>
                               {translate('trash.restore.name')}
@@ -136,17 +148,10 @@ export function TrashView({
                             </select>
                           </div>
                           <button
-                            type="button"
+                            type="submit"
                             className="df-button df-button--primary"
                             data-busy={busy ? 'true' : 'false'}
                             disabled={busy || name.trim() === ''}
-                            onClick={() => {
-                              onRestore({
-                                entry,
-                                displayName: name.trim(),
-                                destinationFolderId: destination === '' ? null : destination,
-                              });
-                            }}
                           >
                             {busy
                               ? translate('trash.restore.pending')
@@ -162,7 +167,7 @@ export function TrashView({
                           >
                             {translate('structure.cancel')}
                           </button>
-                        </div>
+                        </form>
                       ) : (
                         <button
                           type="button"

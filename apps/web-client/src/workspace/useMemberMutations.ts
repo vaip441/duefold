@@ -73,20 +73,20 @@ export function useMemberMutations(input: {
         input.onInvitationRevoked,
       );
     },
+    /* Both sign the member out everywhere, so they run from a confirmation dialog that
+       stays open through a refusal and needs the answer to its own change. */
     changeRole: (change: {
       readonly memberId: string;
       readonly role: AssignableGlobalRole;
       readonly expectedRevision: number;
-    }): void => {
-      actAtTable(change.memberId, () => setMemberRole(change), input.onRoleChanged);
-    },
+    }): Promise<PresentedFailure | null> =>
+      act(change.memberId, () => setMemberRole(change), input.onRoleChanged),
     changeState: (change: {
       readonly memberId: string;
       readonly state: MemberState;
       readonly expectedRevision: number;
-    }): void => {
-      actAtTable(change.memberId, () => setMemberState(change), input.onStateChanged);
-    },
+    }): Promise<PresentedFailure | null> =>
+      act(change.memberId, () => setMemberState(change), input.onStateChanged),
     /*
      * The only mutation whose answer goes back to its caller. The dialog must stay open
      * through pending and through a refusal -- closing on submit discarded a multi-room

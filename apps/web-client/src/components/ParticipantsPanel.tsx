@@ -27,7 +27,7 @@ import type {
   Participant,
   WorkingEntry,
 } from '../api/client.ts';
-import { translate } from '../i18n/translate.ts';
+import { translate, translateCount } from '../i18n/translate.ts';
 import {
   describeGrant,
   formatDate,
@@ -52,6 +52,8 @@ export interface ParticipantsPanelProps {
   readonly failure: PresentedFailure | null;
   readonly inviteFailure: PresentedFailure | null;
   readonly invitePending: boolean;
+  /** A draft room shows its readers nothing, which the invite form says before sending. */
+  readonly roomIsDraft: boolean;
   /** Server-computed impact for the change under review, or null before review. */
   readonly impact: GrantImpact | null;
   readonly impactLoading: boolean;
@@ -74,6 +76,7 @@ export function ParticipantsPanel({
   failure,
   inviteFailure,
   invitePending,
+  roomIsDraft,
   impact,
   impactLoading,
   applyPending,
@@ -99,6 +102,40 @@ export function ParticipantsPanel({
   const [draftAttempted, setDraftAttempted] = useState(false);
   const [typed, setTyped] = useState('');
   const [typedAttempted, setTypedAttempted] = useState(false);
+  /* The address just invited. An invitation grants nothing, so once the reader appears
+     in the roster the access review opens for them rather than leaving a second,
+     easily-forgotten step. */
+  const [grantAfterInvite, setGrantAfterInvite] = useState<string | null>(null);
+
+  const beginChange = (key: string, next: GrantDraft): void => {
+    setEditing(key);
+    setDraft(next);
+    setDraftAttempted(false);
+    setTyped('');
+    setTypedAttempted(false);
+    onCancelChange();
+  };
+
+  useEffect(() => {
+    if (grantAfterInvite === null) return;
+    if (inviteFailure !== null) {
+      setGrantAfterInvite(null);
+      return;
+    }
+    const invited = participants.find(
+      (participant) => participant.email.toLowerCase() === grantAfterInvite,
+    );
+    if (invited === undefined) return;
+    setGrantAfterInvite(null);
+    if (invited.grants.length > 0) return;
+    beginChange(`${invited.viewerId}:grant:`, {
+      changeAction: 'grant',
+      targetKind: 'room',
+      folderId: null,
+      documentId: null,
+      expiresOn: '',
+    });
+  }, [participants, inviteFailure, grantAfterInvite]);
 
   const folders = grantableTargets(entries, 'folder');
   const documents = grantableTargets(entries, 'document');
@@ -229,20 +266,16 @@ export function ParticipantsPanel({
                                       type="button"
                                       className="df-button df-button--quiet"
                                       onClick={() => {
-                                        setEditing(
+                                        beginChange(
                                           `${participant.viewerId}:${action}:${grant.grantId}`,
+                                          {
+                                            changeAction: action,
+                                            targetKind: grant.targetKind,
+                                            folderId: grant.folderId,
+                                            documentId: grant.documentId,
+                                            expiresOn: '',
+                                          },
                                         );
-                                        setDraft({
-                                          changeAction: action,
-                                          targetKind: grant.targetKind,
-                                          folderId: grant.folderId,
-                                          documentId: grant.documentId,
-                                          expiresOn: '',
-                                        });
-                                        setDraftAttempted(false);
-                                        setTyped('');
-                                        setTypedAttempted(false);
-                                        onCancelChange();
                                       }}
                                     >
                                       {translate(`grant.action.${action}`)}
@@ -273,18 +306,13 @@ export function ParticipantsPanel({
                       type="button"
                       className="df-button df-button--quiet"
                       onClick={() => {
-                        setEditing(`${participant.viewerId}:grant:`);
-                        setDraft({
+                        beginChange(`${participant.viewerId}:grant:`, {
                           changeAction: 'grant',
                           targetKind: null,
                           folderId: null,
                           documentId: null,
                           expiresOn: '',
                         });
-                        setDraftAttempted(false);
-                        setTyped('');
-                        setTypedAttempted(false);
-                        onCancelChange();
                       }}
                     >
                       {translate('grant.action.grant')}
@@ -357,9 +385,25 @@ export function ParticipantsPanel({
             );
           })()}
 
-      <div className="df-panel__block">
+      <form
+        className="df-panel__block"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (invitePending) return;
+          setEmailAttempted(true);
+          if (!emailValid) return;
+          setGrantAfterInvite(email.trim().toLowerCase());
+          onInvite(email.trim());
+          setEmail('');
+          setEmailAttempted(false);
+        }}
+      >
         <h3 className="df-panel__subheading">{translate('participants.invite')}</h3>
         <p className="df-field__help">{translate('participants.invite.note')}</p>
+        {roomIsDraft ? (
+          <Notice tone="caution">{translate('participants.invite.draftWarning')}</Notice>
+        ) : null}
         {inviteFailure === null ? null : (
           <Notice
             tone="problem"
@@ -403,23 +447,16 @@ export function ParticipantsPanel({
           ) : null}
         </div>
         <button
-          type="button"
+          type="submit"
           className="df-button df-button--primary"
           data-busy={invitePending ? 'true' : 'false'}
           disabled={invitePending}
-          onClick={() => {
-            setEmailAttempted(true);
-            if (!EMAIL.test(email.trim())) return;
-            onInvite(email.trim());
-            setEmail('');
-            setEmailAttempted(false);
-          }}
         >
           {invitePending
             ? translate('participants.invite.pending')
             : translate('participants.invite.submit')}
         </button>
-      </div>
+      </form>
     </section>
   );
 }
@@ -479,7 +516,17 @@ function GrantChangeForm({
   const matches = impact !== null && typed.trim() === impact.confirmation;
 
   return (
-    <div className="df-panel__block" data-grant-form="true">
+    <form
+      className="df-panel__block"
+      data-grant-form="true"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (impact === null) {
+          if (!impactLoading) onReview();
+        } else if (!applyPending) onApply();
+      }}
+    >
       <h3 className="df-panel__subheading">
         {translate(`grant.action.${action}`)} — {participant.email}
       </h3>
@@ -524,7 +571,7 @@ function GrantChangeForm({
           <p className="df-field__help" data-numeric="true">
             {impact.affectedCount === 0
               ? translate('grant.impact.none')
-              : translate('grant.impact.count', { count: impact.affectedCount })}
+              : translateCount('grant.impact.count', impact.affectedCount)}
           </p>
           <p className="df-field__help">
             {impact.resolvedExpiresAt === null
@@ -578,21 +625,19 @@ function GrantChangeForm({
       <div className="df-panel__actions">
         {impact === null ? (
           <button
-            type="button"
+            type="submit"
             className="df-button df-button--primary"
             data-busy={impactLoading ? 'true' : 'false'}
             disabled={impactLoading}
-            onClick={onReview}
           >
             {impactLoading ? translate('grant.review.pending') : translate('grant.review')}
           </button>
         ) : (
           <button
-            type="button"
+            type="submit"
             className="df-button df-button--primary"
             data-busy={applyPending ? 'true' : 'false'}
             disabled={applyPending}
-            onClick={onApply}
           >
             {applyPending
               ? translate('grant.confirm.pending')
@@ -603,6 +648,6 @@ function GrantChangeForm({
           {translate('structure.cancel')}
         </button>
       </div>
-    </div>
+    </form>
   );
 }

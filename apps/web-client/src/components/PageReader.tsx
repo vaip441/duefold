@@ -224,7 +224,8 @@ export function PageReader({
 
   return (
     <div className="df-page" data-print-notice={translate('viewer.print.omitted')}>
-      <p className="df-page__caption" id={captionId} data-numeric="true">
+      {/* The reader's toolbar shows the position; this caption names the image for AT. */}
+      <p className="df-page__caption df-visually-hidden" id={captionId} data-numeric="true">
         {translate('viewer.page.caption')
           .replace('{page}', String(pageNumber))
           .replace('{total}', String(totalPages))}

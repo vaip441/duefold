@@ -19,8 +19,9 @@ export const messages = {
   'app.loading': 'Loading',
   'app.offline.title': 'No connection',
   'app.offline.body':
-    'Your browser is offline. Duefold will work again once the connection returns.',
+    'Your browser is offline. This page will work again once the connection returns.',
   'app.retry': 'Try again',
+  'app.poweredBy': 'Powered by Duefold',
   'app.support.email': 'Contact support',
   'app.support.url': 'Support',
 
@@ -30,7 +31,6 @@ export const messages = {
   'shell.index.emptyHelp': 'A room appears here once one is created.',
   'shell.index.toggle': 'Collection',
   'shell.notes.heading': 'Access notes',
-  'shell.notes.empty': 'Select an item to see who can read it.',
   'shell.worktable.empty': 'Nothing selected.',
   'shell.worktable.emptyHelp': 'Choose an entry in the collection to begin.',
   'shell.status.region': 'Status',
@@ -42,16 +42,16 @@ export const messages = {
   'shell.signedOut': 'You are signed out.',
 
   'signIn.member.title': 'Sign in',
-  'signIn.member.lead': 'Duefold members sign in with the organization’s identity provider.',
+  'signIn.member.lead': 'Team members sign in with their organization account.',
   'signIn.member.action': 'Continue to identity provider',
   'signIn.member.pending': 'Redirecting…',
   'signIn.member.failed.title': 'Sign-in did not complete',
   'signIn.member.failed.body':
-    'Duefold could not complete sign-in. Start again, and if it keeps failing, ask your Duefold administrator to check your access.',
+    'Sign-in could not be completed. Start again, and if it keeps failing, ask an administrator to check your access.',
   'signIn.viewer.link': 'I was invited to read documents',
   'signIn.viewer.title': 'Enter your invited email',
   'signIn.viewer.lead':
-    'Duefold sends a one-time code to the exact address you were invited with.',
+    'We send a one-time code to the exact address you were invited with. There is no password.',
   'signIn.member.link': 'I am a member of this organization',
   'signIn.email.label': 'Email address',
   'signIn.email.help': 'Use the address your invitation was sent to.',
@@ -70,6 +70,7 @@ export const messages = {
   'otp.sent.notice': 'Code requested. Enter it below once it arrives.',
   'otp.code.label': 'Eight-digit code',
   'otp.code.help': 'Enter the code from the email. Digits only.',
+  'otp.code.incomplete': 'Enter all eight digits of the code.',
   'otp.code.action': 'Verify code',
   'otp.code.pending': 'Verifying…',
   'otp.code.rejected':
@@ -84,11 +85,10 @@ export const messages = {
   'otp.restart': 'Use a different email address',
   'otp.attempts': 'Attempt {current} of {total}.',
 
-  'error.unavailable.title': 'Duefold is not responding',
+  'error.unavailable.title': 'The service is not responding',
   'error.unavailable.body': 'The request could not be completed. Wait a moment and try again.',
   'error.denied.title': 'Not available to you',
-  'error.denied.body':
-    'This address does not have access to that item, or the access has ended.',
+  'error.denied.body': 'You do not have access to this, or the access has ended.',
   'error.notFound.title': 'Nothing here',
   'error.notFound.body': 'That address does not point to anything you can open.',
   'error.expired.title': 'Your session ended',
@@ -105,7 +105,7 @@ export const messages = {
    */
   'rooms.title': 'Rooms',
   'rooms.empty': 'No rooms yet.',
-  'rooms.emptyHelp': 'A room appears here once an administrator creates one.',
+  'rooms.emptyHelp': 'Rooms appear here once an administrator adds you to one.',
   'rooms.open': 'Open room',
   'rooms.state.draft': 'Draft',
   'rooms.state.published': 'Published',
@@ -118,6 +118,7 @@ export const messages = {
   'rooms.notes.access': 'Your access: {access}',
   'rooms.access.assignment': 'Assigned to you',
   'rooms.access.globalRole': 'Visible through your organization role',
+  'rooms.access.allByRole': 'You reach every room through your organization role.',
   'rooms.loading': 'Loading rooms',
   /* A paged register that stopped short. Saying nothing would let a prefix read as
      every room this member can reach. */
@@ -147,7 +148,7 @@ export const messages = {
 
   'workspace.loading': 'Loading room',
   'workspace.empty': 'This room has no folders or documents yet.',
-  'workspace.emptyHelp': 'Create a folder to begin organizing the collection.',
+  'workspace.emptyHelp': 'Add documents to begin, and use folders to organize them.',
   'workspace.section.structure': 'Working structure',
   'workspace.section.trash': 'Trash',
   'workspace.section.search': 'Search',
@@ -156,10 +157,10 @@ export const messages = {
   'workspace.columns.order': 'Order',
   'workspace.columns.actions': 'Actions',
   'workspace.steps.label': 'Room preparation',
-  'workspace.steps.collection': '1 Collection',
-  'workspace.steps.access': '2 Access',
-  'workspace.steps.review': '3 Review',
-  'workspace.steps.publish': '4 Publish',
+  'workspace.steps.collection': 'Collection',
+  'workspace.steps.access': 'Access',
+  'workspace.steps.review': 'Review',
+  'workspace.steps.publish': 'Publish',
   'workspace.live': 'Live to viewers',
   'workspace.notLive': 'Not visible to viewers',
   'workspace.pending': 'Staged, not yet published',
@@ -172,10 +173,12 @@ export const messages = {
   'workspace.change.description': 'Description changed since publication',
   'workspace.change.version': 'New version staged',
   'workspace.change.replace': 'Replaced since publication',
-  'workspace.needsVersion': 'No processed version yet, so it cannot be published.',
+  'workspace.needsVersion': 'Not ready to publish yet.',
+  'workspace.needsVersion.review': 'See why in Review',
 
   'structure.createFolder': 'New folder',
   'structure.createFolder.name': 'Folder name',
+  'structure.createFolder.nameRequired': 'Enter a folder name.',
   'structure.createFolder.description': 'Description',
   'structure.createFolder.submit': 'Create folder',
   'structure.rename': 'Rename',
@@ -206,8 +209,15 @@ export const messages = {
   'publish.contributorNote': 'A room manager publishes changes. You can stage them here.',
   'publish.preview.title': 'Publish changes',
   'publish.preview.loading': 'Preparing the change list',
-  'publish.preview.none': 'Nothing to publish. Viewers already see the current structure.',
+  'publish.preview.none': 'Nothing to publish. Viewers already see the current collection.',
+  'publish.preview.noneDraft':
+    'Nothing new to publish. This room is still a draft, so viewers cannot see anything in it yet. When the collection is ready, make the room visible in Settings.',
+  'publish.preview.close': 'Close',
+  'publish.preview.draftNote':
+    'This room is still a draft. Publishing prepares these changes, but viewers see nothing until you make the room visible in Settings.',
+  'publish.preview.openSettings': 'Open settings',
   'publish.preview.count': '{count} changes for viewers.',
+  'publish.preview.count.one': '1 change for viewers.',
   'publish.preview.explain':
     'This is what viewers will see change when you publish. Nothing changes for them until you confirm.',
   'publish.preview.itemPath': 'Path',
@@ -253,7 +263,8 @@ export const messages = {
   'viewer.rooms.title': 'Your rooms',
   'viewer.rooms.loading': 'Loading rooms',
   'viewer.rooms.empty': 'No rooms are shared with you yet.',
-  'viewer.rooms.emptyHelp': 'When someone shares a room with this address, it appears here.',
+  'viewer.rooms.emptyHelp':
+    'If you were invited recently, the room may not be open yet. Check back later, or contact the person who invited you.',
   'viewer.index.heading': 'Documents',
   'viewer.index.empty': 'This room has no documents you can read.',
   'viewer.index.emptyHelp': 'Only published documents shared with you appear here.',
@@ -262,7 +273,11 @@ export const messages = {
   'viewer.document.unavailable': 'This document is not available to read.',
   'viewer.document.unavailableHelp':
     'It may have been withdrawn, or access may have changed. Ask the person who shared the room.',
-  'viewer.document.selectPrompt': 'Choose a document from the collection index.',
+  'viewer.contents.label': 'Room contents',
+  'viewer.zoom.label': 'Page size',
+  'viewer.zoom.in': 'Larger',
+  'viewer.zoom.out': 'Smaller',
+  'viewer.zoom.level': '{percent}%',
 
   'viewer.page.caption': 'Page {page} of {total}',
   'viewer.page.loading': 'Loading page {page}',
@@ -278,7 +293,7 @@ export const messages = {
   'viewer.watermark.notice':
     'Every page you see is marked with your email address, the date you opened it, and the room name.',
   'viewer.screenshot.honesty':
-    'Screenshots, screen recording, and other browser workarounds are outside Duefold’s control. Treat what you read here as confidential.',
+    'Screenshots, screen recording, and other browser workarounds cannot be controlled from here. Treat what you read as confidential.',
   'viewer.introduction.failed':
     'The room introduction could not be loaded. The document access shown here is unchanged.',
   'viewer.print.omitted': 'Document pages are not included in printed output.',
@@ -290,13 +305,14 @@ export const messages = {
   'viewer.find.previous': 'Previous match',
   'viewer.find.none': 'No matches on this page.',
   'viewer.find.count': '{count} matches on this page.',
+  'viewer.find.count.one': '1 match on this page.',
   'viewer.find.position': 'Match {index} of {count}.',
   'viewer.page.navigation': 'Document pages',
 
-  'viewer.link.leaving': 'You are leaving Duefold',
+  'viewer.link.leaving': 'You are leaving the document room',
   'viewer.link.destination': 'This link goes to',
   'viewer.link.continue': 'Continue to this site',
-  'viewer.link.cancel': 'Stay in Duefold',
+  'viewer.link.cancel': 'Stay here',
   'viewer.link.resolving': 'Checking this link',
   'viewer.link.failed': 'This link could not be checked. It has not been opened.',
 
@@ -416,13 +432,17 @@ export const messages = {
   'settings.lifecycle.freshSignIn': 'This change needs a sign-in from the last 15 minutes.',
   'settings.retention.heading': 'Audit retention',
   'settings.retention.current': 'Audit records for this room are kept for {years} years.',
+  'settings.retention.current.one': 'Audit records for this room are kept for 1 year.',
   'settings.retention.label': 'Keep audit records for',
   'settings.retention.years': '{years} years',
+  'settings.retention.years.one': '1 year',
   'settings.retention.review': 'Review retention change',
   'settings.retention.apply': 'Change retention',
   'settings.retention.title': 'Change audit retention',
   'settings.retention.consequence':
     'Audit records written from now on are kept for {years} years. Records already written keep their current retention.',
+  'settings.retention.consequence.one':
+    'Audit records written from now on are kept for 1 year. Records already written keep their current retention.',
   'settings.retention.locked': 'Retention is fixed while the room is published or archived.',
   'settings.retention.ownerOnly': 'Only the Owner changes audit retention.',
   'settings.retention.done': 'Audit retention changed.',
@@ -537,19 +557,16 @@ export const messages = {
   'members.role.member': 'Member',
   'members.role.owner.explain':
     'Reaches every room, and is the only role that can transfer ownership.',
-  'members.role.admin.explain': 'Manages members and reaches every room.',
+  'members.role.admin.explain':
+    'Manages members and reaches every room, so is never staffed into rooms individually.',
   'members.role.member.explain': 'Reaches only the rooms they are staffed into.',
-  /* An invitation names the role someone WILL hold. Describing it as one they hold
-     would claim access before they have ever signed in. */
-  'members.role.intended': 'Will arrive as {role}. Holds nothing until they sign in.',
   'members.state.active': 'Active',
   'members.state.disabled': 'Disabled',
-  'members.state.disabledHelp': 'Cannot sign in. Their record and audit trail remain.',
   'members.state.invited': 'Invited, not yet signed in',
   'members.state.invitedHelp':
     'This person holds no access yet. They become a member when they first sign in.',
   'members.rooms.none': 'No rooms',
-  'members.rooms.byRole': 'Every room, through their organization role',
+  'members.rooms.byRole': 'Every room',
   'members.rooms.unknown': 'A room not in your list',
   'members.rooms.manage': 'Staff into rooms',
   'members.page.more': 'Load more members',
@@ -575,13 +592,22 @@ export const messages = {
   'members.role.changed': 'Role changed. That member has been signed out of every device.',
   'members.role.signOutWarning':
     'Changing a role signs that member out of every device. They must sign in again.',
-  'members.role.supersedesWarning':
-    'An Admin reaches every room, so their room assignments are removed by this change.',
   'members.state.disable': 'Disable',
   'members.state.enable': 'Re-enable',
   'members.state.changed': 'Access changed. That member has been signed out of every device.',
   'members.state.disableWarning':
-    'A disabled member cannot sign in and is signed out of every device immediately.',
+    'A disabled member cannot sign in and is signed out of every device immediately. Their record and audit trail remain.',
+  'members.confirm.pending': 'Saving\u2026',
+  'members.confirm.disable.title': 'Disable {person}?',
+  'members.confirm.enable.title': 'Re-enable {person}?',
+  'members.confirm.enable.consequence':
+    'They can sign in again, with the role and rooms they hold now.',
+  'members.confirm.toAdmin.title': 'Make {person} an Admin?',
+  'members.confirm.toAdmin.consequence':
+    'An Admin manages members and reaches every room, so any room assignments are removed. They are signed out of every device and must sign in again.',
+  'members.confirm.toMember.title': 'Make {person} a Member?',
+  'members.confirm.toMember.consequence':
+    'A Member reaches only the rooms they are staffed into. They are signed out of every device and must sign in again; staff them into rooms afterwards.',
 
   'members.assign.title': 'Rooms for {person}',
   'members.assign.explain':
@@ -606,8 +632,6 @@ export const messages = {
      rooms shown and nothing more — the dialog must not imply it saw them all. */
   'members.assign.partialRooms':
     'Only part of the room list loaded. Rooms not shown here are unchanged by this form.',
-  'members.assign.onlyMembers':
-    'Owners and Admins already reach every room, so they are not staffed into rooms individually.',
 
   'members.transfer': 'Transfer ownership',
   'members.transfer.title': 'Transfer ownership',
@@ -615,7 +639,8 @@ export const messages = {
   'members.transfer.target': 'Ownership moves to {person}.',
   'members.transfer.consequence':
     'You become an Admin and are signed out of every device immediately.',
-  'members.transfer.revokes': '{count} room assignment(s) are removed from that person.',
+  'members.transfer.revokes': '{count} room assignments are removed from that person.',
+  'members.transfer.revokes.one': '1 room assignment is removed from that person.',
   'members.transfer.revokesNone': 'That person holds no room assignments to remove.',
   'members.transfer.revokesWhy':
     'An Owner reaches every room, so their individual room assignments are removed.',
@@ -669,8 +694,9 @@ export const messages = {
   'participants.invite.done': 'Invitation sent to {email}.',
   'participants.invite.invalid': 'Enter an email address, for example name@example.com.',
   'participants.invite.note':
-    'An invitation lets someone open the room. It grants no documents on its own.',
-
+    'The invitation email goes out straight away. After inviting, choose what this reader can see.',
+  'participants.invite.draftWarning':
+    'This room is still a draft. The reader gets the email now, but sees nothing here until you publish and make the room visible.',
   'grant.action.grant': 'Give access',
   'grant.action.revoke': 'Remove access',
   'grant.action.expiry': 'Change end date',
@@ -686,7 +712,8 @@ export const messages = {
   'grant.review.pending': 'Checking\u2026',
   'grant.impact.title': 'What this changes',
   'grant.impact.loading': 'Working out what this affects',
-  'grant.impact.count': '{count} item(s) change for this reader.',
+  'grant.impact.count': '{count} items change for this reader.',
+  'grant.impact.count.one': '1 item changes for this reader.',
   'grant.impact.none': 'This changes nothing for this reader.',
   'grant.impact.paths': 'Affected',
   'grant.impact.explain':
@@ -707,12 +734,14 @@ export const messages = {
   'upload.or': 'or',
   'upload.review': 'Review upload queue',
   'upload.summary': '{count} files · {size} MB',
+  'upload.summary.one': '1 file · {size} MB',
   'upload.clear': 'Clear queue',
   'upload.title.label': 'Document title',
   'upload.submit': 'Upload',
   'upload.pending': 'Uploading\u2026',
   'upload.progress': '{percent}% uploaded',
   'upload.doneCount': '{count} files accepted for checking.',
+  'upload.doneCount.one': '1 file accepted for checking.',
   'upload.batchDone': '{count} of {total} files accepted for checking.',
   'upload.state.waiting': 'Waiting',
   'upload.state.done': 'Accepted',
@@ -800,7 +829,8 @@ export const messages = {
   'exports.preflight': 'Review this export',
   'exports.preflight.loading': 'Working out what this export contains',
   'exports.preflight.title': 'What this export contains',
-  'exports.preflight.files': '{count} file(s).',
+  'exports.preflight.files': '{count} files.',
+  'exports.preflight.files.one': '1 file.',
   'exports.preflight.size': 'About {size}.',
   'exports.preflight.pii': 'Personal data included',
   'exports.preflight.retention': 'Retention',
@@ -905,18 +935,25 @@ export const messages = {
   'status.code.UPDATE_VERSION_UNRECOGNIZED':
     'The last release package named a version this release cannot compare.',
   'status.scanner.builtAt': 'Built {date}, {days} days before this check.',
+  'status.scanner.builtAt.one': 'Built {date}, 1 day before this check.',
   'status.updates.offered': 'Offered release: {version}',
-  'status.queue.counts': '{due} jobs waiting, {running} running.',
+  'status.queue.counts': 'Waiting: {due}. Running: {running}.',
   'status.queue.failed': '{count} jobs failed after every retry in the last seven days.',
+  'status.queue.failed.one': '1 job failed after every retry in the last seven days.',
   'status.queue.backlog': 'The oldest waiting job has waited {minutes} minutes.',
+  'status.queue.backlog.one': 'The oldest waiting job has waited 1 minute.',
   'status.processing.none': 'No document versions have failed processing.',
   'status.processing.failed':
-    '{count} document versions failed processing. Members can retry them from Processing.',
+    '{count} document versions failed processing. Room members can retry them from Review.',
+  'status.processing.failed.one':
+    '1 document version failed processing. Room members can retry it from Review.',
   'status.oidc.conformed':
     'Discovery and client authentication conformed when this web process started.',
   'status.mail.delivering': 'Sign-in and invitation mail is being delivered.',
   'status.mail.failing':
     '{count} sign-in or invitation messages could not be delivered after every retry in the last seven days.',
+  'status.mail.failing.one':
+    '1 sign-in or invitation message could not be delivered after every retry in the last seven days.',
   'status.mail.untested': 'No sign-in or invitation mail has been sent yet.',
   'status.backups.acknowledged': 'Backups are acknowledged by the operator.',
   'status.backups.retention': 'Retention: {retention}',

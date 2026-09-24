@@ -7,6 +7,7 @@ import type {
   RoomAssignment,
 } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
+import { ConfirmationDialog } from './ConfirmationDialog.tsx';
 import { isRoomAssignable, isTransferTarget } from '../workspace/administration.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
 import type { LoadRecovery } from '../workspace/views/load-state.ts';
@@ -91,9 +92,45 @@ export interface MembersPanelProps {
   readonly assignment: MemberAssignmentProps;
   readonly transfer: MemberTransferProps;
   readonly onRevokeInvitation: (invitationId: string) => void;
-  readonly onRoleChange: (input: RoleChange) => void;
-  readonly onStateChange: (input: StateChange) => void;
+  readonly onRoleChange: (input: RoleChange) => Promise<PresentedFailure | null>;
+  readonly onStateChange: (input: StateChange) => Promise<PresentedFailure | null>;
   readonly onSessionEnded: () => void;
+}
+
+/** A role or access change waiting for its one deliberate press. */
+type PendingChange =
+  | { readonly kind: 'role'; readonly change: RoleChange; readonly person: string }
+  | { readonly kind: 'state'; readonly change: StateChange; readonly person: string };
+
+function changeCopy(pending: PendingChange): {
+  readonly title: string;
+  readonly submit: string;
+  readonly consequence: string;
+} {
+  const person = pending.person;
+  if (pending.kind === 'role')
+    return pending.change.role === 'admin'
+      ? {
+          title: translate('members.confirm.toAdmin.title', { person }),
+          submit: translate('members.role.toAdmin'),
+          consequence: translate('members.confirm.toAdmin.consequence'),
+        }
+      : {
+          title: translate('members.confirm.toMember.title', { person }),
+          submit: translate('members.role.toMember'),
+          consequence: translate('members.confirm.toMember.consequence'),
+        };
+  return pending.change.state === 'disabled'
+    ? {
+        title: translate('members.confirm.disable.title', { person }),
+        submit: translate('members.state.disable'),
+        consequence: translate('members.state.disableWarning'),
+      }
+    : {
+        title: translate('members.confirm.enable.title', { person }),
+        submit: translate('members.state.enable'),
+        consequence: translate('members.confirm.enable.consequence'),
+      };
 }
 
 export function MembersPanel(props: MembersPanelProps): React.ReactElement {
@@ -102,6 +139,7 @@ export function MembersPanel(props: MembersPanelProps): React.ReactElement {
   const [transferFor, setTransferFor] = useState<string | null>(null);
   const roomsTrigger = useRef<HTMLButtonElement | null>(null);
   const [assignFailure, setAssignFailure] = useState<PresentedFailure | null>(null);
+  const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
 
   const subjectById = (id: string | null): MemberSubject | null =>
     id === null ? null : (props.subjects.find((subject) => subject.subjectId === id) ?? null);
@@ -221,8 +259,12 @@ export function MembersPanel(props: MembersPanelProps): React.ReactElement {
         hasMore={props.listing.hasMore}
         loadingMore={props.listing.loadingMore}
         onRevokeInvitation={props.onRevokeInvitation}
-        onRoleChange={props.onRoleChange}
-        onStateChange={props.onStateChange}
+        onRoleChange={(change, person) => {
+          setPendingChange({ kind: 'role', change, person });
+        }}
+        onStateChange={(change, person) => {
+          setPendingChange({ kind: 'state', change, person });
+        }}
         onOpenRooms={(memberId, trigger) => {
           roomsTrigger.current = trigger;
           setRoomsFor(memberId);
@@ -259,6 +301,32 @@ export function MembersPanel(props: MembersPanelProps): React.ReactElement {
           });
         }}
         onClose={closeRooms}
+      />
+
+      <ConfirmationDialog
+        open={pendingChange !== null}
+        title={pendingChange === null ? '' : changeCopy(pendingChange).title}
+        submitLabel={pendingChange === null ? '' : changeCopy(pendingChange).submit}
+        pendingLabel={translate('members.confirm.pending')}
+        content={
+          pendingChange === null
+            ? { kind: 'loading' }
+            : {
+                kind: 'ready',
+                consequence: <p>{changeCopy(pendingChange).consequence}</p>,
+                confirmation: {
+                  phrase: null,
+                  confirm: () =>
+                    pendingChange.kind === 'role'
+                      ? props.onRoleChange(pendingChange.change)
+                      : props.onStateChange(pendingChange.change),
+                },
+              }
+        }
+        onClose={() => {
+          setPendingChange(null);
+        }}
+        onReload={props.listing.onReload}
       />
 
       <OwnershipTransferDialog

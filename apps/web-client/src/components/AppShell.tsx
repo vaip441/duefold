@@ -52,7 +52,8 @@ export interface AppShellProps {
   /** Task navigation that remains visible beside the compact account menu. */
   readonly contextActions?: ReactNode;
   readonly accountActions?: ReactNode;
-  /** Plain-language effective policy for the current selection. */
+  /** Plain-language effective policy for the current selection. Omitted when the view
+   * has nothing to note, and the margin is not drawn at all. */
   readonly notes?: ReactNode;
   readonly status: string;
   readonly children?: ReactNode;
@@ -81,7 +82,7 @@ export function AppShell({
   const [indexOpen, setIndexOpen] = useState(true);
 
   return (
-    <div className="df-shell">
+    <div className="df-shell" data-notes={notes === undefined ? 'false' : 'true'}>
       <a className="df-skip" href={`#${WORKTABLE_ID}`}>
         {translate('app.skipToContent')}
       </a>
@@ -174,12 +175,14 @@ export function AppShell({
         )}
       </main>
 
-      <aside className="df-notes" aria-labelledby={notesHeadingId}>
-        <h2 className="df-notes__heading" id={notesHeadingId}>
-          {translate('shell.notes.heading')}
-        </h2>
-        <div className="df-notes__body">{notes ?? translate('shell.notes.empty')}</div>
-      </aside>
+      {notes === undefined ? null : (
+        <aside className="df-notes" aria-labelledby={notesHeadingId}>
+          <h2 className="df-notes__heading" id={notesHeadingId}>
+            {translate('shell.notes.heading')}
+          </h2>
+          <div className="df-notes__body">{notes}</div>
+        </aside>
+      )}
 
       <StatusRegion message={status} label={translate('shell.status.region')} />
     </div>

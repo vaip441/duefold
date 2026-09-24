@@ -45,18 +45,17 @@ function parseBranding(payload: unknown): BrandingConfiguration {
   };
 }
 
-export async function loadBranding(roomId: string): Promise<BrandingConfiguration> {
+export async function loadBranding(): Promise<BrandingConfiguration> {
   return parseBranding(
     await json({
       method: 'POST',
       path: '/api/branding/configuration',
-      body: { action: 'read', roomId },
+      body: { action: 'read' },
     }),
   );
 }
 
 export interface BrandingUpdate {
-  readonly roomId: string;
   readonly organizationName: string;
   readonly accentColor: string;
   readonly senderDisplayName: string;
@@ -141,7 +140,6 @@ export async function loadBrandingUploadState(intentId: string): Promise<Brandin
 }
 
 export async function deleteBrandingAsset(input: {
-  readonly roomId: string;
   readonly assetKind: BrandingAssetKind;
 }): Promise<void> {
   await json({

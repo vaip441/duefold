@@ -4,7 +4,9 @@ import {
   createRequiredMailer,
   createResendTransport,
   createSmtpTransport,
+  mailSender,
   renderSecurityNotice,
+  renderViewerInvitation,
   type MailTransport,
   type OutboundMail,
 } from './mail.ts';
@@ -111,17 +113,57 @@ describe('mail policy', () => {
     expect(messages[0]?.from).toBe('Duefold <mail@example.test>');
     expect(messages[0]?.headers?.['X-Duefold-Brand']).toBe('Duefold');
 
-    // Sign-in OTP delivery carries the brand name in sender and header
     await mailer.deliver({
       emailDisplay: 'investor@example.test',
-      code: '123456',
+      code: '12345678',
       challengeId: 'chal_abc123',
+      identity: { organizationName: 'Northwind Capital', senderDisplayName: 'Northwind IR' },
     });
     expect(messages).toHaveLength(2);
-    expect(messages[1]?.from).toBe('Duefold <mail@example.test>');
-    expect(messages[1]?.subject).toContain('Duefold');
-    expect(messages[1]?.headers?.['X-Duefold-Brand']).toBe('Duefold');
+    expect(messages[1]?.from).toBe('"Northwind IR" <mail@example.test>');
+    expect(messages[1]?.subject).toBe('Your sign-in code for Northwind Capital');
+    expect(messages[1]?.text).toContain('12345678');
+    expect(messages[1]?.html).toContain('12345678');
     expect(messages[1]?.headers?.['X-Duefold-Challenge']).toBe('chal_abc123');
+  });
+
+  it('invites a viewer by organization name, with no room or document detail', () => {
+    const rendered = renderViewerInvitation({
+      organizationName: 'Northwind Capital',
+      authenticatedLink: 'https://duefold.example/read',
+    });
+    expect(rendered.subject).toBe('Northwind Capital invited you to their document room');
+    expect(rendered.text).toContain('https://duefold.example/read');
+    expect(rendered.text).toContain('one-time sign-in code');
+    expect(rendered.html).toContain('href="https://duefold.example/read"');
+    expect(`${rendered.subject}${rendered.text}`).not.toMatch(/ROOM-|security event/u);
+  });
+
+  it('escapes organization data in HTML and refuses it where it could split a header', () => {
+    const rendered = renderViewerInvitation({
+      organizationName: '<script>alert(1)</script> & Co',
+      authenticatedLink: 'https://duefold.example/read',
+    });
+    expect(rendered.html).not.toContain('<script>');
+    expect(rendered.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; &amp; Co');
+    expect(() =>
+      renderViewerInvitation({
+        organizationName: 'North\nBcc: x@example.test',
+        authenticatedLink: 'https://duefold.example/read',
+      }),
+    ).toThrow('MAIL_ORGANIZATION_INVALID');
+  });
+
+  it('quotes the sender name and keeps the configured address', () => {
+    expect(mailSender('Duefold <no-reply@example.test>', 'Northwind, "IR"')).toBe(
+      '"Northwind, \\"IR\\"" <no-reply@example.test>',
+    );
+    expect(mailSender('no-reply@example.test', 'Northwind')).toBe(
+      '"Northwind" <no-reply@example.test>',
+    );
+    expect(() => mailSender('no-reply@example.test', 'North\r\nBcc: x@example.test')).toThrow(
+      'MAIL_SENDER_INVALID',
+    );
   });
 
   it('carries an onboarding idempotency key as a Resend request header, not in the message', async () => {
@@ -138,43 +180,38 @@ describe('mail policy', () => {
       },
     });
     const mailer = createRequiredMailer({ from: 'mail@example.test', transport });
-    const occurredAt = new Date('2027-04-05T06:07:08.000Z');
     /* Onboarding mail is at-least-once. Resend returns the original result for a
      * repeated request carrying this key within the 24 hours it retains the key,
      * so a prompt reclaim does not mail the invitee twice. Suppression ends with
      * that window; test/integration/member-invitation-mail.test.ts covers both
      * sides of the bound. */
+    const identity = { organizationName: 'Northwind Capital', senderDisplayName: 'Northwind' };
     await mailer.deliverOnboarding({
       emailDisplay: 'joiner@example.test',
+      identity,
       authenticatedLink: 'https://duefold.example/',
-      occurredAt,
       idempotencyKey: 'member-invitation:abc',
     });
     expect(requests[0]?.headers['idempotency-key']).toBe('member-invitation:abc');
     /* The key is provider request metadata. It must not reach the recipient's
      * mailbox as a message header, and it must not be mistaken for content. */
     const sent: unknown = JSON.parse(requests[0]?.body ?? 'null');
-    /* Asserted exactly, because a repeat of this message is tolerated on the
-     * grounds that it discloses nothing: the authenticated application link, the
-     * event class, and a timestamp. No role, no real room, no inviter, no
-     * one-time code. `roomAlias` is the literal 'internal', not a room identity. */
-    expect(sent).toEqual({
+    /* A repeat of this message is tolerated because it discloses nothing beyond the
+     * organization and the application link: no role, no room, no one-time code. */
+    expect(sent).toMatchObject({
       to: 'joiner@example.test',
-      from: 'Duefold <mail@example.test>',
-      subject: 'Duefold security event: internal-onboarding',
-      text:
-        'Room alias: internal\nEvent class: internal-onboarding\n' +
-        'UTC time: 2027-04-05T06:07:08.000Z\nDuefold link: https://duefold.example/',
+      from: '"Northwind" <mail@example.test>',
+      subject: 'You are invited to join Northwind Capital on Duefold',
       headers: { 'X-Duefold-Brand': 'Duefold' },
     });
+    expect(JSON.stringify(sent)).not.toContain('member-invitation:abc');
 
     /* Viewer invitation mail supplies no key, so no idempotency header is sent at
      * all rather than an empty or invented one. */
     await mailer.deliverInvitation({
       emailDisplay: 'viewer@example.test',
-      roomAlias: 'ROOM-ABC',
+      identity,
       authenticatedLink: 'https://duefold.example/read',
-      occurredAt,
     });
     expect(requests[1]?.headers).not.toHaveProperty('idempotency-key');
   });
@@ -196,8 +233,8 @@ describe('mail policy', () => {
     });
     await mailer.deliverOnboarding({
       emailDisplay: 'joiner@example.test',
+      identity: { organizationName: 'Northwind Capital', senderDisplayName: 'Northwind' },
       authenticatedLink: 'https://duefold.example/',
-      occurredAt: new Date('2027-04-05T06:07:08.000Z'),
       idempotencyKey: 'member-invitation:abc',
     });
     expect(messages[0]?.headers).toEqual({ 'X-Duefold-Brand': 'Duefold' });
@@ -211,8 +248,8 @@ describe('mail policy', () => {
     });
     const onboarding = {
       emailDisplay: 'joiner@example.test',
+      identity: { organizationName: 'Northwind Capital', senderDisplayName: 'Northwind' },
       authenticatedLink: 'https://duefold.example/',
-      occurredAt: new Date('2027-04-05T06:07:08.000Z'),
     };
     /* A header-splitting key must fail here rather than be handed to `fetch`, and
      * it must fail identically under SMTP, where nothing would reject it. */

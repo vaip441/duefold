@@ -44,6 +44,7 @@ import type { PresentedFailure } from '../workspace/failures.ts';
 import { settle } from '../workspace/outcome.ts';
 import type { Load } from '../workspace/state.ts';
 import { useOpenRoom } from '../workspace/useOpenRoom.ts';
+import { formatMemberLocation, parseMemberLocation, useLocation } from '../navigation.ts';
 import { AdministrationView } from '../workspace/views/AdministrationView.tsx';
 import { RegisterView } from '../workspace/views/RegisterView.tsx';
 import { RoomView } from '../workspace/views/RoomView.tsx';
@@ -132,7 +133,8 @@ export function Workspace({
      on screen and the same request can be made again. */
   const [roomsFailure, setRoomsFailure] = useState<string | null>(null);
   const [roomsLoadingMore, setRoomsLoadingMore] = useState(false);
-  const [view, setView] = useState<ViewId>('rooms');
+  const [location, navigate] = useLocation(parseMemberLocation, formatMemberLocation);
+  const view: ViewId = location.kind === 'administration' ? 'administration' : 'rooms';
   /* One entry for a member who cannot administer, so the strip degrades to the single
      destination they have rather than to a tab that would only refuse them. */
   const views = mayAdministerOrganization ? [ROOMS_VIEW, ADMINISTRATION_VIEW] : [ROOMS_VIEW];
@@ -148,29 +150,25 @@ export function Workspace({
    * is not in their strip, not because a boolean was re-read.
    */
   const currentView = currentSection(views, view) ?? ROOMS_VIEW;
-  const [openRoomId, setOpenRoomId] = useState<string | null>(null);
+  const openRoomId = location.kind === 'room' ? location.roomId : null;
+  const roomSectionId = location.kind === 'room' ? location.section : 'structure';
+  const administrationSectionId =
+    location.kind === 'administration' ? location.section : 'members';
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  const [roomSectionId, setRoomSectionId] = useState('structure');
+  const setRoomSectionId = (section: string): void => {
+    if (openRoomId !== null) navigate({ kind: 'room', roomId: openRoomId, section });
+  };
   /* This room's entries, published by the room view so the shell's collection index
      can list them. The index is the frame's; its content belongs to the view. */
   const [roomEntries, setRoomEntries] = useState<readonly WorkingEntry[]>([]);
   /* Bumped when the frame's own action changed the open room, so the room view
      re-reads rather than the frame reaching into its loader. */
   const [roomReloadToken, setRoomReloadToken] = useState(0);
-  const [administrationSectionId, setAdministrationSectionId] = useState('members');
   const [publishOpen, setPublishOpen] = useState(false);
   const [impact, setImpact] = useState<PublicationImpact | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   const [publishPending, setPublishPending] = useState(false);
   const [publishFailure, setPublishFailure] = useState<string | null>(null);
-  const preparationStep =
-    roomSectionId === 'participants' || roomSectionId === 'counterparties'
-      ? 'access'
-      : roomSectionId === 'structure' || roomSectionId === 'upload'
-        ? 'collection'
-        : roomSectionId === 'processing'
-          ? 'review'
-          : null;
 
   /*
    * The register is loaded by the frame rather than by a view, because both the
@@ -325,9 +323,8 @@ export function Workspace({
   };
 
   const leaveRoom = (): void => {
-    setOpenRoomId(null);
+    navigate({ kind: 'rooms' });
     setSelectedEntryId(null);
-    setRoomSectionId('structure');
     setRoomEntries([]);
   };
 
@@ -351,9 +348,8 @@ export function Workspace({
       }));
 
   const enterRoom = (id: string): void => {
-    setOpenRoomId(id);
+    navigate({ kind: 'room', roomId: id, section: 'structure' });
     setSelectedEntryId(null);
-    setRoomSectionId('structure');
   };
 
   const createRoomAndEnter = async (room: NewRoom): Promise<PresentedFailure | null> => {
@@ -370,8 +366,8 @@ export function Workspace({
       title={
         openRoom !== null
           ? openRoom.title
-          : view === 'administration'
-            ? translate('members.title')
+          : currentView.id === 'administration'
+            ? translate('workspace.tab.administration')
             : translate('rooms.title')
       }
       entries={indexEntries}
@@ -386,12 +382,7 @@ export function Workspace({
           setRoomSectionId('structure');
           return;
         }
-        if (roomList.some((room) => room.roomId === id)) {
-          setOpenRoomId(id);
-          setSelectedEntryId(null);
-          setView('rooms');
-          setRoomSectionId('structure');
-        }
+        if (roomList.some((room) => room.roomId === id)) enterRoom(id);
       }}
       status={status}
       primaryAction={
@@ -415,18 +406,17 @@ export function Workspace({
         openRoom !== null ? (
           <>
             <p>{translate(`rooms.state.${openRoom.state}.explain`)}</p>
-            <p>
-              {translate('rooms.notes.access', {
-                access:
-                  openRoom.roomRole === null
-                    ? translate('rooms.access.globalRole')
-                    : translate(
-                        openRoom.roomRole === 'manager'
-                          ? 'rooms.role.manager'
-                          : 'rooms.role.contributor',
-                      ),
-              })}
-            </p>
+            {openRoom.roomRole === null ? null : (
+              <p>
+                {translate('rooms.notes.access', {
+                  access: translate(
+                    openRoom.roomRole === 'manager'
+                      ? 'rooms.role.manager'
+                      : 'rooms.role.contributor',
+                  ),
+                })}
+              </p>
+            )}
           </>
         ) : undefined
       }
@@ -479,7 +469,11 @@ export function Workspace({
           sections={views}
           currentId={view}
           onSelect={(id) => {
-            setView(currentSection(views, id)?.id ?? 'rooms');
+            navigate(
+              (currentSection(views, id)?.id ?? 'rooms') === 'administration'
+                ? { kind: 'administration', section: 'members' }
+                : { kind: 'rooms' },
+            );
           }}
         />
       )}
@@ -496,45 +490,6 @@ export function Workspace({
 
       {openRoomId !== null && openRoom !== null ? (
         <>
-          <nav className="df-preparation" aria-label={translate('workspace.steps.label')}>
-            <button
-              type="button"
-              className="df-preparation__step"
-              aria-current={preparationStep === 'collection' ? 'step' : undefined}
-              onClick={() => {
-                setRoomSectionId('structure');
-              }}
-            >
-              {translate('workspace.steps.collection')}
-            </button>
-            <button
-              type="button"
-              className="df-preparation__step"
-              aria-current={preparationStep === 'access' ? 'step' : undefined}
-              onClick={() => {
-                setRoomSectionId('participants');
-              }}
-            >
-              {translate('workspace.steps.access')}
-            </button>
-            <button
-              type="button"
-              className="df-preparation__step"
-              aria-current={preparationStep === 'review' ? 'step' : undefined}
-              onClick={() => {
-                setRoomSectionId('processing');
-              }}
-            >
-              {translate('workspace.steps.review')}
-            </button>
-            <button
-              type="button"
-              className="df-preparation__step df-preparation__step--publish"
-              onClick={beginPublish}
-            >
-              {translate('workspace.steps.publish')}
-            </button>
-          </nav>
           <RoomView
             roomId={openRoomId}
             room={openRoom}
@@ -545,6 +500,7 @@ export function Workspace({
             onStatus={setStatus}
             onRoomsChanged={refreshRooms}
             onEntriesChange={setRoomEntries}
+            onPublish={beginPublish}
           />
         </>
       ) : currentView.id === 'administration' ? (
@@ -554,7 +510,9 @@ export function Workspace({
           roomsLoadingMore={roomsLoadingMore}
           onLoadMoreRooms={loadMoreRooms}
           sectionId={administrationSectionId}
-          onSectionChange={setAdministrationSectionId}
+          onSectionChange={(section) => {
+            navigate({ kind: 'administration', section });
+          }}
           onStatus={setStatus}
           onSessionEnded={onSignedOut}
         />
@@ -580,6 +538,15 @@ export function Workspace({
         loading={impactLoading}
         pending={publishPending}
         failure={publishFailure}
+        roomIsDraft={openRoom?.state === 'draft'}
+        onOpenSettings={
+          openRoom?.canPublish === true
+            ? () => {
+                setPublishOpen(false);
+                setRoomSectionId('settings');
+              }
+            : null
+        }
         onConfirm={confirmPublish}
         onCancel={() => {
           setPublishOpen(false);

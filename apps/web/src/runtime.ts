@@ -38,10 +38,5 @@ export interface WebRuntime {
    * explicitly acknowledged a host without namespace support. */
   readonly sandboxIsolation?: SandboxIsolation;
   classifyClient(request: FastifyRequest): CoarseClient;
-  deliverOtp(input: {
-    readonly emailDisplay: string;
-    readonly code: string;
-    readonly challengeId: string;
-  }): Promise<void>;
   revokeSession(sessionId: string, principal: PrincipalIdentity): Promise<void>;
 }

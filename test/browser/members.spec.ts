@@ -141,9 +141,9 @@ test.describe('the member register', () => {
     page,
   }) => {
     await openMembers(page, POPULATED);
-    const owner = page.getByRole('row', {
-      name: /is the only role that can transfer ownership/u,
-    });
+    const owner = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: /(^|\s)Owner$/u }) });
     await expect(owner).toBeVisible();
     await expect(owner.getByRole('button', { name: /^Make Member/u })).toHaveCount(0);
     await expect(owner.getByRole('button', { name: /^Disable/u })).toHaveCount(0);
@@ -181,11 +181,31 @@ test.describe('an Admin', () => {
   test('can still administer a plain Member', async ({ page }) => {
     await openAsAdmin(page);
     const member = page
-      .getByRole('row', { name: /Reaches only the rooms they are staffed into/u })
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: /(^|\s)Member$/u }) })
+      .filter({ has: page.getByRole('button', { name: /^Staff into rooms/u }) })
       .first();
     await expect(member.getByRole('button', { name: /^Staff into rooms/u })).toBeVisible();
     await expect(member.getByRole('button', { name: /^Disable/u })).toBeVisible();
     await expect(member.getByRole('button', { name: /^Transfer ownership/u })).toHaveCount(0);
+  });
+
+  test('asks before disabling a member, and changes nothing on Cancel', async ({ page }) => {
+    await openAsAdmin(page);
+    let actions = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/members/actions') actions += 1;
+    });
+    await page
+      .getByRole('button', { name: /^Disable/u })
+      .first()
+      .click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('signed out of every device');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    expect(actions).toBe(0);
   });
 
   test('has no accessibility violations on the Members surface', async ({ page }) => {
@@ -326,7 +346,12 @@ test.describe('the room assignment dialog', () => {
       .getByRole('button', { name: /^Make Admin/u })
       .first()
       .click();
-    await expect(page.getByRole('alert').first()).toContainText('Someone else changed this');
+    const confirm = page.getByRole('dialog');
+    await confirm.getByRole('button', { name: 'Make Admin' }).click();
+    // The refusal stays with the confirmation that caused it.
+    await expect(confirm.getByRole('alert')).toContainText('Someone else changed this');
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+    await expect(confirm).toBeHidden();
 
     await page.unroute('**/api/members/actions');
     await page

@@ -36,6 +36,7 @@ export function AccessSection({
         failure={section.failure}
         inviteFailure={section.inviteFailure}
         invitePending={section.invitePending}
+        roomIsDraft={room?.state === 'draft'}
         impact={section.impact}
         impactLoading={section.impactPending}
         applyPending={section.applyPending}

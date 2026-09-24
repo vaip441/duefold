@@ -223,17 +223,11 @@ describe('principal audience and CSRF matrix', () => {
     await app.close();
   });
 
-  it('returns without invoking mail delivery for either eligible or unknown OTP requests', async () => {
-    let deliveryCalls = 0;
+  // The web runtime holds no mailer, so a code request can only queue delivery for the
+  // worker; the response cannot wait on, or be timed by, a mail provider.
+  it('answers eligible and unknown OTP requests identically', async () => {
     const app = await buildTestWebApp({
-      runtime: testWebRuntime({
-        pool: databasePool,
-        authPool,
-        deliverOtp: () => {
-          deliveryCalls += 1;
-          return new Promise<void>(() => undefined);
-        },
-      }),
+      runtime: testWebRuntime({ pool: databasePool, authPool }),
       authenticate: () => Promise.resolve(null),
     });
     const eligible = await app.inject({
@@ -248,7 +242,6 @@ describe('principal audience and CSRF matrix', () => {
     });
     expect(eligible.statusCode).toBe(202);
     expect(unknown.statusCode).toBe(202);
-    expect(deliveryCalls).toBe(0);
     expect(JSON.parse(eligible.body)).toMatchObject({ accepted: true });
     expect(JSON.parse(unknown.body)).toMatchObject({ accepted: true });
     await app.close();

@@ -46,6 +46,9 @@ import { translate } from '../i18n/translate.ts';
 import { findMatches } from '../viewer/find.ts';
 import { usePreviewEvidence } from '../viewer/usePreviewEvidence.ts';
 import { useViewerIntroduction } from '../branding/useViewerIntroduction.ts';
+import { formatViewerLocation, parseViewerLocation, useLocation } from '../navigation.ts';
+import { DocumentPager, type Zoom } from '../components/DocumentPager.tsx';
+import { RoomContents } from '../components/RoomContents.tsx';
 
 export interface ViewerReadingRoomProps {
   readonly theme: ThemeChoice;
@@ -97,14 +100,18 @@ export function ViewerReadingRoom({
 }: ViewerReadingRoomProps): React.ReactElement {
   const [status, setStatus] = useState('');
   const [rooms, setRooms] = useState<Load<readonly ViewerRoom[]>>({ kind: 'loading' });
-  const [openRoomId, setOpenRoomId] = useState<string | null>(null);
+  const [location, navigate] = useLocation(parseViewerLocation, formatViewerLocation);
+  const openRoomId = location.kind === 'room' ? location.roomId : null;
+  const openDocumentId = location.kind === 'room' ? location.documentId : null;
+  const pageNumber = location.kind === 'room' ? location.page : 1;
   const roomIntroduction = useViewerIntroduction(openRoomId !== null);
   const [structure, setStructure] = useState<Load<readonly ViewerEntry[]>>({
     kind: 'loading',
   });
-  const [openDocumentId, setOpenDocumentId] = useState<string | null>(null);
   const [document, setDocument] = useState<Load<ViewerDocument | null>>({ kind: 'loading' });
-  const [pageNumber, setPageNumber] = useState(1);
+  /* Page width as a share of the worktable. The text layer is positioned in
+     percentages of the sheet, so it scales with the image. */
+  const [zoom, setZoom] = useState<Zoom>(100);
   const [activityId, setActivityId] = useState<string | null>(null);
   const [accessLost, setAccessLost] = useState(false);
   const [pendingSignOut, setPendingSignOut] = useState<'this-device' | 'everywhere' | null>(
@@ -135,6 +142,22 @@ export function ViewerReadingRoom({
   }, []);
   usePreviewEvidence({ activityId, onRejected: onEvidenceRejected });
 
+  const openRoom = useCallback(
+    (roomId: string, mode: 'push' | 'replace' = 'push'): void => {
+      navigate({ kind: 'room', roomId, documentId: null, page: 1 }, mode);
+    },
+    [navigate],
+  );
+  const openDocumentById = (documentId: string): void => {
+    if (openRoomId === null) return;
+    navigate({ kind: 'room', roomId: openRoomId, documentId, page: 1 });
+  };
+  const closeDocument = (): void => {
+    if (openRoomId === null) return;
+    setActivityId(null);
+    navigate({ kind: 'room', roomId: openRoomId, documentId: null, page: 1 });
+  };
+
   useEffect(() => {
     const controller = new AbortController();
     loadViewerRooms(controller.signal).then(
@@ -150,6 +173,18 @@ export function ViewerReadingRoom({
       controller.abort();
     };
   }, []);
+
+  /* Most readers hold one room. Arriving at the room list with a single entry is a
+     click that decides nothing, so the first arrival lands in the room itself; the
+     room list stays reachable afterwards. */
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current || rooms.kind !== 'ready') return;
+    arrived.current = true;
+    const [only] = rooms.value;
+    if (rooms.value.length === 1 && only !== undefined && location.kind === 'rooms')
+      openRoom(only.roomId, 'replace');
+  }, [rooms, location.kind, openRoom]);
 
   useEffect(() => {
     if (openRoomId === null) return;
@@ -176,7 +211,6 @@ export function ViewerReadingRoom({
     const controller = new AbortController();
     setDocument({ kind: 'loading' });
     setActivityId(null);
-    setPageNumber(1);
     setQuery('');
     setCurrentMatch(null);
     setDownload({ kind: 'idle' });
@@ -364,8 +398,9 @@ export function ViewerReadingRoom({
   const totalPages = openDocument?.pageCount ?? 0;
 
   const goToPage = (next: number): void => {
-    if (next < 1 || next > totalPages) return;
-    setPageNumber(next);
+    if (next < 1 || next > totalPages || location.kind !== 'room') return;
+    /* Replace, not push: Back should leave the document, not step through its pages. */
+    navigate({ ...location, page: next }, 'replace');
     setCurrentMatch(null);
     setStatus(
       translate('viewer.page.announce')
@@ -373,6 +408,12 @@ export function ViewerReadingRoom({
         .replace('{total}', String(totalPages)),
     );
   };
+
+  /* A page from a stale link past the end of a republished document opens page one. */
+  useEffect(() => {
+    if (openDocument === null || location.kind !== 'room') return;
+    if (location.page > openDocument.pageCount) navigate({ ...location, page: 1 }, 'replace');
+  }, [openDocument, location, navigate]);
 
   const stepMatch = (delta: number): void => {
     if (matches.length === 0) {
@@ -422,11 +463,11 @@ export function ViewerReadingRoom({
       onSelectEntry={(id) => {
         if (openRoomId === null) {
           if (rooms.kind === 'ready' && rooms.value.some((room) => room.roomId === id))
-            setOpenRoomId(id);
+            openRoom(id);
           return;
         }
         const entry = entries.find((item) => item.entryId === id);
-        if (entry?.resourceKind === 'document') setOpenDocumentId(entry.resourceId);
+        if (entry?.resourceKind === 'document') openDocumentById(entry.resourceId);
       }}
       status={status}
       notes={
@@ -446,14 +487,7 @@ export function ViewerReadingRoom({
       }
       contextActions={
         openDocumentId !== null ? (
-          <button
-            type="button"
-            className="df-button df-button--quiet"
-            onClick={() => {
-              setOpenDocumentId(null);
-              setActivityId(null);
-            }}
-          >
+          <button type="button" className="df-button df-button--quiet" onClick={closeDocument}>
             {translate('viewer.index.heading')}
           </button>
         ) : null
@@ -466,9 +500,8 @@ export function ViewerReadingRoom({
               type="button"
               className="df-button df-button--quiet"
               onClick={() => {
-                setOpenRoomId(null);
-                setOpenDocumentId(null);
                 setActivityId(null);
+                navigate({ kind: 'rooms' });
               }}
             >
               {translate('viewer.rooms.title')}
@@ -523,7 +556,7 @@ export function ViewerReadingRoom({
                   type="button"
                   className="df-button df-button--quiet"
                   onClick={() => {
-                    setOpenRoomId(room.roomId);
+                    openRoom(room.roomId);
                   }}
                 >
                   <span className="df-results__name">{room.title}</span>
@@ -548,9 +581,7 @@ export function ViewerReadingRoom({
             {translate('viewer.index.emptyHelp')}
           </div>
         ) : (
-          <div className="df-reading-intro">
-            <p className="df-worktable__lead">{translate('viewer.document.selectPrompt')}</p>
-          </div>
+          <RoomContents entries={entries} depthOf={depthOf} onOpenDocument={openDocumentById} />
         )
       ) : document.kind === 'loading' ? (
         <p className="df-field__help">{translate('viewer.document.loading')}</p>
@@ -586,55 +617,37 @@ export function ViewerReadingRoom({
             }}
           />
 
+          <DocumentPager
+            pageNumber={pageNumber}
+            pageCount={openDocument.pageCount}
+            zoom={zoom}
+            onPage={goToPage}
+            onZoom={setZoom}
+          />
+
           {/* Selecting another document renders once with the previous document's
               metadata and activity before they reset; without the id check that
               render requests a page of the new document it has no activity for. */}
           {activityId === null || openDocument.documentId !== openDocumentId ? (
             <p className="df-field__help">{translate('viewer.document.loading')}</p>
           ) : (
-            <PageReader
-              roomId={openRoomId}
-              documentId={openDocumentId}
-              pageNumber={pageNumber}
-              totalPages={openDocument.pageCount}
-              activityId={activityId}
-              matches={matches}
-              currentMatch={currentMatch}
-              onTextLayer={setLayer}
-              onLinkActivate={openLink}
-              onUnauthorized={() => {
-                setAccessLost(true);
-              }}
-            />
+            <div className="df-page-zoom" data-zoom={zoom}>
+              <PageReader
+                roomId={openRoomId}
+                documentId={openDocumentId}
+                pageNumber={pageNumber}
+                totalPages={openDocument.pageCount}
+                activityId={activityId}
+                matches={matches}
+                currentMatch={currentMatch}
+                onTextLayer={setLayer}
+                onLinkActivate={openLink}
+                onUnauthorized={() => {
+                  setAccessLost(true);
+                }}
+              />
+            </div>
           )}
-
-          <nav className="df-pager" aria-label={translate('viewer.page.navigation')}>
-            <button
-              type="button"
-              className="df-button"
-              disabled={pageNumber <= 1}
-              onClick={() => {
-                goToPage(pageNumber - 1);
-              }}
-            >
-              {translate('viewer.page.previous')}
-            </button>
-            <span className="df-pager__position" data-numeric="true">
-              {translate('viewer.page.caption')
-                .replace('{page}', String(pageNumber))
-                .replace('{total}', String(openDocument.pageCount))}
-            </span>
-            <button
-              type="button"
-              className="df-button"
-              disabled={pageNumber >= openDocument.pageCount}
-              onClick={() => {
-                goToPage(pageNumber + 1);
-              }}
-            >
-              {translate('viewer.page.next')}
-            </button>
-          </nav>
 
           <DownloadPanel
             policy={openDocument.downloadPolicy}

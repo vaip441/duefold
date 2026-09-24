@@ -8,7 +8,7 @@
  */
 import { useId, useRef, useState } from 'react';
 import { CANCEL_PURGE_PHRASE, type RoomSettings } from '../api/client.ts';
-import { translate, type MessageKey } from '../i18n/translate.ts';
+import { translate, translateCount, type MessageKey } from '../i18n/translate.ts';
 import { expiryDisplay, formatByteSize } from '../workspace/room-settings.ts';
 import type { RoomSettingsSection } from '../workspace/useRoomSettings.ts';
 import { ConfirmationDialog, type ConfirmationContent } from './ConfirmationDialog.tsx';
@@ -74,9 +74,11 @@ export function RoomLifecycleControls({
                     consequence: (
                       <>
                         <p>
-                          {translate('settings.retention.consequence', {
-                            years: outcome.value.proposedYears,
-                          })}
+                          {translateCount(
+                            'settings.retention.consequence',
+                            outcome.value.proposedYears,
+                            { years: outcome.value.proposedYears },
+                          )}
                         </p>
                         {freshNote}
                       </>
@@ -171,7 +173,9 @@ export function RoomLifecycleControls({
       <div className="df-panel__block">
         <h3 className="df-panel__subheading">{translate('settings.retention.heading')}</h3>
         <p>
-          {translate('settings.retention.current', { years: settings.auditRetentionYears })}
+          {translateCount('settings.retention.current', settings.auditRetentionYears, {
+            years: settings.auditRetentionYears,
+          })}
         </p>
         {capabilities.setRetention ? (
           <>
@@ -189,7 +193,7 @@ export function RoomLifecycleControls({
               >
                 {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
                   <option key={value} value={value}>
-                    {translate('settings.retention.years', { years: value })}
+                    {translateCount('settings.retention.years', value, { years: value })}
                   </option>
                 ))}
               </select>

@@ -51,8 +51,25 @@ async function openRoom(
     .click();
 }
 
+/* Processing is reached as the Review step of the preparation path. */
 async function openSection(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).click();
+  await page
+    .getByRole('button', { name: name === 'Processing' ? 'Review' : name, exact: true })
+    .click();
+}
+
+/** Branding is organization-wide, so it is an Administration section for an Admin. */
+async function openBranding(page: Page): Promise<void> {
+  const seeded = await server.signInMember({ globalRole: 'admin' });
+  await page.context().addCookies(
+    seeded.cookies.map((cookie) => ({
+      name: cookie.name,
+      value: cookie.value,
+      url: cookie.url,
+    })),
+  );
+  await page.goto(`${server.baseUrl}/administration/branding`);
+  await expect(page.getByLabel('Accent colour')).toBeVisible();
 }
 
 test.describe('participants and grants', () => {
@@ -140,20 +157,29 @@ test.describe('participants and grants', () => {
     await expect(page.getByText('Enter an email address')).toBeVisible();
   });
 
-  test('reports a Contributor refusal AS a refusal, not as an empty participant list', async ({
+  test('offers a Contributor no Access step, even through a typed address', async ({
     page,
   }) => {
     /*
-     * The participants reader is Manager-only, so a Contributor receives 403. The
-     * defect this guards against is presenting that as "nobody can read this
-     * room", which would tell a Contributor something false about access.
+     * The participants reader is Manager-only. A Contributor used to be handed the
+     * section anyway and shown a refusal worded for a viewer; now the step is absent,
+     * and a typed /participants address falls back to the collection without asking.
      */
+    const refused: string[] = [];
+    page.on('response', (response) => {
+      if (response.status() === 403) refused.push(response.url());
+    });
     await openRoom(page, { roomTitle: 'Contributor room', roomRole: 'contributor' });
-    await openSection(page, 'Access');
-    await expect(page.getByRole('alert')).toContainText('does not have access');
+    const path = page.getByRole('navigation', { name: 'Room preparation' });
+    await expect(path.getByRole('button', { name: 'Review', exact: true })).toBeVisible();
+    await expect(path.getByRole('button', { name: 'Access', exact: true })).toHaveCount(0);
+    await expect(path.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+    await page.goto(`${page.url()}/participants`);
+    await expect(page.getByRole('heading', { name: 'Working structure' })).toBeVisible();
     await expect(
       page.getByText('Nobody outside your organization can read this room yet.'),
     ).toHaveCount(0);
+    expect(refused).toEqual([]);
   });
 });
 
@@ -276,8 +302,7 @@ test.describe('branding', () => {
   test('rejects an accent that fails contrast and accepts one that passes both themes', async ({
     page,
   }) => {
-    await openRoom(page, { roomTitle: 'Branding room', roomRole: 'manager' });
-    await openSection(page, 'Branding');
+    await openBranding(page);
     const accent = page.getByLabel('Accent colour');
     // Negative arm: near-white fails against the light ground.
     await accent.fill('#fefefe');
@@ -288,8 +313,7 @@ test.describe('branding', () => {
   });
 
   test('accepts an email, an https link, or empty as the support contact', async ({ page }) => {
-    await openRoom(page, { roomTitle: 'Support room', roomRole: 'manager' });
-    await openSection(page, 'Branding');
+    await openBranding(page);
     const contact = page.getByLabel('Support contact');
     // Negative arm: a hostile scheme is refused at the point of entry.
     await contact.fill('javascript:alert(1)');
@@ -304,8 +328,7 @@ test.describe('branding', () => {
   });
 
   test('states that custom styles and scripts are not accepted', async ({ page }) => {
-    await openRoom(page, { roomTitle: 'Limits room', roomRole: 'manager' });
-    await openSection(page, 'Branding');
+    await openBranding(page);
     await expect(
       page.getByText('Custom styles, fonts, and scripts are not accepted'),
     ).toBeVisible();
@@ -374,8 +397,10 @@ test.describe('structure controls and bulk selection', () => {
       withProcessing: [{ title: 'First document', state: 'quarantine' }],
     });
     await page.getByRole('button', { name: 'New folder' }).click();
-    await page.getByLabel('Folder name').fill('Financials');
-    await page.getByRole('button', { name: 'Create folder' }).click();
+    // Opening the form puts the caret in the name, and Enter creates the folder.
+    await expect(page.getByLabel('Folder name')).toBeFocused();
+    await page.keyboard.type('Financials');
+    await page.keyboard.press('Enter');
     // Creation is a round trip followed by a workspace reload, which a loaded CI
     // runner does not always finish inside the default expect timeout.
     await expect(page.getByRole('row', { name: /Financials/ })).toBeVisible({
@@ -395,7 +420,15 @@ test.describe('structure controls and bulk selection', () => {
 });
 
 test.describe('accessibility and responsive behaviour', () => {
-  for (const section of ['Access', 'Processing', 'Exports', 'Branding'] as const) {
+  test('reports zero axe violations on Branding', async ({ page }) => {
+    await openBranding(page);
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  for (const section of ['Access', 'Processing', 'Exports'] as const) {
     test(`reports zero axe violations on ${section}`, async ({ page }) => {
       await openRoom(page, {
         roomTitle: `Axe ${section} room`,
@@ -449,7 +482,7 @@ test.describe('accessibility and responsive behaviour', () => {
       withParticipant: { email: 'narrow@example.com', grant: 'expired' },
       withProcessing: [{ title: 'Narrow document', state: 'processing_failed' }],
     });
-    for (const section of ['Access', 'Processing', 'Exports', 'Branding'] as const) {
+    for (const section of ['Access', 'Processing', 'Exports'] as const) {
       await openSection(page, section);
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -463,9 +496,17 @@ test.describe('accessibility and responsive behaviour', () => {
     const access = page.getByRole('button', { name: 'Access', exact: true });
     await access.focus();
     await page.keyboard.press('Enter');
-    await expect(access).toHaveAttribute('aria-current', 'true');
-    // Exactly one section is current at a time.
-    expect(await page.locator('.df-sections__entry[aria-current="true"]').count()).toBe(1);
+    await expect(access).toHaveAttribute('aria-current', 'step');
+    const exports = page.getByRole('button', { name: 'Exports', exact: true });
+    await exports.focus();
+    await page.keyboard.press('Enter');
+    await expect(exports).toHaveAttribute('aria-current', 'true');
+    // Exactly one place in the path and the supporting strip is current at a time.
+    expect(
+      await page
+        .locator('.df-sections__entry[aria-current], .df-preparation__step[aria-current]')
+        .count(),
+    ).toBe(1);
   });
 });
 
@@ -482,7 +523,7 @@ test.describe('disclosure limits', () => {
         { title: 'Other document', state: 'processing_failed' },
       ],
     });
-    for (const section of ['Access', 'Processing', 'Exports', 'Branding'] as const) {
+    for (const section of ['Access', 'Processing', 'Exports'] as const) {
       await openSection(page, section);
       const html = await page.content();
       for (const forbidden of [

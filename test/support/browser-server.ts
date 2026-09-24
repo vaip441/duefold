@@ -399,7 +399,6 @@ export async function startTestServer(
      */
     watermarkProgram,
     classifyClient: () => ({ browser: 'chromium', os: 'linux', device: 'desktop' }),
-    deliverOtp: () => Promise.resolve(),
     revokeSession: async (sessionId) => {
       await authPool.query(
         "UPDATE session SET state = 'revoked' WHERE id = $1 AND state = 'active'",

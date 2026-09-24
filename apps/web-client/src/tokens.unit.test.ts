@@ -23,7 +23,8 @@ const tokens = style('tokens.css');
 const shell = style('shell.css');
 const components = style('components.css');
 const base = style('base.css');
-const allStyles = `${tokens}\n${shell}\n${components}\n${base}`;
+const reader = style('reader.css');
+const allStyles = `${tokens}\n${shell}\n${components}\n${base}\n${reader}`;
 
 /** Reads a custom property from a specific block of the token file. */
 function tokenValue(block: string, name: string): string {

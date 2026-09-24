@@ -181,33 +181,38 @@ export function ConfirmationDialog({
             aria-describedby={ready === null ? undefined : consequenceId}
           >
             <Dialog.Title className="df-modal__title">{title}</Dialog.Title>
-            <ConfirmationBody
-              content={content}
-              consequenceId={consequenceId}
-              typed={typed}
-              pending={pending}
-              failure={failure}
-              onTypedChange={setTyped}
-              onReload={onReload}
-            />
-            <div className="df-modal__actions">
-              <Dialog.Close className="df-button" ref={cancel} disabled={pending}>
-                {translate('structure.cancel')}
-              </Dialog.Close>
-              {ready === null ? null : (
-                <button
-                  type="button"
-                  className="df-button df-button--primary"
-                  data-busy={pending ? 'true' : 'false'}
-                  disabled={!unlocked}
-                  onClick={() => {
-                    void run(ready);
-                  }}
-                >
-                  {pending ? pendingLabel : submitLabel}
-                </button>
-              )}
-            </div>
+            <form
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (ready !== null && unlocked) void run(ready);
+              }}
+            >
+              <ConfirmationBody
+                content={content}
+                consequenceId={consequenceId}
+                typed={typed}
+                pending={pending}
+                failure={failure}
+                onTypedChange={setTyped}
+                onReload={onReload}
+              />
+              <div className="df-modal__actions">
+                <Dialog.Close className="df-button" ref={cancel} disabled={pending}>
+                  {translate('structure.cancel')}
+                </Dialog.Close>
+                {ready === null ? null : (
+                  <button
+                    type="submit"
+                    className="df-button df-button--primary"
+                    data-busy={pending ? 'true' : 'false'}
+                    disabled={!unlocked}
+                  >
+                    {pending ? pendingLabel : submitLabel}
+                  </button>
+                )}
+              </div>
+            </form>
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>

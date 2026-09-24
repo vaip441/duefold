@@ -8,7 +8,7 @@ import type {
   ObservationCode,
   StatusCheck,
 } from '../api/client.ts';
-import { translate, type MessageKey } from '../i18n/translate.ts';
+import { translate, translateCount, type MessageKey } from '../i18n/translate.ts';
 
 export type RowState = 'pass' | 'attention' | 'fail' | 'unchecked' | 'stale';
 
@@ -112,10 +112,14 @@ function observationRow(check: StatusCheck, observation: CheckObservation | null
   const details = [translate(CODE_COPY[observation.code])];
   if (observation.evidenceAt !== null)
     details.push(
-      translate('status.scanner.builtAt', {
-        date: formatInstant(observation.evidenceAt),
-        days: wholeDays(observation.observedAt, observation.evidenceAt),
-      }),
+      translateCount(
+        'status.scanner.builtAt',
+        wholeDays(observation.observedAt, observation.evidenceAt),
+        {
+          date: formatInstant(observation.evidenceAt),
+          days: wholeDays(observation.observedAt, observation.evidenceAt),
+        },
+      ),
     );
   if (observation.evidenceVersion !== null)
     details.push(translate('status.updates.offered', { version: observation.evidenceVersion }));
@@ -141,11 +145,11 @@ function queueRow({ queue }: InstallationStatus['deployment']): StatusRow {
     details: [
       translate('status.queue.counts', { due: queue.due, running: queue.running }),
       ...(queue.failedRecently > 0
-        ? [translate('status.queue.failed', { count: queue.failedRecently })]
+        ? [translateCount('status.queue.failed', queue.failedRecently)]
         : []),
       ...(backlogged
         ? [
-            translate('status.queue.backlog', {
+            translateCount('status.queue.backlog', Math.floor(queue.oldestDueSeconds / 60), {
               minutes: Math.floor(queue.oldestDueSeconds / 60),
             }),
           ]
@@ -161,7 +165,7 @@ function mailRow({ mail }: InstallationStatus['deployment']): StatusRow {
       id: 'mail',
       label: 'status.row.mail',
       state: 'fail',
-      details: [translate('status.mail.failing', { count: mail.failedRecently })],
+      details: [translateCount('status.mail.failing', mail.failedRecently)],
       time: recorded(mail.lastDeliveredAt),
     };
   return mail.lastDeliveredAt === null
@@ -256,7 +260,7 @@ export function statusRows(status: InstallationStatus): readonly StatusRow[] {
       state: content.processing.failedCount > 0 ? 'attention' : 'pass',
       details: [
         content.processing.failedCount > 0
-          ? translate('status.processing.failed', { count: content.processing.failedCount })
+          ? translateCount('status.processing.failed', content.processing.failedCount)
           : translate('status.processing.none'),
       ],
       time: NOW,

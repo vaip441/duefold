@@ -168,7 +168,14 @@ export function RoomPolicyControls({
         </div>
       </fieldset>
 
-      <div className="df-panel__block">
+      <form
+        className="df-panel__block"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (expiry.ok) reviewExpiry(expiry.expiresAt);
+        }}
+      >
         <h3 className="df-panel__subheading">{translate('settings.expiry.heading')}</h3>
         <p>
           {settings.defaultGrantExpiresAt === null
@@ -206,18 +213,11 @@ export function RoomPolicyControls({
           ) : null}
         </div>
         <div className="df-panel__actions">
-          <button
-            type="button"
-            className="df-button"
-            disabled={!expiry.ok}
-            onClick={() => {
-              if (expiry.ok) reviewExpiry(expiry.expiresAt);
-            }}
-          >
+          <button type="submit" className="df-button" disabled={!expiry.ok}>
             {translate('settings.expiry.review')}
           </button>
         </div>
-      </div>
+      </form>
 
       <ConfirmationDialog
         open={dialogue !== null}

@@ -1,0 +1,85 @@
+/*
+ * The viewer's reader: the room contents list, and the page toolbar with paging and
+ * page size. Kept apart from components.css, which is at its size limit.
+ */
+
+/* A room's contents in the worktable: the same finding aid as the index, at reading
+   size, so the landing view is the collection rather than an instruction. */
+.df-contents__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 44rem;
+  border-block-start: var(--hairline) solid var(--rule);
+}
+.df-contents__item {
+  border-block-end: var(--hairline) solid var(--rule);
+}
+.df-contents__item[data-depth='1'] {
+  padding-inline-start: var(--space-4);
+}
+.df-contents__item[data-depth='2'] {
+  padding-inline-start: var(--space-6);
+}
+.df-contents__item[data-depth='3'],
+.df-contents__item[data-depth='4'] {
+  padding-inline-start: calc(var(--space-6) + var(--space-4));
+}
+.df-contents__folder {
+  display: block;
+  padding-block: var(--space-3) var(--space-2);
+  font: var(--weight-semibold) var(--size-body) / var(--leading-tight) var(--font-text);
+  color: var(--ink);
+}
+.df-contents__document {
+  display: block;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-2) 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+
+/* Page controls stay in reach while a long page scrolls under them. */
+.df-reader-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-block: var(--space-3) 0;
+  padding-block: var(--space-2);
+  background: var(--ground);
+  border-block-end: var(--hairline) solid var(--rule);
+}
+.df-pager,
+.df-zoom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.df-page-zoom {
+  overflow-x: auto;
+}
+.df-page-zoom[data-zoom='150'] .df-page__sheet {
+  width: 150%;
+}
+.df-page-zoom[data-zoom='200'] .df-page__sheet {
+  width: 200%;
+}
+.df-pager__position {
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}

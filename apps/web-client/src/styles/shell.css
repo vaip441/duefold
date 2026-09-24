@@ -192,7 +192,10 @@
   grid-area: worktable;
   min-width: 0;
   padding: var(--space-6) var(--space-6) var(--space-7);
-  overflow-y: auto;
+  /* Clip, not auto: the worktable grows with its content and the document scrolls, so
+     a scroll container here only captured sticky children (the reader's page
+     controls) without ever scrolling. Wide content scrolls in its own wrapper. */
+  overflow-x: clip;
 }
 
 .df-worktable__title {
@@ -307,16 +310,17 @@
   }
 
   .df-facts__actions {
-    flex: 0 1 auto;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: var(--space-1);
     margin-inline-start: auto;
   }
 
+  /* A label that does not fit wraps within its button; clipping it hid the action's
+     name ("view and publi"). */
   .df-facts__actions > .df-button {
-    max-width: 6.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .df-account-menu {
@@ -394,6 +398,17 @@
   .df-facts .df-facts__wordmark {
     overflow: visible;
     text-overflow: clip;
+  }
+}
+
+/* A view with nothing to note gives the margin back to the worktable rather than
+ * reserving a column for a placeholder sentence. */
+@media (min-width: 48.0625rem) {
+  .df-shell[data-notes='false'] {
+    grid-template-columns: var(--index-width) minmax(0, 1fr);
+    grid-template-areas:
+      'facts facts'
+      'index worktable';
   }
 }
 

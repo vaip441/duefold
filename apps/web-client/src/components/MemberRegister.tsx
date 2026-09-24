@@ -9,17 +9,11 @@ import type {
 } from '../api/client.ts';
 import { translate, type MessageKey } from '../i18n/translate.ts';
 import { isRoomAssignable, isTransferTarget } from '../workspace/administration.ts';
-import { Notice } from './Notice.tsx';
 
 const ROLE_LABEL: Readonly<Record<GlobalRole, MessageKey>> = {
   owner: 'members.role.owner',
   admin: 'members.role.admin',
   member: 'members.role.member',
-};
-const ROLE_EXPLAIN: Readonly<Record<GlobalRole, MessageKey>> = {
-  owner: 'members.role.owner.explain',
-  admin: 'members.role.admin.explain',
-  member: 'members.role.member.explain',
 };
 const STATE_LABEL: Readonly<Record<MemberState, MessageKey>> = {
   active: 'members.state.active',
@@ -45,8 +39,9 @@ export interface MemberRegisterProps {
   readonly hasMore: boolean;
   readonly loadingMore: boolean;
   readonly onRevokeInvitation: (invitationId: string) => void;
-  readonly onRoleChange: (input: RoleChange) => void;
-  readonly onStateChange: (input: StateChange) => void;
+  /** The person's address travels with the change so the confirmation can name them. */
+  readonly onRoleChange: (input: RoleChange, person: string) => void;
+  readonly onStateChange: (input: StateChange, person: string) => void;
   readonly onOpenRooms: (memberId: string, trigger: HTMLButtonElement) => void;
   readonly onOpenTransfer: (memberId: string) => void;
   readonly onLoadMore: () => void;
@@ -63,7 +58,15 @@ export function MemberRegister(props: MemberRegisterProps): React.ReactElement {
 
   return (
     <>
-      <Notice tone="caution">{translate('members.role.signOutWarning')}</Notice>
+      <dl className="df-legend">
+        {(['owner', 'admin', 'member'] as const).map((role) => (
+          <div key={role} className="df-legend__item">
+            <dt>{translate(ROLE_LABEL[role])}</dt>
+            <dd>{translate(`members.role.${role}.explain`)}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="df-field__help">{translate('members.role.signOutWarning')}</p>
       <table className="df-register">
         <caption className="df-visually-hidden">{translate('members.title')}</caption>
         <thead>
@@ -165,11 +168,6 @@ function InvitationRow({
       </th>
       <Cell label={translate('members.columns.role')}>
         <span className="df-state">{translate(ROLE_LABEL[subject.intendedRole])}</span>
-        <span className="df-register__meta">
-          {translate('members.role.intended', {
-            role: translate(ROLE_LABEL[subject.intendedRole]),
-          })}
-        </span>
       </Cell>
       <Cell label={translate('members.columns.state')}>
         <span className="df-state" data-live="false">
@@ -212,8 +210,9 @@ function MemberRow({
 }: RowProps & {
   readonly subject: ProvisionedMember;
   readonly rooms: readonly MemberRoom[];
-  readonly onRoleChange: (input: RoleChange) => void;
-  readonly onStateChange: (input: StateChange) => void;
+  /** The person's address travels with the change so the confirmation can name them. */
+  readonly onRoleChange: (input: RoleChange, person: string) => void;
+  readonly onStateChange: (input: StateChange, person: string) => void;
   readonly onOpenRooms: (trigger: HTMLButtonElement) => void;
   readonly onOpenTransfer: () => void;
 }): React.ReactElement {
@@ -233,22 +232,15 @@ function MemberRow({
       </th>
       <Cell label={translate('members.columns.role')}>
         <span className="df-state">{translate(ROLE_LABEL[subject.globalRole])}</span>
-        <span className="df-register__meta">{translate(ROLE_EXPLAIN[subject.globalRole])}</span>
       </Cell>
       <Cell label={translate('members.columns.state')}>
         <span className="df-state" data-live={subject.state === 'active' ? 'true' : 'false'}>
           {translate(STATE_LABEL[subject.state])}
         </span>
-        {subject.state === 'disabled' ? (
-          <span className="df-register__meta">{translate('members.state.disabledHelp')}</span>
-        ) : null}
       </Cell>
       <Cell label={translate('members.columns.rooms')}>
         {byRole ? (
-          <>
-            <span className="df-register__meta">{translate('members.rooms.byRole')}</span>
-            <span className="df-register__meta">{translate('members.assign.onlyMembers')}</span>
-          </>
+          <span className="df-register__meta">{translate('members.rooms.byRole')}</span>
         ) : subject.assignments.length === 0 ? (
           <span className="df-register__meta">{translate('members.rooms.none')}</span>
         ) : (
@@ -295,11 +287,14 @@ function MemberRow({
               data-busy={busy ? 'true' : 'false'}
               disabled={anyBusy}
               onClick={() => {
-                onRoleChange({
-                  memberId: subject.subjectId,
-                  role: subject.globalRole === 'admin' ? 'member' : 'admin',
-                  expectedRevision: subject.revision,
-                });
+                onRoleChange(
+                  {
+                    memberId: subject.subjectId,
+                    role: subject.globalRole === 'admin' ? 'member' : 'admin',
+                    expectedRevision: subject.revision,
+                  },
+                  subject.emailDisplay,
+                );
               }}
             >
               {translate(
@@ -313,15 +308,18 @@ function MemberRow({
           {canSetState ? (
             <button
               type="button"
-              className="df-button df-button--quiet"
+              className={`df-button df-button--quiet${subject.state === 'active' ? ' df-button--danger' : ''}`}
               data-busy={busy ? 'true' : 'false'}
               disabled={anyBusy}
               onClick={() => {
-                onStateChange({
-                  memberId: subject.subjectId,
-                  state: subject.state === 'disabled' ? 'active' : 'disabled',
-                  expectedRevision: subject.revision,
-                });
+                onStateChange(
+                  {
+                    memberId: subject.subjectId,
+                    state: subject.state === 'disabled' ? 'active' : 'disabled',
+                    expectedRevision: subject.revision,
+                  },
+                  subject.emailDisplay,
+                );
               }}
             >
               {translate(
@@ -342,14 +340,6 @@ function MemberRow({
             </button>
           ) : null}
         </div>
-        {canSetRole && subject.globalRole === 'member' && subject.assignments.length > 0 ? (
-          <span className="df-register__meta">
-            {translate('members.role.supersedesWarning')}
-          </span>
-        ) : null}
-        {canSetState && subject.state === 'active' ? (
-          <span className="df-register__meta">{translate('members.state.disableWarning')}</span>
-        ) : null}
       </Cell>
     </tr>
   );

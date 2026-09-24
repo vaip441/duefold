@@ -1323,7 +1323,7 @@ describe('Participant and allow-only grant boundary', () => {
           to: message.emailDisplay,
           from: 'mail@example.test',
           subject: 'Viewer invitation',
-          text: `${message.roomAlias}\n${message.authenticatedLink}`,
+          text: `${message.identity.organizationName}\n${message.authenticatedLink}`,
         });
         return Promise.resolve();
       },
@@ -1352,7 +1352,7 @@ describe('Participant and allow-only grant boundary', () => {
     );
     expect(delivered).toHaveLength(1);
     expect(delivered[0]).toMatchObject({ to: 'New.Viewer@example.com' });
-    expect(delivered[0]?.text).toContain('ROOM-');
+    expect(delivered[0]?.text).toContain('Grant authz');
     expect(delivered[0]?.text).toContain('https://duefold.example/read');
     expect(
       (

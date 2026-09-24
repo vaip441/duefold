@@ -17,7 +17,7 @@
 
 import { useId, useState } from 'react';
 import type { ExportPreflight, ExportPreset, ExportRecord } from '../api/client.ts';
-import { translate } from '../i18n/translate.ts';
+import { translate, translateCount } from '../i18n/translate.ts';
 import { formatSize, presentExport } from '../workspace/state.ts';
 import { formatDate } from '../workspace/grants.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
@@ -249,7 +249,7 @@ export function ExportsPanel({
           <div className="df-impact">
             <h4 className="df-panel__subheading">{translate('exports.preflight.title')}</h4>
             <p className="df-field__help" data-numeric="true">
-              {translate('exports.preflight.files', { count: preflight.fileCount })}{' '}
+              {translateCount('exports.preflight.files', preflight.fileCount)}{' '}
               {translate('exports.preflight.size', {
                 size: formatSize(preflight.estimatedSize),
               })}

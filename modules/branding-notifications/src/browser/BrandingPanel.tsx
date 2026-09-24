@@ -149,7 +149,24 @@ export function BrandingPanel({
       {denied ? null : loading || configuration === null ? (
         <p className="df-field__help">{brandingCopy('loading')}</p>
       ) : (
-        <>
+        <form
+          className="df-panel__block"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (savePending) return;
+            setAttempted(true);
+            if (!valid) return;
+            onSave({
+              organizationName: organizationName.trim(),
+              accentColor: accentColor.toLowerCase(),
+              senderDisplayName: senderDisplayName.trim(),
+              roomIntroduction,
+              supportContact: supportContact.trim() === '' ? null : supportContact.trim(),
+              expectedRevision: configuration.revision,
+            });
+          }}
+        >
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-org`}>
               {brandingCopy('organizationName')}
@@ -350,27 +367,15 @@ export function BrandingPanel({
 
           <div className="df-panel__actions">
             <button
-              type="button"
+              type="submit"
               className="df-button df-button--primary"
               data-busy={savePending ? 'true' : 'false'}
               disabled={savePending}
-              onClick={() => {
-                setAttempted(true);
-                if (!valid) return;
-                onSave({
-                  organizationName: organizationName.trim(),
-                  accentColor: accentColor.toLowerCase(),
-                  senderDisplayName: senderDisplayName.trim(),
-                  roomIntroduction,
-                  supportContact: supportContact.trim() === '' ? null : supportContact.trim(),
-                  expectedRevision: configuration.revision,
-                });
-              }}
             >
               {savePending ? brandingCopy('save.pending') : brandingCopy('save')}
             </button>
           </div>
-        </>
+        </form>
       )}
     </section>
   );

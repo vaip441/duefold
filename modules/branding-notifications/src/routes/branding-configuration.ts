@@ -6,7 +6,6 @@ import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import { parseSupportContact } from '@duefold/shared/support-contact';
 import { validateBranding } from '../branding.ts';
 
-const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
 const CONFIG = Type.Object(
   {
     organizationName: Type.String({ minLength: 1, maxLength: 200 }),
@@ -22,11 +21,10 @@ const CONFIG = Type.Object(
 );
 export const schema = {
   body: Type.Union([
-    Type.Object({ action: Type.Literal('read'), roomId: ID }, { additionalProperties: false }),
+    Type.Object({ action: Type.Literal('read') }, { additionalProperties: false }),
     Type.Object(
       {
         action: Type.Literal('update'),
-        roomId: ID,
         organizationName: Type.String({ minLength: 1, maxLength: 200 }),
         accentColor: Type.String({ pattern: '^#[0-9A-Fa-f]{6}$' }),
         senderDisplayName: Type.String({ minLength: 1, maxLength: 200 }),
@@ -43,10 +41,9 @@ export const schema = {
   response: { 200: CONFIG },
 };
 type Body =
-  | { readonly action: 'read'; readonly roomId: string }
+  | { readonly action: 'read' }
   | {
       readonly action: 'update';
-      readonly roomId: string;
       readonly organizationName: string;
       readonly accentColor: string;
       readonly senderDisplayName: string;
@@ -64,11 +61,10 @@ interface Row {
   readonly has_logo?: boolean;
   readonly has_square_mark?: boolean;
 }
-async function read(runtime: WebRuntime, identity: MemberIdentity, roomId: string) {
+async function read(runtime: WebRuntime, identity: MemberIdentity) {
   const row = (
-    await runtime.pool.query<Row>('SELECT * FROM read_branding_configuration($1,$2)', [
+    await runtime.pool.query<Row>('SELECT * FROM read_branding_configuration($1)', [
       identity.id,
-      roomId,
     ])
   ).rows[0];
   if (row === undefined) throw new Error('BRANDING_CONFIGURATION_UNAVAILABLE');
@@ -86,7 +82,7 @@ async function read(runtime: WebRuntime, identity: MemberIdentity, roomId: strin
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return async (request: FastifyRequest) => {
     const body = request.body as Body;
-    if (body.action === 'read') return read(runtime, identity, body.roomId);
+    if (body.action === 'read') return read(runtime, identity);
     const fields = validateBranding({
       organizationName: body.organizationName,
       accentColor: body.accentColor,
@@ -96,10 +92,9 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     });
     const parsedContact = parseSupportContact(body.supportContact ?? undefined);
     await runtime.pool.query(
-      'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
       [
         identity.id,
-        body.roomId,
         fields['organizationName'],
         fields['accentColor'],
         fields['senderDisplayName'],
@@ -111,7 +106,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
         createCorrelationId(),
       ],
     );
-    return read(runtime, identity, body.roomId);
+    return read(runtime, identity);
   };
 }
 export function handler(): never {

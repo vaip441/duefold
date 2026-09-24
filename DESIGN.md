@@ -425,8 +425,8 @@ height so they satisfy WCAG 2.2 2.5.8 without looking like controls.
 - **Invalid:** `aria-invalid` plus a danger-coloured border plus a text error
   referenced by `aria-describedby`. Three signals, never colour alone.
 - **Disabled:** sunken ground, faint ink.
-- **Code field:** tracked 0.32em at 1.25rem with tabular figures and a `12ch` cap,
-  so eight digits read as eight digits.
+- **Code field:** tracked 0.32em at 1.25rem with tabular figures and an `11em`
+  width, so eight tracked digits fit without clipping (`ch` ignores tracking).
 
 ### Navigation
 
@@ -635,7 +635,15 @@ source rewrite. Security and legal text is never machine-translated.
 
 ## Workspace and reading room
 
-- Room work follows one preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion, Access owns readers and counterparties, Review opens processing readiness, and Publish stays consequence-first behind the server dry-run dialog. Processing, exports, branding, and settings are supporting sections below the path, not equal preparation steps.
+- Room work follows one preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion (Add documents is an action inside it), Access owns readers and counterparties, Review is processing readiness, and Publish stays consequence-first behind the server dry-run dialog. Only Exports and Settings sit in the supporting strip below the path; nothing appears in both. A Contributor's path is Collection → Review, with no Access, Publish, or Exports, because each would only lead to a refusal.
+- The address bar carries the location: `/rooms/{id}/{section}` and `/administration/{section}` for members, `/rooms/{id}/documents/{id}?page=n` for viewers. Refresh, Back, and a copied link return to the same place; a path grants nothing, since every view still loads through the server. Page turns replace the history entry so Back leaves the document rather than stepping through pages.
+- Branding is organization-wide and lives under Administration, edited by Owners and Admins only; it never appears as a room section.
+- The notes margin is drawn only when the view has something to note. The register and Administration give that column back to the worktable.
+- Registers state shared meaning once in a legend above the table (room states, member roles) rather than in every row. Role and access changes that sign someone out take one deliberate press in `ConfirmationDialog`.
+- Every form with a text field is a real `<form>`: Enter submits, the primary action is `type="submit"`, and opening a form moves focus into its first field.
+- The viewer lands on a room's contents list, or straight in the room when they hold exactly one. The reader's page controls and page-size control sit in one sticky toolbar above the page; ArrowLeft and ArrowRight turn pages when focus is not in a field.
+- An organization name or logo replaces the Duefold identity entirely; it is never paired with the Ribbon mark. The sign-in footer then carries a quiet "Powered by Duefold" line.
+- A custom accent is applied through an adopted stylesheet, never a `<style>` element, because the CSP is `style-src 'self'`.
 - Counterparties appear only in the member Access surface; the viewer reading room never receives or emits that concept in its DOM.
 - The viewer collection index is the only document navigator. Folders are non-interactive finding-aid headings; documents open in the worktable.
 - Collection rows expose one **Manage** disclosure. Reordering is a dedicated mode, while rename, placement, metadata, download policy, and staged removal stay inside the selected row's focused task.

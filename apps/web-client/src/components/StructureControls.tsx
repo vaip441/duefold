@@ -17,7 +17,7 @@
  */
 
 import { Collapsible } from '@base-ui/react/collapsible';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { DocumentEntry, WorkingEntry } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
 import { Notice } from './Notice.tsx';
@@ -68,7 +68,28 @@ export function StructureControls({
   const [description, setDescription] = useState('');
   const [parent, setParent] = useState('');
   const [attempted, setAttempted] = useState(false);
+  const nameField = useRef<HTMLInputElement | null>(null);
   const selectable = entries.filter((entry) => !entry.stagedRemoved);
+
+  /* Opening the panel is a request to name a folder, so the name field takes focus;
+     leaving it on the trigger sent typing nowhere and Enter closed the panel again. */
+  useEffect(() => {
+    if (open) nameField.current?.focus();
+  }, [open]);
+
+  const createFolder = (): void => {
+    setAttempted(true);
+    if (name.trim() === '') return;
+    onCreateFolder({
+      parentFolderId: parent === '' ? null : parent,
+      displayName: name.trim(),
+      description,
+    });
+    setName('');
+    setDescription('');
+    setAttempted(false);
+    setOpen(false);
+  };
 
   return (
     <Collapsible.Root className="df-controls" open={open} onOpenChange={setOpen}>
@@ -129,12 +150,20 @@ export function StructureControls({
       )}
 
       <Collapsible.Panel className="df-controls__panel">
-        <div className="df-panel__block">
+        <form
+          className="df-panel__block"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!pending) createFolder();
+          }}
+        >
           <div className="df-field">
             <label className="df-field__label" htmlFor={`${fieldId}-name`}>
               {translate('structure.createFolder.name')}
             </label>
             <input
+              ref={nameField}
               id={`${fieldId}-name`}
               className="df-field__input"
               value={name}
@@ -146,7 +175,7 @@ export function StructureControls({
             />
             {attempted && name.trim() === '' ? (
               <p className="df-field__error" role="alert">
-                {translate('structure.createFolder.name')}
+                {translate('structure.createFolder.nameRequired')}
               </p>
             ) : null}
           </div>
@@ -187,23 +216,10 @@ export function StructureControls({
           </div>
           <div className="df-panel__actions">
             <button
-              type="button"
+              type="submit"
               className="df-button df-button--primary"
               data-busy={pending ? 'true' : 'false'}
               disabled={pending}
-              onClick={() => {
-                setAttempted(true);
-                if (name.trim() === '') return;
-                onCreateFolder({
-                  parentFolderId: parent === '' ? null : parent,
-                  displayName: name.trim(),
-                  description,
-                });
-                setName('');
-                setDescription('');
-                setAttempted(false);
-                setOpen(false);
-              }}
             >
               {pending
                 ? translate('structure.createFolder.pending')
@@ -221,7 +237,7 @@ export function StructureControls({
               {translate('structure.cancel')}
             </button>
           </div>
-        </div>
+        </form>
       </Collapsible.Panel>
     </Collapsible.Root>
   );
@@ -256,8 +272,23 @@ export function MoveForm({
   const parsed = Number.parseInt(position, 10);
   const valid = Number.isFinite(parsed) && parsed >= 1;
 
+  const move = (): void => {
+    onMove({
+      entry,
+      destinationFolderId: destination === '' ? null : destination,
+      targetPosition: parsed,
+    });
+  };
+
   return (
-    <div className="df-inline-form df-inline-form--stacked">
+    <form
+      className="df-inline-form df-inline-form--stacked"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!pending && valid) move();
+      }}
+    >
       <div className="df-field">
         <label className="df-field__label" htmlFor={`${fieldId}-destination`}>
           {translate('structure.move.destination')}
@@ -301,17 +332,10 @@ export function MoveForm({
       </div>
       <div className="df-panel__actions">
         <button
-          type="button"
+          type="submit"
           className="df-button df-button--primary"
           data-busy={pending ? 'true' : 'false'}
           disabled={pending || !valid}
-          onClick={() => {
-            onMove({
-              entry,
-              destinationFolderId: destination === '' ? null : destination,
-              targetPosition: parsed,
-            });
-          }}
         >
           {pending ? translate('structure.move.pending') : translate('structure.move.submit')}
         </button>
@@ -319,7 +343,7 @@ export function MoveForm({
           {translate('structure.cancel')}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -342,7 +366,15 @@ export function MetadataForm({
   const [description, setDescription] = useState(entry.description);
 
   return (
-    <div className="df-inline-form df-inline-form--stacked">
+    <form
+      className="df-inline-form df-inline-form--stacked"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!pending && title.trim() !== '')
+          onSave({ entry, title: title.trim(), description });
+      }}
+    >
       <div className="df-field">
         <label className="df-field__label" htmlFor={`${fieldId}-title`}>
           {translate('structure.metadata.title')}
@@ -375,13 +407,10 @@ export function MetadataForm({
       </div>
       <div className="df-panel__actions">
         <button
-          type="button"
+          type="submit"
           className="df-button df-button--primary"
           data-busy={pending ? 'true' : 'false'}
           disabled={pending || title.trim() === ''}
-          onClick={() => {
-            onSave({ entry, title: title.trim(), description });
-          }}
         >
           {pending
             ? translate('structure.metadata.pending')
@@ -391,6 +420,6 @@ export function MetadataForm({
           {translate('structure.cancel')}
         </button>
       </div>
-    </div>
+    </form>
   );
 }

@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { RequiredMailer } from '../auth/mail.ts';
+import { readMailIdentity, type RequiredMailer } from '../auth/mail.ts';
 import type { JobContext, LeasedJob } from '../../../../apps/worker/src/runner.ts';
 
 /** Dependencies for required internal onboarding mail. */
@@ -47,7 +47,7 @@ export function createHandler(dependencies: MemberInvitationMailDependencies) {
   return async (job: LeasedJob, context: JobContext): Promise<void> => {
     const invitationId = field(job.payload, 'invitationId');
     const mail = (
-      await dependencies.pool.query<{ email_display: string | null; occurred_at: Date }>(
+      await dependencies.pool.query<{ email_display: string | null }>(
         'SELECT * FROM read_member_invitation_mail($1,$2,$3,$4)',
         [invitationId, job.id, context.leaseOwner, job.lease_token],
       )
@@ -63,11 +63,12 @@ export function createHandler(dependencies: MemberInvitationMailDependencies) {
     base.pathname = '/';
     base.search = '';
     base.hash = '';
+    const identity = await readMailIdentity(dependencies.pool);
     await context.assertLease();
     await dependencies.mailer.deliverOnboarding({
       emailDisplay: mail.email_display,
+      identity,
       authenticatedLink: base.toString(),
-      occurredAt: mail.occurred_at,
       /* The job's own idempotency key: one invitation is one onboarding mail, so
        * the same value is presented on every attempt. */
       idempotencyKey: `member-invitation:${invitationId}`,

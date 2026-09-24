@@ -57,8 +57,11 @@ test.describe('member workspace', () => {
     await openWorkspace(page, { globalRole: 'admin', roomTitle: 'Series A diligence' });
     const row = page.getByRole('row', { name: /Series A diligence/u });
     await expect(row).toBeVisible();
-    // An admin holds no room_assignment, so the reason must say so.
-    await expect(row).toContainText('Visible through your organization role');
+    // An admin holds no room_assignment, so the reason must say so -- once, since it is
+    // the same for every room.
+    await expect(page.getByRole('main')).toContainText(
+      'You reach every room through your organization role.',
+    );
     await expect(row).not.toContainText('Assigned to you');
   });
 
@@ -66,8 +69,10 @@ test.describe('member workspace', () => {
     await openWorkspace(page, { globalRole: 'admin', roomTitle: 'Draft room' });
     const row = page.getByRole('row', { name: /Draft room/u });
     await expect(row).toContainText('Draft');
-    // Consequence in words, not colour: the state alone is not the message.
-    await expect(row).toContainText('Viewers cannot reach anything in this room');
+    // Consequence in words, not colour: the register's legend defines the state.
+    const legend = page.getByRole('main').locator('.df-legend');
+    await expect(legend).toContainText('Draft');
+    await expect(legend).toContainText('Viewers cannot reach anything in this room');
   });
 
   test('shows a manager the publish control and a contributor the reason they lack it', async ({
@@ -111,9 +116,12 @@ test.describe('member workspace', () => {
     await page.getByRole('button', { name: 'Review and publish' }).click();
     const dialog = page.getByRole('dialog', { name: 'Publish changes' });
     await expect(dialog).toBeVisible();
-    // An empty room has nothing to publish, and the dialog says so rather than
-    // offering a confirmation that would do nothing.
-    await expect(dialog).toContainText('Nothing to publish');
+    // An empty draft room has nothing to publish, and the dialog says so -- without
+    // claiming viewers already see anything -- rather than offering a confirmation
+    // that would do nothing.
+    await expect(dialog).toContainText('Nothing new to publish');
+    await expect(dialog).toContainText('still a draft');
+    await expect(dialog).not.toContainText('Viewers already see');
     await expect(dialog.getByRole('button', { name: 'Publish now' })).toHaveCount(0);
     // Escape closes it, so a keyboard user is not trapped.
     await page.keyboard.press('Escape');

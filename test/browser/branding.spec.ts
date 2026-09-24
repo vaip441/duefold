@@ -11,7 +11,7 @@ test.afterAll(async () => {
   await server.close();
 });
 
-test('shows attribution only with a custom logo and loads public branding once', async ({
+test('lets the organization identity replace Duefold, with attribution, loading branding once', async ({
   page,
 }) => {
   let brandingRequests = 0;
@@ -19,16 +19,26 @@ test('shows attribution only with a custom logo and loads public branding once',
     if (new URL(request.url()).pathname === '/api/branding/public') brandingRequests += 1;
   });
 
-  // Installation identity and edited text are not evidence of a custom logo.
+  // The Duefold identity: its mark, and no attribution line to itself.
   await server.migrationPool.query(
-    "UPDATE organization SET name='Acme Capital'; UPDATE branding_configuration SET revision=1",
+    "UPDATE organization SET name='Duefold'; UPDATE branding_configuration SET revision=1",
   );
   await page.goto(server.baseUrl);
-  await expect(page.getByText('Acme Capital')).toBeVisible();
+  await expect(page.locator('.df-brand-identity__mark')).toBeVisible();
   await expect(page.getByText('Powered by Duefold')).toHaveCount(0);
   await expect.poll(() => brandingRequests).toBe(1);
 
-  // A processed logo is the single attribution signal.
+  // An organization name replaces the identity outright; the Duefold mark beside it
+  // read as the organization's own logo.
+  await server.migrationPool.query("UPDATE organization SET name='Acme Capital'");
+  brandingRequests = 0;
+  await page.reload();
+  await expect(page.getByText('Acme Capital')).toBeVisible();
+  await expect(page.locator('.df-brand-identity__mark')).toHaveCount(0);
+  await expect(page.getByText('Powered by Duefold')).toBeVisible();
+  await expect.poll(() => brandingRequests).toBe(1);
+
+  // A processed logo replaces it too.
   const objectKey = `branding/${'a'.repeat(32)}/${'b'.repeat(32)}.png`;
   await server.migrationPool.query("UPDATE organization SET name='Duefold'");
   await server.migrationPool.query(

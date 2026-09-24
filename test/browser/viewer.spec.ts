@@ -48,12 +48,11 @@ async function signIn(
   return seeded;
 }
 
-/** Opens the seeded document and waits for the reader to settle. */
+/**
+ * Opens the seeded document and waits for the reader to settle. A viewer holding one
+ * room lands in it directly, so there is no room to choose first.
+ */
 async function openDocument(page: Page, title = 'Investor model'): Promise<void> {
-  await page
-    .getByRole('button', { name: /Open room|Series B diligence/u })
-    .first()
-    .click();
   await expect(
     page.getByRole('navigation', { name: 'Collection' }).getByRole('button', { name: title }),
   ).toBeVisible();
@@ -79,32 +78,62 @@ test.describe('viewer reading room', () => {
     expect(body).not.toContain(seeded.documentId);
   });
 
-  test('lists a granted room and its published documents', async ({ page }) => {
+  test('lands a single-room viewer in that room, listing its published documents', async ({
+    page,
+  }) => {
     await signIn(page, { roomTitle: 'Series B diligence', documentTitle: 'Investor model' });
-    const open = page.getByRole('main').getByRole('button', { name: /Series B diligence/u });
-    await expect(open).toBeVisible();
-    await open.click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Series B diligence');
+    await expect(page).toHaveURL(/\/rooms\/[A-Za-z0-9_-]+$/u);
     await expect(page.getByText('Materials prepared for your review.')).toBeVisible();
     const collection = page.getByRole('navigation', { name: 'Collection' });
     await expect(collection.getByRole('button', { name: 'Investor model' })).toBeVisible();
     // The folder is disclosed as finding-aid context, with no activation control.
     await expect(collection.getByText('Financials', { exact: true })).toBeVisible();
     await expect(collection.getByRole('button', { name: 'Financials' })).toHaveCount(0);
+    // The worktable lists the same contents rather than an instruction to look elsewhere.
+    const contents = page.getByRole('navigation', { name: 'Room contents' });
+    await expect(contents.getByRole('button', { name: 'Investor model' })).toBeVisible();
     await expect(page.getByRole('main').getByRole('table')).toHaveCount(0);
+  });
+
+  test('leaves the arrow keys to scrolling once the page is enlarged', async ({ page }) => {
+    // A larger page overflows sideways, and the arrows are how a keyboard user pans it.
+    await signIn(page);
+    await openDocument(page);
+    await page.getByRole('button', { name: 'Larger' }).click();
+    await page.getByRole('button', { name: 'Larger' }).click();
+    await expect(page.getByRole('group', { name: 'Page size' })).toContainText('200%');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByRole('navigation', { name: 'Document pages' })).toContainText(
+      'Page 1 of 2',
+    );
+    await expect(page).not.toHaveURL(/page=2/u);
+  });
+
+  test('keeps the open document and page across a reload and Back', async ({ page }) => {
+    await signIn(page);
+    await openDocument(page);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Investor model');
+    await page.keyboard.press('ArrowRight');
+    await expect(page).toHaveURL(/\/documents\/[A-Za-z0-9_-]+\?page=2$/u);
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Investor model');
+    await expect(page.getByRole('navigation', { name: 'Document pages' })).toContainText(
+      'Page 2 of 2',
+    );
+    // Page turns replace history, so Back leaves the document for the room.
+    await page.goBack();
+    await expect(page.getByRole('navigation', { name: 'Room contents' })).toBeVisible();
   });
 
   test('shows an explicit state when the protected room introduction fails to load', async ({
     page,
   }) => {
-    await signIn(page);
+    // Routed before sign-in: the only room opens at once, and with it the introduction.
     await page.route('**/api/viewer/branding/introduction', (route) =>
       route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
     );
-    await page
-      .getByRole('main')
-      .getByRole('button', { name: /Open room|Series B diligence/u })
-      .first()
-      .click();
+    await signIn(page);
     await expect(page.getByRole('alert')).toContainText(
       'The room introduction could not be loaded.',
     );
@@ -116,7 +145,7 @@ test.describe('viewer reading room', () => {
     await signIn(page);
     const notes = page.getByRole('complementary');
     await expect(notes).toContainText('marked with your email address');
-    await expect(notes).toContainText('outside Duefold');
+    await expect(notes).toContainText('cannot be controlled from here');
     const body = (await page.locator('body').textContent()) ?? '';
     expect(body).not.toContain('Counterparties');
     expect(body).not.toContain('No counterparties yet.');
@@ -167,7 +196,7 @@ test.describe('viewer reading room', () => {
     await openDocument(page);
     const find = page.getByRole('searchbox', { name: /Find on this page/u });
     await find.fill('revenue');
-    await expect(page.getByText(/1 matches on this page/u)).toBeVisible();
+    await expect(page.getByText(/1 match on this page/u)).toBeVisible();
     await page.getByRole('button', { name: 'Next match' }).click();
     await expect(page.locator('.df-page__match[data-current="true"]')).toHaveCount(1);
     // A query with no match says so rather than silently showing nothing.
@@ -183,7 +212,7 @@ test.describe('viewer reading room', () => {
     await page.getByRole('button', { name: 'Next page' }).click();
     await expect(page.locator('.df-page__text')).toContainText('Appendix');
     await page.getByRole('searchbox', { name: /Find on this page/u }).fill('resume');
-    await expect(page.getByText(/1 matches on this page/u)).toBeVisible();
+    await expect(page.getByText(/1 match on this page/u)).toBeVisible();
   });
 
   test('navigates pages by keyboard and announces the new page', async ({ page }) => {
@@ -317,10 +346,6 @@ test.describe('viewer reading room', () => {
   test('reads without horizontal overflow at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await signIn(page, { downloadPolicy: 'allow' });
-    await page
-      .getByRole('button', { name: /Open room|Series B diligence/u })
-      .first()
-      .click();
     // The collection disclosure starts expanded, so the index is reachable at once.
     await expect(page.getByRole('button', { name: 'Collection' })).toHaveAttribute(
       'aria-expanded',

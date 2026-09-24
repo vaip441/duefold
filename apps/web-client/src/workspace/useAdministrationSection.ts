@@ -37,12 +37,12 @@ export interface AdministrationSection {
     readonly memberId: string;
     readonly role: AssignableGlobalRole;
     readonly expectedRevision: number;
-  }) => void;
+  }) => Promise<PresentedFailure | null>;
   readonly changeState: (input: {
     readonly memberId: string;
     readonly state: MemberState;
     readonly expectedRevision: number;
-  }) => void;
+  }) => Promise<PresentedFailure | null>;
   readonly assign: (input: {
     readonly memberId: string;
     readonly assign: readonly RoomAssignment[];

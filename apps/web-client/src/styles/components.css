@@ -165,7 +165,10 @@
   font-variant-numeric: tabular-nums;
   font-size: 1.25rem;
   letter-spacing: 0.32em;
-  max-width: 12ch;
+  /* Eight tracked digits plus padding; `ch` ignores the tracking and clipped the
+     first digit. */
+  width: 11em;
+  max-width: 100%;
 }
 
 .df-field__error {
@@ -339,7 +342,8 @@
 /* Guided preparation and focused collection controls. */
 .df-preparation {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   border: var(--hairline) solid var(--rule-strong);
   background: var(--ground-sunken);
 }
@@ -366,10 +370,13 @@
 .df-preparation__step--publish {
   color: var(--accent-strong);
 }
-.df-reading-intro {
-  max-width: 36rem;
-  padding-block: var(--space-6);
-  border-block: var(--hairline) solid var(--rule);
+.df-preparation__number {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  margin-inline-end: var(--space-1);
+}
+.df-preparation__step[aria-current='step'] .df-preparation__number {
+  color: var(--accent-strong);
 }
 .df-collection-toolbar,
 .df-upload-review__summary {
@@ -500,6 +507,31 @@
 .df-register__actions .df-button {
   white-space: nowrap;
 }
+/* An action that removes someone's access reads as consequential before it is
+   pressed; the confirmation still states the consequence in words. */
+.df-button--danger {
+  color: var(--danger);
+}
+/* Role definitions stated once above the register rather than in every row. */
+.df-legend {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+  font-size: var(--size-meta);
+  color: var(--ink-muted);
+}
+.df-legend__item {
+  display: flex;
+  gap: var(--space-2);
+}
+.df-legend dt {
+  min-width: 4.5rem;
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+.df-legend dd {
+  margin: 0;
+}
 /* A staged-removal row is struck through AND labelled, never colour alone. */
 .df-register tr[data-staged-removed='true'] .df-register__name {
   text-decoration: line-through;
@@ -540,6 +572,17 @@
   font-family: var(--font-text);
   color: var(--ink);
   margin-block: var(--space-6) var(--space-2);
+}
+.df-section__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-block: var(--space-6) var(--space-2);
+}
+.df-section__header .df-section__heading {
+  margin: 0;
 }
 .df-results {
   margin: var(--space-3) 0 0;
@@ -825,21 +868,6 @@
   border-block-end: var(--hairline) solid var(--rule);
 }
 
-.df-pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-  margin-block: var(--space-4);
-  padding-block-start: var(--space-3);
-  border-block-start: var(--hairline) solid var(--rule);
-}
-.df-pager__position {
-  font-size: var(--size-meta);
-  color: var(--ink-muted);
-  font-variant-numeric: tabular-nums;
-}
-
 .df-download {
   margin-block-start: var(--space-6);
   padding-block-start: var(--space-4);
@@ -1098,6 +1126,9 @@
   .df-upload-list__item {
     grid-template-columns: 1fr;
   }
+  .df-preparation {
+    grid-auto-flow: row;
+  }
   .df-preparation__step {
     border-inline-end: 0;
     border-block-end: var(--hairline) solid var(--rule);
@@ -1138,7 +1169,7 @@
     font-size: var(--size-body);
   }
   .df-find,
-  .df-pager,
+  .df-reader-toolbar,
   .df-download {
     display: none !important;
   }

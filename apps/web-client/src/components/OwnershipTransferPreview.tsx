@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import type { OwnershipTransferImpact } from '../api/client.ts';
-import { translate } from '../i18n/translate.ts';
+import { translate, translateCount } from '../i18n/translate.ts';
 import { confirmationMatches } from '../workspace/administration.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
 import { Notice } from './Notice.tsx';
@@ -57,9 +57,7 @@ export function OwnershipTransferPreview({
             <h3 className="df-panel__subheading">
               {impact.revokedAssignmentCount === 0
                 ? translate('members.transfer.revokesNone')
-                : translate('members.transfer.revokes', {
-                    count: impact.revokedAssignmentCount,
-                  })}
+                : translateCount('members.transfer.revokes', impact.revokedAssignmentCount)}
             </h3>
             {impact.revokedAssignmentCount === 0 ? null : (
               <>
@@ -71,9 +69,7 @@ export function OwnershipTransferPreview({
                 ) : null}
                 <table className="df-register df-register--compact">
                   <caption className="df-visually-hidden">
-                    {translate('members.transfer.revokes', {
-                      count: impact.revokedAssignmentCount,
-                    })}
+                    {translateCount('members.transfer.revokes', impact.revokedAssignmentCount)}
                   </caption>
                   <thead>
                     <tr>

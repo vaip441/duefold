@@ -182,7 +182,7 @@ test.describe('designed failure states', () => {
     );
     await page.goto(server.baseUrl);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      'Duefold is not responding',
+      'The service is not responding',
     );
     // No internal code reaches the page even though the response carried one.
     const body = await page.locator('body').innerText();

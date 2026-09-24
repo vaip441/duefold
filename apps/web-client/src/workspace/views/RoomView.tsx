@@ -33,6 +33,7 @@ import {
 import { ExportsPanel } from '../../components/ExportsPanel.tsx';
 import { Notice } from '../../components/Notice.tsx';
 import { ProcessingPanel } from '../../components/ProcessingPanel.tsx';
+import { RoomPreparationNav } from '../../components/RoomPreparationNav.tsx';
 import { RoomSettingsPanel } from '../../components/RoomSettingsPanel.tsx';
 import { SectionNav } from '../../components/SectionNav.tsx';
 import { StructureControls } from '../../components/StructureControls.tsx';
@@ -84,6 +85,8 @@ export interface RoomViewProps {
    * whichever view knows it.
    */
   readonly onEntriesChange: (entries: readonly WorkingEntry[]) => void;
+  /** Opens the frame's publication dialog, which owns the dry run. */
+  readonly onPublish: () => void;
 }
 
 const CORE_ROOM_TABS = [
@@ -123,9 +126,14 @@ const SETTINGS_TAB = {
   id: 'settings',
   scope: 'room',
   label: () => translate('workspace.tab.settings'),
-  /* After the branding contribution (50): Settings closes the strip. */
   order: 60,
 } as const satisfies SectionTab;
+
+/* Reached through the preparation path rather than the supporting strip. */
+const PATH_SECTIONS: readonly string[] = ['structure', 'upload', 'participants', 'processing'];
+/* Reader management and exports are Room Manager work; the server refuses anyone else,
+   so a Contributor is not handed a section whose only content would be that refusal. */
+const MANAGER_SECTIONS: readonly string[] = ['participants', 'exports'];
 
 export function RoomView({
   roomId,
@@ -137,6 +145,7 @@ export function RoomView({
   onStatus,
   onRoomsChanged,
   onEntriesChange,
+  onPublish,
 }: RoomViewProps): React.ReactElement {
   const [workspace, setWorkspace] = useState<Load<RoomWorkspace>>({ kind: 'loading' });
   const [actionFailure, setActionFailure] = useState<string | null>(null);
@@ -228,12 +237,17 @@ export function RoomView({
    * expressed the same way would make every module's section depend on this view's
    * internals.
    */
+  const canManage = room?.canPublish === true;
   const sections = composeSections(
-    [...CORE_ROOM_TABS, ...(settings === null ? [] : [SETTINGS_TAB])],
+    [
+      ...CORE_ROOM_TABS.filter((tab) => canManage || !MANAGER_SECTIONS.includes(tab.id)),
+      ...(settings === null ? [] : [SETTINGS_TAB]),
+    ],
     contributedSections('room'),
   );
   const section = currentSection(sections, sectionId);
   const currentId = section?.id ?? '';
+  const supportingSections = sections.filter((tab) => !PATH_SECTIONS.includes(tab.id));
 
   useEffect(() => {
     if (currentId !== 'structure' || selectedEntryId === null) return;
@@ -569,9 +583,15 @@ export function RoomView({
         </Notice>
       )}
 
+      <RoomPreparationNav
+        canManage={canManage}
+        sectionId={currentId}
+        onSelect={onSectionChange}
+        onPublish={onPublish}
+      />
       <SectionNav
         label={translate('workspace.supporting.label')}
-        sections={sections}
+        sections={supportingSections}
         currentId={currentId}
         onSelect={onSectionChange}
       />
@@ -620,7 +640,20 @@ export function RoomView({
           </section>
 
           <section aria-label={translate('workspace.section.structure')}>
-            <h2 className="df-section__heading">{translate('workspace.section.structure')}</h2>
+            <div className="df-section__header">
+              <h2 className="df-section__heading">
+                {translate('workspace.section.structure')}
+              </h2>
+              <button
+                type="button"
+                className="df-button df-button--primary"
+                onClick={() => {
+                  onSectionChange('upload');
+                }}
+              >
+                {translate('workspace.tab.upload')}
+              </button>
+            </div>
             <StructureControls
               entries={entries}
               folders={folders}
@@ -705,6 +738,9 @@ export function RoomView({
                   },
                   input.entry.entryId,
                 );
+              }}
+              onOpenReview={() => {
+                onSectionChange('processing');
               }}
               onMetadata={(input) => {
                 runMutation(

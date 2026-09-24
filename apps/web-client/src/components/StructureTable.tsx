@@ -49,6 +49,8 @@ export interface StructureTableProps {
   readonly onStageRemoval: (entry: WorkingEntry) => void;
   readonly onMove?: (input: MoveInput) => void;
   readonly onMetadata?: (input: MetadataInput) => void;
+  /** Opens Review, where a file that is not ready shows why: scanning, failed, or quarantined. */
+  readonly onOpenReview?: () => void;
   /** Present only for a Room Manager once settings are loaded. */
   readonly downloads: StructureDownloads | null;
 }
@@ -70,6 +72,7 @@ export function StructureTable({
   onStageRemoval,
   onMove,
   onMetadata,
+  onOpenReview,
   downloads,
 }: StructureTableProps): React.ReactElement {
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -194,14 +197,23 @@ export function StructureTable({
                   className="df-register__name"
                   data-label={translate('workspace.columns.name')}
                 >
-                  <span
+                  <div
                     style={{
                       paddingInlineStart: `calc(${entry.depth} * var(--space-4))`,
                       display: 'inline-block',
                     }}
                   >
                     {renaming === entry.entryId ? (
-                      <span className="df-inline-form">
+                      <form
+                        className="df-inline-form"
+                        noValidate
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (busy || draftName.trim() === '') return;
+                          onRename(entry, draftName.trim());
+                          setRenaming(null);
+                        }}
+                      >
                         <label className="df-visually-hidden" htmlFor={renameFieldId}>
                           {translate('structure.rename.label')}
                         </label>
@@ -215,13 +227,9 @@ export function StructureTable({
                           }}
                         />
                         <button
-                          type="button"
+                          type="submit"
                           className="df-button df-button--primary"
                           disabled={busy || draftName.trim() === ''}
-                          onClick={() => {
-                            onRename(entry, draftName.trim());
-                            setRenaming(null);
-                          }}
                         >
                           {translate('structure.rename.submit')}
                         </button>
@@ -235,14 +243,23 @@ export function StructureTable({
                         >
                           {translate('structure.cancel')}
                         </button>
-                      </span>
+                      </form>
                     ) : (
                       entry.displayName
                     )}
-                  </span>
+                  </div>
                   {entry.resourceKind === 'document' && !entry.hasPublishableVersion ? (
                     <span className="df-register__meta">
                       {translate('workspace.needsVersion')}
+                      {onOpenReview === undefined ? null : (
+                        <>
+                          {' '}
+                          <button type="button" className="df-textlink" onClick={onOpenReview}>
+                            {translate('workspace.needsVersion.review')}
+                            <span className="df-visually-hidden"> {entry.displayName}</span>
+                          </button>
+                        </>
+                      )}
                     </span>
                   ) : null}
                 </th>

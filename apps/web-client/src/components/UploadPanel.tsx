@@ -22,7 +22,7 @@ interface DirectoryInputProps extends React.InputHTMLAttributes<HTMLInputElement
   readonly webkitdirectory?: string;
 }
 import { preflightDirectoryUpload } from '../../../../modules/rooms-documents/src/preflight.ts';
-import { translate } from '../i18n/translate.ts';
+import { translate, translateCount } from '../i18n/translate.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
 import { Notice } from './Notice.tsx';
 
@@ -176,7 +176,7 @@ export function UploadPanel({
 
       {doneCount > 0 ? (
         <Notice tone="action" role="status">
-          {translate('upload.doneCount', { count: doneCount })}
+          {translateCount('upload.doneCount', doneCount)}
         </Notice>
       ) : null}
 
@@ -229,8 +229,7 @@ export function UploadPanel({
             <div>
               <h3 className="df-panel__subheading">{translate('upload.review')}</h3>
               <p className="df-field__help" data-numeric="true">
-                {translate('upload.summary', {
-                  count: items.length,
+                {translateCount('upload.summary', items.length, {
                   size: new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(
                     totalBytes / 1_000_000,
                   ),

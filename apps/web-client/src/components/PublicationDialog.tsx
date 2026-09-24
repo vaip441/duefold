@@ -18,7 +18,7 @@
 
 import { Dialog } from '@base-ui/react/dialog';
 import { useEffect, useId, useRef, useState } from 'react';
-import { translate, type MessageKey } from '../i18n/translate.ts';
+import { translate, translateCount, type MessageKey } from '../i18n/translate.ts';
 import type { PublicationChangeKind, PublicationImpact } from '../api/client.ts';
 import { Notice } from './Notice.tsx';
 
@@ -39,6 +39,11 @@ export interface PublicationDialogProps {
   readonly loading: boolean;
   readonly pending: boolean;
   readonly failure: string | null;
+  /** A draft room shows viewers nothing whatever the collection holds, so an empty
+   * change list must not claim viewers already see it. */
+  readonly roomIsDraft: boolean;
+  /** Offered when the room is a draft: visibility is changed in Settings. */
+  readonly onOpenSettings: (() => void) | null;
   readonly onConfirm: (confirmation: string) => void;
   readonly onCancel: () => void;
 }
@@ -49,6 +54,8 @@ export function PublicationDialog({
   loading,
   pending,
   failure,
+  roomIsDraft,
+  onOpenSettings,
   onConfirm,
   onCancel,
 }: PublicationDialogProps): React.ReactElement {
@@ -59,6 +66,7 @@ export function PublicationDialog({
   const closeButton = useRef<HTMLButtonElement | null>(null);
 
   const matches = impact !== null && typed.trim() === impact.confirmation;
+  const nothingToPublish = impact !== null && !loading && impact.affectedCount === 0;
 
   useEffect(() => {
     if (open) return;
@@ -85,99 +93,126 @@ export function PublicationDialog({
             <Dialog.Title className="df-modal__title" id={titleId}>
               {translate('publish.preview.title')}
             </Dialog.Title>
-
-            {loading ? (
-              <p className="df-field__help">{translate('publish.preview.loading')}</p>
-            ) : null}
-
-            {failure === null ? null : (
-              <Notice tone="problem" role="alert">
-                {failure}
-              </Notice>
-            )}
-
-            {impact === null || loading ? null : impact.affectedCount === 0 ? (
-              <p className="df-field__help">{translate('publish.preview.none')}</p>
-            ) : (
-              <>
-                <p className="df-modal__lead">{translate('publish.preview.explain')}</p>
-                <p className="df-field__help" data-numeric="true">
-                  {translate('publish.preview.count', { count: impact.affectedCount })}
-                </p>
-                <table className="df-register df-register--compact">
-                  <caption className="df-visually-hidden">
-                    {translate('publish.preview.title')}
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">{translate('publish.preview.itemPath')}</th>
-                      <th scope="col">{translate('publish.preview.itemChanges')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {impact.items.map((item) => (
-                      <tr key={item.entryId}>
-                        <th scope="row" className="df-register__name">
-                          {item.path}
-                        </th>
-                        <td>
-                          <ul className="df-changes">
-                            {item.changes.map((change) => (
-                              <li key={change}>{translate(CHANGE_LABEL[change])}</li>
-                            ))}
-                          </ul>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <div className="df-field">
-                  <label className="df-field__label" htmlFor={confirmId}>
-                    {translate('publish.confirm.label', { phrase: impact.confirmation })}
-                  </label>
-                  <input
-                    id={confirmId}
-                    className="df-field__input"
-                    type="text"
-                    value={typed}
-                    autoComplete="off"
-                    spellCheck={false}
-                    disabled={pending}
-                    aria-invalid={attempted && !matches ? 'true' : undefined}
-                    aria-describedby={attempted && !matches ? `${confirmId}-error` : undefined}
-                    onChange={(event) => {
-                      setTyped(event.target.value);
-                    }}
-                  />
-                  {attempted && !matches ? (
-                    <p className="df-field__error" id={`${confirmId}-error`} role="alert">
-                      {translate('publish.confirm.mismatch')}
-                    </p>
-                  ) : null}
-                </div>
-              </>
-            )}
-
-            <div className="df-modal__actions">
-              <Dialog.Close className="df-button" ref={closeButton} disabled={pending}>
-                {translate('structure.cancel')}
-              </Dialog.Close>
-              {impact !== null && impact.affectedCount > 0 ? (
-                <button
-                  type="button"
-                  className="df-button df-button--primary"
-                  data-busy={pending ? 'true' : 'false'}
-                  disabled={pending}
-                  onClick={() => {
-                    setAttempted(true);
-                    if (matches) onConfirm(typed.trim());
-                  }}
-                >
-                  {pending ? translate('publish.pending') : translate('publish.confirm.submit')}
-                </button>
+            <form
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (impact === null || impact.affectedCount === 0 || pending) return;
+                setAttempted(true);
+                if (matches) onConfirm(typed.trim());
+              }}
+            >
+              {loading ? (
+                <p className="df-field__help">{translate('publish.preview.loading')}</p>
               ) : null}
-            </div>
+
+              {failure === null ? null : (
+                <Notice tone="problem" role="alert">
+                  {failure}
+                </Notice>
+              )}
+
+              {impact === null || loading ? null : impact.affectedCount === 0 ? (
+                <p className="df-modal__lead">
+                  {translate(
+                    roomIsDraft ? 'publish.preview.noneDraft' : 'publish.preview.none',
+                  )}
+                </p>
+              ) : (
+                <>
+                  <p className="df-modal__lead">{translate('publish.preview.explain')}</p>
+                  {roomIsDraft ? (
+                    <Notice tone="caution" role="status">
+                      {translate('publish.preview.draftNote')}
+                    </Notice>
+                  ) : null}
+                  <p className="df-field__help" data-numeric="true">
+                    {translateCount('publish.preview.count', impact.affectedCount)}
+                  </p>
+                  <table className="df-register df-register--compact">
+                    <caption className="df-visually-hidden">
+                      {translate('publish.preview.title')}
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">{translate('publish.preview.itemPath')}</th>
+                        <th scope="col">{translate('publish.preview.itemChanges')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {impact.items.map((item) => (
+                        <tr key={item.entryId}>
+                          <th scope="row" className="df-register__name">
+                            {item.path}
+                          </th>
+                          <td>
+                            <ul className="df-changes">
+                              {item.changes.map((change) => (
+                                <li key={change}>{translate(CHANGE_LABEL[change])}</li>
+                              ))}
+                            </ul>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="df-field">
+                    <label className="df-field__label" htmlFor={confirmId}>
+                      {translate('publish.confirm.label', { phrase: impact.confirmation })}
+                    </label>
+                    <input
+                      id={confirmId}
+                      className="df-field__input"
+                      type="text"
+                      value={typed}
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={pending}
+                      aria-invalid={attempted && !matches ? 'true' : undefined}
+                      aria-describedby={
+                        attempted && !matches ? `${confirmId}-error` : undefined
+                      }
+                      onChange={(event) => {
+                        setTyped(event.target.value);
+                      }}
+                    />
+                    {attempted && !matches ? (
+                      <p className="df-field__error" id={`${confirmId}-error`} role="alert">
+                        {translate('publish.confirm.mismatch')}
+                      </p>
+                    ) : null}
+                  </div>
+                </>
+              )}
+
+              <div className="df-modal__actions">
+                <Dialog.Close className="df-button" ref={closeButton} disabled={pending}>
+                  {translate(nothingToPublish ? 'publish.preview.close' : 'structure.cancel')}
+                </Dialog.Close>
+                {nothingToPublish && roomIsDraft && onOpenSettings !== null ? (
+                  <button
+                    type="button"
+                    className="df-button df-button--primary"
+                    onClick={onOpenSettings}
+                  >
+                    {translate('publish.preview.openSettings')}
+                  </button>
+                ) : null}
+                {impact !== null && impact.affectedCount > 0 ? (
+                  <button
+                    type="submit"
+                    className="df-button df-button--primary"
+                    data-busy={pending ? 'true' : 'false'}
+                    disabled={pending}
+                  >
+                    {pending
+                      ? translate('publish.pending')
+                      : translate('publish.confirm.submit')}
+                  </button>
+                ) : null}
+              </div>
+            </form>
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>

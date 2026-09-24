@@ -11,7 +11,6 @@ import { loadConfig } from '../../../modules/core-security/src/config.ts';
 import { appendAudit } from '../../../modules/core-security/src/audit.ts';
 import { createDatabase } from '../../../modules/core-security/src/db/database.ts';
 import { createCorrelationId } from '@duefold/shared/ids';
-import { createConfiguredMailer } from '../../../modules/core-security/src/auth/mail.ts';
 import { composedManifest } from '../../../.duefold/generated/manifest.ts';
 import { generatedJobs } from '../../../.duefold/generated/jobs.ts';
 import { generatedMigrations } from '../../../.duefold/generated/migrations.ts';
@@ -121,17 +120,6 @@ try {
     idleMinutes: numberConfig(config, 'DUEFOLD_SESSION_IDLE_MINUTES'),
     absoluteHours: numberConfig(config, 'DUEFOLD_SESSION_ABSOLUTE_HOURS'),
   };
-  const mailer = createConfiguredMailer({
-    adapter: composedManifest.adapters.mail,
-    from: stringConfig(config, 'DUEFOLD_AUTH_MAIL_FROM'),
-    ...(typeof config['DUEFOLD_SMTP_URL'] === 'string' && config['DUEFOLD_SMTP_URL'] !== ''
-      ? { smtpUrl: config['DUEFOLD_SMTP_URL'] }
-      : {}),
-    ...(typeof config['DUEFOLD_RESEND_API_KEY'] === 'string' &&
-    config['DUEFOLD_RESEND_API_KEY'] !== ''
-      ? { resendApiKey: config['DUEFOLD_RESEND_API_KEY'] }
-      : {}),
-  });
   const storageEndpoint = new URL(stringConfig(config, 'DUEFOLD_STORAGE_ENDPOINT'));
   const storageBucket = stringConfig(config, 'DUEFOLD_STORAGE_BUCKET');
   const storagePathStyle = config['DUEFOLD_STORAGE_PATH_STYLE'] === true;
@@ -193,7 +181,6 @@ try {
     ]),
     classifyClient,
     ...(sandboxIsolation.mode === 'namespaced' ? {} : { sandboxIsolation }),
-    deliverOtp: (message) => mailer.deliver(message),
     revokeSession: async (sessionId, principal) => {
       await authDatabase.transaction().execute(async (transaction) => {
         const result = await transaction
@@ -262,7 +249,6 @@ try {
     ),
   });
   app.addHook('onClose', async () => {
-    mailer.close();
     await authDatabase.destroy();
     await database.destroy();
     await authPool.end();

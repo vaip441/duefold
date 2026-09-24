@@ -26,8 +26,23 @@ export function MemberInviteForm({
   const [role, setRole] = useState<AssignableGlobalRole>('member');
   const valid = EMAIL.test(email.trim());
 
+  const submit = (): void => {
+    setAttempted(true);
+    if (!valid) return;
+    onInvite({ email: email.trim(), intendedRole: role });
+    setEmail('');
+    setAttempted(false);
+  };
+
   return (
-    <div className="df-panel__block">
+    <form
+      className="df-panel__block"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!pending) submit();
+      }}
+    >
       <h3 className="df-panel__subheading">{translate('members.invite')}</h3>
       <p className="df-field__help">{translate('members.invite.note')}</p>
       {failure === null ? null : (
@@ -90,21 +105,14 @@ export function MemberInviteForm({
       </div>
       <div className="df-panel__actions">
         <button
-          type="button"
+          type="submit"
           className="df-button df-button--primary"
           data-busy={pending ? 'true' : 'false'}
           disabled={pending}
-          onClick={() => {
-            setAttempted(true);
-            if (!valid) return;
-            onInvite({ email: email.trim(), intendedRole: role });
-            setEmail('');
-            setAttempted(false);
-          }}
         >
           {pending ? translate('members.invite.pending') : translate('members.invite.submit')}
         </button>
       </div>
-    </div>
+    </form>
   );
 }

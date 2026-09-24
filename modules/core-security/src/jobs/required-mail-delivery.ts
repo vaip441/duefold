@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { RequiredMailer } from '../auth/mail.ts';
+import { readMailIdentity, type RequiredMailer } from '../auth/mail.ts';
 import type { JobContext, LeasedJob } from '../../../../apps/worker/src/runner.ts';
 
 export interface RequiredMailDeliveryDependencies {
@@ -18,17 +18,10 @@ export function createHandler(dependencies: RequiredMailDeliveryDependencies) {
     const invitationId = field(job.payload, 'invitationId');
     const roomId = field(job.payload, 'roomId');
     const mail = (
-      await dependencies.pool.query<{
-        email_display: string;
-        room_alias: string;
-        occurred_at: Date;
-      }>('SELECT * FROM read_viewer_invitation_mail($1,$2,$3,$4,$5)', [
-        invitationId,
-        roomId,
-        job.id,
-        context.leaseOwner,
-        job.lease_token,
-      ])
+      await dependencies.pool.query<{ email_display: string }>(
+        'SELECT * FROM read_viewer_invitation_mail($1,$2,$3,$4,$5)',
+        [invitationId, roomId, job.id, context.leaseOwner, job.lease_token],
+      )
     ).rows[0];
     if (mail === undefined) throw new Error('INVITATION_MAIL_FORBIDDEN');
     const base = new URL(dependencies.publicUrl);
@@ -37,9 +30,8 @@ export function createHandler(dependencies: RequiredMailDeliveryDependencies) {
     base.hash = '';
     await dependencies.mailer.deliverInvitation({
       emailDisplay: mail.email_display,
-      roomAlias: mail.room_alias,
+      identity: await readMailIdentity(dependencies.pool),
       authenticatedLink: base.toString(),
-      occurredAt: mail.occurred_at,
     });
   };
 }

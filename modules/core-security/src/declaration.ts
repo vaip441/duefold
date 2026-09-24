@@ -123,6 +123,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '001_security_kernel', file: '001_security_kernel.sql' },
     { id: '017_organization_administration', file: '017_organization_administration.sql' },
     { id: '024_deployment_status', file: '024_deployment_status.sql' },
+    { id: '031_mail_identity', file: '031_mail_identity.sql' },
   ],
   jobs: [
     {

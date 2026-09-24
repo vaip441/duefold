@@ -28,7 +28,14 @@ function BrandIdentity({
     );
   }
 
-  const name = brand?.organizationName ?? translate('app.name');
+  /* An organization's own name replaces the Duefold identity. Pairing it with the
+     Duefold mark read as the organization's logo. */
+  if (isOrganizationBrand(brand))
+    return (
+      <span className={`df-brand-identity ${className ?? ''}`.trim()}>
+        <span className="df-facts__wordmark">{brand.organizationName}</span>
+      </span>
+    );
 
   return (
     <span className={`df-brand-identity ${className ?? ''}`.trim()}>
@@ -42,8 +49,16 @@ function BrandIdentity({
         <path d={RIBBON_STEM_PATH} fill="currentColor" />
         <path d={RIBBON_BOWL_PATH} fill="var(--accent)" />
       </svg>
-      <span className="df-facts__wordmark">{name}</span>
+      <span className="df-facts__wordmark">{translate('app.name')}</span>
     </span>
+  );
+}
+
+/** Whether the organization's identity, rather than Duefold's, fronts the interface. */
+export function isOrganizationBrand(brand: EffectiveBrand | null): brand is EffectiveBrand {
+  return (
+    brand !== null &&
+    (brand.logoUrl !== null || brand.organizationName !== translate('app.name'))
   );
 }
 

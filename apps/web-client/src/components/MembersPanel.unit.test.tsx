@@ -128,8 +128,8 @@ function render(overrides: Overrides = {}): string {
         onCancel: () => undefined,
       }}
       onRevokeInvitation={overrides.onRevokeInvitation ?? (() => undefined)}
-      onRoleChange={overrides.onRoleChange ?? (() => undefined)}
-      onStateChange={overrides.onStateChange ?? (() => undefined)}
+      onRoleChange={overrides.onRoleChange ?? (() => Promise.resolve(null))}
+      onStateChange={overrides.onStateChange ?? (() => Promise.resolve(null))}
       onSessionEnded={() => undefined}
     />,
   );
@@ -369,7 +369,7 @@ describe('what a row states about access', () => {
       ],
     });
     expect(markup).toContain(messages['members.state.enable']);
-    expect(markup).toContain(messages['members.state.disabledHelp']);
+    expect(markup).toContain(messages['members.state.disabled']);
     expect(markup).not.toContain(messages['members.transfer']);
   });
 

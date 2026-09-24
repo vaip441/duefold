@@ -55,6 +55,8 @@ function usedKeys(): ReadonlySet<string> {
       for (const key of KEYS) if (pattern.test(key)) used.add(key);
     }
   }
+  /* `translateCount` reaches a key's `.one` form whenever it reaches the key. */
+  for (const key of [...used]) if (`${key}.one` in messages) used.add(`${key}.one`);
   return used;
 }
 

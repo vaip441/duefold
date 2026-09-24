@@ -2,16 +2,23 @@ import type { Pool } from 'pg';
 import nodemailer from 'nodemailer';
 import type { CompositionManifest } from '@duefold/composition/contract';
 
+/** Who a required mail says it comes from, read from `read_mail_identity()`. */
+export interface MailIdentity {
+  readonly organizationName: string;
+  readonly senderDisplayName: string;
+}
 export interface OtpMailInput {
   readonly emailDisplay: string;
   readonly code: string;
   readonly challengeId: string;
+  readonly identity: MailIdentity;
 }
 export interface OutboundMail {
   readonly to: string;
   readonly from: string;
   readonly subject: string;
   readonly text: string;
+  readonly html?: string;
   readonly headers?: Readonly<Record<string, string>>;
 }
 /**
@@ -49,14 +56,13 @@ export interface OtpMailer {
 export interface RequiredMailer extends OtpMailer {
   deliverInvitation(input: {
     readonly emailDisplay: string;
-    readonly roomAlias: string;
+    readonly identity: MailIdentity;
     readonly authenticatedLink: string;
-    readonly occurredAt: Date;
   }): Promise<void>;
   deliverOnboarding(input: {
     readonly emailDisplay: string;
+    readonly identity: MailIdentity;
     readonly authenticatedLink: string;
-    readonly occurredAt: Date;
     /**
      * See `MailDelivery.idempotencyKey`. It must be identical across attempts
      * for one invitation and must contain no secret, because it travels as a
@@ -66,12 +72,7 @@ export interface RequiredMailer extends OtpMailer {
   }): Promise<void>;
   deliverSecurityNotice(input: SecurityNoticeInput): Promise<void>;
 }
-export const REQUIRED_MAIL_EVENT_CLASSES = [
-  'viewer-invitation',
-  'internal-onboarding',
-] as const;
 export const SECURITY_EVENT_CLASSES = [
-  ...REQUIRED_MAIL_EVENT_CLASSES,
   'invitation-accepted',
   'original-download',
   'repeated-auth-failures',
@@ -110,6 +111,167 @@ function safeIdempotencyKey(value: string): string {
     throw new Error('MAIL_IDEMPOTENCY_KEY_INVALID');
   return value;
 }
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+/**
+ * The display name on `From`, with the configured address kept.
+ *
+ * The name comes from organization data, so it is refused if it could break the
+ * header and quoted so a comma or angle bracket stays part of the name.
+ */
+export function mailSender(configuredFrom: string, displayName: string): string {
+  const from = safeLine(configuredFrom, 'MAIL_FROM_INVALID');
+  const address = /<([^<>]+)>\s*$/u.exec(from)?.[1] ?? from;
+  const name = safeLine(displayName, 'MAIL_SENDER_INVALID').replace(/["\\]/gu, '\\$&');
+  return `"${name}" <${address.trim()}>`;
+}
+
+export interface RenderedMail {
+  readonly subject: string;
+  readonly text: string;
+  readonly html: string;
+}
+
+/**
+ * One layout for every required mail: a heading, short paragraphs, and at most one
+ * action. Inline styles because mail clients drop stylesheets; nothing here is
+ * served by the application, so its CSP does not apply.
+ */
+function renderLayout(input: {
+  readonly subject: string;
+  readonly organizationName: string;
+  readonly heading: string;
+  readonly paragraphs: readonly string[];
+  readonly action?: { readonly label: string; readonly href: string };
+  readonly code?: string;
+  readonly closing: readonly string[];
+}): RenderedMail {
+  const paragraph = (value: string): string =>
+    `<p style="margin:0 0 16px;font-size:16px;line-height:1.5;color:#1b211f">${escapeHtml(value)}</p>`;
+  const action =
+    input.action === undefined
+      ? ''
+      : `<p style="margin:24px 0"><a href="${escapeHtml(input.action.href)}" style="display:inline-block;padding:12px 20px;background:#006b5e;color:#ffffff;font-weight:600;font-size:16px;text-decoration:none;border-radius:2px">${escapeHtml(input.action.label)}</a></p>` +
+        `<p style="margin:0 0 16px;font-size:13px;line-height:1.5;color:#5a625d">Or paste this link into your browser: ${escapeHtml(input.action.href)}</p>`;
+  const code =
+    input.code === undefined
+      ? ''
+      : `<p style="margin:24px 0;font-size:32px;font-weight:600;letter-spacing:0.2em;font-variant-numeric:tabular-nums;color:#1b211f">${escapeHtml(input.code)}</p>`;
+  const html =
+    '<!doctype html><html><body style="margin:0;padding:0;background:#f2f3f1">' +
+    '<div style="max-width:560px;margin:0 auto;padding:32px 24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif">' +
+    `<p style="margin:0 0 24px;font-size:14px;font-weight:600;color:#5a625d">${escapeHtml(input.organizationName)}</p>` +
+    `<h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;color:#1b211f;font-family:Georgia,'Times New Roman',serif">${escapeHtml(input.heading)}</h1>` +
+    input.paragraphs.map(paragraph).join('') +
+    code +
+    action +
+    `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #c7cdc7">${input.closing
+      .map(
+        (value) =>
+          `<p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#5a625d">${escapeHtml(value)}</p>`,
+      )
+      .join('')}</div></div></body></html>`;
+  const text = [
+    input.heading,
+    '',
+    ...input.paragraphs.flatMap((value) => [value, '']),
+    ...(input.code === undefined ? [] : [input.code, '']),
+    ...(input.action === undefined ? [] : [`${input.action.label}: ${input.action.href}`, '']),
+    ...input.closing,
+  ].join('\n');
+  return { subject: input.subject, text, html };
+}
+
+/*
+ * Required mail names the organization and says what to do next. It carries no room
+ * title, document detail, or access scope: the recipient learns those after signing
+ * in, and a forwarded or intercepted mail reveals only that an invitation exists.
+ */
+export function renderViewerInvitation(input: {
+  readonly organizationName: string;
+  readonly authenticatedLink: string;
+}): RenderedMail {
+  const organization = safeLine(input.organizationName, 'MAIL_ORGANIZATION_INVALID');
+  return renderLayout({
+    subject: `${organization} invited you to their document room`,
+    organizationName: organization,
+    heading: `${organization} has shared documents with you`,
+    paragraphs: [
+      `You have been invited to read documents in ${organization}'s secure document room.`,
+      'Open the room and enter this email address. We will send you a one-time sign-in code, so there is no password to create.',
+    ],
+    action: {
+      label: 'Open the document room',
+      href: authenticatedHttpsLink(input.authenticatedLink),
+    },
+    closing: [
+      'If you were not expecting this invitation, you can ignore this email.',
+      `Sent on behalf of ${organization} by Duefold.`,
+    ],
+  });
+}
+
+export function renderSignInCode(input: {
+  readonly organizationName: string;
+  readonly code: string;
+}): RenderedMail {
+  const organization = safeLine(input.organizationName, 'MAIL_ORGANIZATION_INVALID');
+  if (!/^\d{6,10}$/u.test(input.code)) throw new Error('MAIL_CODE_INVALID');
+  return renderLayout({
+    subject: `Your sign-in code for ${organization}`,
+    organizationName: organization,
+    heading: 'Your sign-in code',
+    paragraphs: [
+      `Enter this code on the sign-in page to open ${organization}'s document room. It expires in 10 minutes and works once.`,
+    ],
+    code: input.code,
+    closing: [
+      'If you did not try to sign in, you can ignore this email. No one can sign in without this code.',
+    ],
+  });
+}
+
+export function renderMemberOnboarding(input: {
+  readonly organizationName: string;
+  readonly authenticatedLink: string;
+}): RenderedMail {
+  const organization = safeLine(input.organizationName, 'MAIL_ORGANIZATION_INVALID');
+  return renderLayout({
+    subject: `You are invited to join ${organization} on Duefold`,
+    organizationName: organization,
+    heading: `Join ${organization} on Duefold`,
+    paragraphs: [
+      `${organization} uses Duefold to prepare and share document rooms. You have been invited to join the team.`,
+      'Sign in with your organization account, using this email address.',
+    ],
+    action: {
+      label: 'Sign in to Duefold',
+      href: authenticatedHttpsLink(input.authenticatedLink),
+    },
+    closing: ['If you were not expecting this invitation, you can ignore this email.'],
+  });
+}
+
+export async function readMailIdentity(pool: Pool): Promise<MailIdentity> {
+  const row = (
+    await pool.query<{ organization_name: string; sender_display_name: string }>(
+      'SELECT * FROM read_mail_identity()',
+    )
+  ).rows[0];
+  if (row === undefined) throw new Error('MAIL_IDENTITY_UNAVAILABLE');
+  return {
+    organizationName: row.organization_name,
+    senderDisplayName: row.sender_display_name,
+  };
+}
+
 export async function renderRoomSecurityNotice(input: {
   readonly pool: Pool;
   readonly roomId: string;
@@ -209,56 +371,72 @@ export function createRequiredMailer(input: {
   readonly from: string;
 }): RequiredMailer {
   const rawFrom = safeLine(input.from, 'MAIL_FROM_INVALID');
-  const from = rawFrom.includes('<') ? rawFrom : `Duefold <${rawFrom}>`;
-  const sendSecurity = async (
-    notice: SecurityNoticeInput,
-    delivery?: MailDelivery,
+  const securityFrom = rawFrom.includes('<') ? rawFrom : `Duefold <${rawFrom}>`;
+  const sendRequired = async (
+    to: string,
+    identity: MailIdentity,
+    rendered: RenderedMail,
+    headers: Readonly<Record<string, string>>,
+    delivery: MailDelivery = {},
   ): Promise<void> => {
-    const rendered = renderSecurityNotice(notice);
-    const key = delivery?.idempotencyKey;
+    const key = delivery.idempotencyKey;
     await input.transport.send(
       {
-        to: notice.recipient,
-        from,
+        to,
+        from: mailSender(rawFrom, identity.senderDisplayName),
         subject: rendered.subject,
         text: rendered.text,
-        headers: { 'X-Duefold-Brand': 'Duefold' },
+        html: rendered.html,
+        headers: { ...headers, 'X-Duefold-Brand': 'Duefold' },
       },
       key === undefined ? {} : { idempotencyKey: safeIdempotencyKey(key) },
     );
   };
   return {
     async deliver(message) {
-      await input.transport.send({
-        from,
-        to: message.emailDisplay,
-        subject: 'Your Duefold sign-in code',
-        text: `Your Duefold sign-in code is ${message.code}. It expires in 10 minutes.`,
-        headers: { 'X-Duefold-Challenge': message.challengeId, 'X-Duefold-Brand': 'Duefold' },
-      });
+      await sendRequired(
+        message.emailDisplay,
+        message.identity,
+        renderSignInCode({
+          organizationName: message.identity.organizationName,
+          code: message.code,
+        }),
+        { 'X-Duefold-Challenge': message.challengeId },
+      );
     },
     deliverInvitation(message) {
-      return sendSecurity({
-        recipient: message.emailDisplay,
-        roomAlias: message.roomAlias,
-        eventClass: 'viewer-invitation',
-        occurredAt: message.occurredAt,
-        authenticatedLink: message.authenticatedLink,
-      });
+      return sendRequired(
+        message.emailDisplay,
+        message.identity,
+        renderViewerInvitation({
+          organizationName: message.identity.organizationName,
+          authenticatedLink: message.authenticatedLink,
+        }),
+        {},
+      );
     },
     deliverOnboarding(message) {
-      return sendSecurity(
-        {
-          recipient: message.emailDisplay,
-          roomAlias: 'internal',
-          eventClass: 'internal-onboarding',
-          occurredAt: message.occurredAt,
+      return sendRequired(
+        message.emailDisplay,
+        message.identity,
+        renderMemberOnboarding({
+          organizationName: message.identity.organizationName,
           authenticatedLink: message.authenticatedLink,
-        },
+        }),
+        {},
         { idempotencyKey: message.idempotencyKey },
       );
     },
-    deliverSecurityNotice: (notice) => sendSecurity(notice),
+    async deliverSecurityNotice(notice) {
+      const rendered = renderSecurityNotice(notice);
+      await input.transport.send({
+        to: notice.recipient,
+        from: securityFrom,
+        subject: rendered.subject,
+        text: rendered.text,
+        headers: { 'X-Duefold-Brand': 'Duefold' },
+      });
+    },
     close() {
       input.transport.close();
     },

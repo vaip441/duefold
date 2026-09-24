@@ -5,7 +5,8 @@
 
 import { useLayoutEffect, useRef, type ReactNode, type Ref } from 'react';
 import { useBrand } from '../branding/useBrand.ts';
-import { BrandLogo } from './BrandLogo.tsx';
+import { BrandLogo, isOrganizationBrand } from './BrandLogo.tsx';
+import { translate } from '../i18n/translate.ts';
 import { SupportLine } from './SupportLine.tsx';
 import { ThemeSelect, type ThemeChoice } from './ThemeSelect.tsx';
 
@@ -35,7 +36,8 @@ export function AuthSheet({
   const { brand } = useBrand();
   const column = useRef<HTMLDivElement | null>(null);
   const previousMotionKey = useRef(motionKey);
-  const hasCustomBrand = brand?.logoUrl !== null && brand?.logoUrl !== undefined;
+  const hasCustomBrand = isOrganizationBrand(brand);
+  const supportContact = brand?.supportContact ?? null;
 
   useLayoutEffect(() => {
     if (previousMotionKey.current === motionKey) return;
@@ -67,10 +69,14 @@ export function AuthSheet({
           {aside === undefined ? null : <div className="df-sheet__aside">{aside}</div>}
         </div>
       </main>
-      <footer className="df-sheet__footer">
-        <SupportLine contact={brand?.supportContact ?? null} />
-        {hasCustomBrand ? <p className="df-sheet__powered">Powered by Duefold</p> : null}
-      </footer>
+      {supportContact === null && !hasCustomBrand ? null : (
+        <footer className="df-sheet__footer">
+          <SupportLine contact={supportContact} />
+          {hasCustomBrand ? (
+            <p className="df-sheet__powered">{translate('app.poweredBy')}</p>
+          ) : null}
+        </footer>
+      )}
     </div>
   );
 }

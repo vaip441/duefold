@@ -31,6 +31,7 @@ function render(overrides: Partial<Parameters<typeof AppShell>[0]> = {}): string
         help: 'A room appears here once one is created.',
       }}
       status=""
+      notes="Viewers cannot reach anything in this room."
       {...overrides}
     />,
   );
@@ -153,11 +154,17 @@ describe('honest empty states', () => {
     expect(markup).toContain('Choose an entry in the collection to begin.');
   });
 
-  it('states the notes region and never invents counterparties', () => {
+  it('never invents counterparties', () => {
     const markup = render();
-    expect(markup).toContain('Select an item to see who can read it.');
     expect(markup).not.toContain('Counterparties');
     expect(markup).not.toContain('No counterparties yet.');
+  });
+
+  it('draws no notes margin when the view has nothing to note', () => {
+    // A placeholder sentence in a reserved column only narrowed the worktable.
+    const markup = render({ notes: undefined });
+    expect(markup).not.toContain('<aside');
+    expect(markup).toContain('data-notes="false"');
   });
 
   it('invents no content: an empty shell shows no room, document, or person', () => {

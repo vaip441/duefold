@@ -86,7 +86,6 @@ export function testWebRuntime(overrides: Partial<WebRuntime> = {}): WebRuntime 
     deliveryStorage: unusedDeliveryStorage,
     watermarkProgram: sandboxProgram(process.execPath),
     classifyClient: () => ({ browser: 'other', os: 'other', device: 'other' }),
-    deliverOtp: () => Promise.resolve(),
     revokeSession: () => Promise.resolve(),
     ...overrides,
   };

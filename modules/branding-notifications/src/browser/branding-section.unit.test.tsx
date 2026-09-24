@@ -17,17 +17,16 @@ import { brandingCopy } from './copy.ts';
 import { BrandingPanel } from './BrandingPanel.tsx';
 
 describe('section contribution', () => {
-  it('contributes exactly one room section', () => {
+  it('contributes exactly one organization-level section', () => {
+    // Branding is installation-wide, so it belongs to Administration, not a room.
     const sections = contribution.sections ?? [];
     expect(sections).toHaveLength(1);
     expect(sections[0]?.id).toBe('branding');
-    expect(sections[0]?.scope).toBe('room');
+    expect(sections[0]?.scope).toBe('top');
   });
 
-  it('sorts after the four core room sections', () => {
-    // Core occupies 10 through 40, so 50 places Branding last without the
-    // application naming it.
-    expect(contribution.sections?.[0]?.order).toBe(50);
+  it('sorts between Installation and Status', () => {
+    expect(contribution.sections?.[0]?.order).toBe(25);
   });
 
   it('resolves its own label, so the copy leaves with the module', () => {

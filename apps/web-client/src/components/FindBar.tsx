@@ -8,7 +8,7 @@
  */
 
 import { useId } from 'react';
-import { translate } from '../i18n/translate.ts';
+import { translate, translateCount } from '../i18n/translate.ts';
 
 export interface FindBarProps {
   readonly query: string;
@@ -87,7 +87,7 @@ export function FindBar({
           ? null
           : matchCount === 0
             ? translate('viewer.find.none')
-            : `${translate('viewer.find.count').replace('{count}', String(matchCount))} ${
+            : `${translateCount('viewer.find.count', matchCount)} ${
                 currentMatch === null
                   ? ''
                   : translate('viewer.find.position')

@@ -25,9 +25,10 @@ const messages = {
     'That colour is too light or too dark to stay readable. Choose a stronger colour.',
   'accentColor.invalid': 'Enter a colour as six hex digits, for example #006b5e.',
   senderDisplayName: 'Email sender name',
-  'senderDisplayName.help': 'Shown as the sender on invitations and codes.',
+  'senderDisplayName.help':
+    'Shown as the sender of invitation and sign-in code emails. Until you set one, emails use the organization name.',
   roomIntroduction: 'Room introduction',
-  'roomIntroduction.help': 'Plain text shown to readers when they open a room.',
+  'roomIntroduction.help': 'Plain text shown to readers beside every room they open.',
   supportContact: 'Support contact',
   'supportContact.help':
     'An email address or an https link. Leave empty to show no support contact.',

@@ -63,36 +63,41 @@ export function OwnershipTransferDialog({
               {translate('members.transfer.title')}
             </Dialog.Title>
 
-            <OwnershipTransferPreview
-              impact={impact}
-              loading={loading}
-              pending={pending}
-              failure={failure}
-              typed={typed}
-              describedById={consequenceId}
-              onTypedChange={setTyped}
-            />
+            <form
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!pending && matches && subject !== null) onConfirm(typed);
+              }}
+            >
+              <OwnershipTransferPreview
+                impact={impact}
+                loading={loading}
+                pending={pending}
+                failure={failure}
+                typed={typed}
+                describedById={consequenceId}
+                onTypedChange={setTyped}
+              />
 
-            <div className="df-modal__actions">
-              <Dialog.Close className="df-button" ref={closeButton} disabled={pending}>
-                {translate('structure.cancel')}
-              </Dialog.Close>
-              {impact === null || loading ? null : (
-                <button
-                  type="button"
-                  className="df-button df-button--primary"
-                  data-busy={pending ? 'true' : 'false'}
-                  disabled={pending || !matches || subject === null}
-                  onClick={() => {
-                    if (matches) onConfirm(typed);
-                  }}
-                >
-                  {pending
-                    ? translate('members.transfer.pending')
-                    : translate('members.transfer.submit')}
-                </button>
-              )}
-            </div>
+              <div className="df-modal__actions">
+                <Dialog.Close className="df-button" ref={closeButton} disabled={pending}>
+                  {translate('structure.cancel')}
+                </Dialog.Close>
+                {impact === null || loading ? null : (
+                  <button
+                    type="submit"
+                    className="df-button df-button--primary"
+                    data-busy={pending ? 'true' : 'false'}
+                    disabled={pending || !matches || subject === null}
+                  >
+                    {pending
+                      ? translate('members.transfer.pending')
+                      : translate('members.transfer.submit')}
+                  </button>
+                )}
+              </div>
+            </form>
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>

@@ -47,6 +47,13 @@ const contributor = {
   id: contributorId,
   roomRoles: { [roomId]: 'contributor' as const },
 };
+const administrator = {
+  kind: 'member' as const,
+  id: ownerId,
+  globalRole: 'owner' as const,
+  roomRoles: {},
+  oidcAuthenticatedAt: new Date(),
+};
 function audit(): readonly [string, string] {
   return [createOpaqueId(), createCorrelationId()];
 }
@@ -237,13 +244,16 @@ describe('Member state and branding routes', () => {
   });
 
   it('accepts email and HTTPS support contacts, accepts absent, and rejects hostile schemes and controls', async () => {
-    const route = createBrandingHandler(runtime, manager);
-    const current = await route({ body: { action: 'read', roomId } } as never);
+    const route = createBrandingHandler(runtime, administrator);
+    const current = await route({ body: { action: 'read' } } as never);
+    // Branding is organization-wide: a Room Manager is refused like any member.
+    await expect(
+      createBrandingHandler(runtime, manager)({ body: { action: 'read' } } as never),
+    ).rejects.toMatchObject({ code: '42501' });
     const update = async (supportContact: string | null, expectedRevision: number) =>
       route({
         body: {
           action: 'update',
-          roomId,
           organizationName: 'North Star',
           accentColor: '#08766a',
           senderDisplayName: 'North Star Data Room',
@@ -252,7 +262,22 @@ describe('Member state and branding routes', () => {
           expectedRevision,
         },
       } as never);
+    const mailIdentity = async () =>
+      (
+        await workerPool.query<{ organization_name: string; sender_display_name: string }>(
+          'SELECT * FROM read_mail_identity()',
+        )
+      ).rows[0];
+    // An unsaved configuration still holds the column default, so mail uses the organization.
+    expect(await mailIdentity()).toEqual({
+      organization_name: current.organizationName,
+      sender_display_name: current.organizationName,
+    });
     const email = await update('support@example.com', current.revision);
+    expect(await mailIdentity()).toEqual({
+      organization_name: 'North Star',
+      sender_display_name: 'North Star Data Room',
+    });
     expect(email.supportContact).toBe('support@example.com');
     expect(await createSupportHandler(runtime)()).toStrictEqual({
       supportContact: { kind: 'email', value: 'support@example.com' },
@@ -272,10 +297,9 @@ describe('Member state and branding routes', () => {
       await expect(update(value, absent.revision)).rejects.toThrow();
     await expect(
       runtimePool.query(
-        'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        'SELECT update_branding_configuration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
         [
-          managerId,
-          roomId,
+          ownerId,
           'North Star',
           '#ffffff',
           'North Star Data Room',
@@ -289,10 +313,7 @@ describe('Member state and branding routes', () => {
       ),
     ).rejects.toMatchObject({ code: '22023' });
     await expect(
-      createBrandingHandler(
-        runtime,
-        contributor,
-      )({ body: { action: 'read', roomId } } as never),
+      createBrandingHandler(runtime, contributor)({ body: { action: 'read' } } as never),
     ).rejects.toMatchObject({ code: '42501' });
     await expect(
       runtimePool.query("UPDATE organization SET name='Bypass'"),
@@ -450,10 +471,10 @@ describe('Member state and branding routes', () => {
     expect(statusCode).toBe(404);
     expect(missing).toEqual({ code: 'BRANDING_ASSET_NOT_FOUND' });
 
-    // 3. Asset deletion authorization: Contributor denied, Manager allowed
-    const deleteContributor = createAssetDeleteHandler(runtime, contributor);
+    // 3. Asset deletion authorization: a Room Manager is denied, an Owner allowed
+    const deleteRoomManager = createAssetDeleteHandler(runtime, manager);
     await expect(
-      deleteContributor({ body: { action: 'delete', roomId, assetKind: 'logo' } } as never),
+      deleteRoomManager({ body: { action: 'delete', assetKind: 'logo' } } as never),
     ).rejects.toMatchObject({ code: '42501' });
 
     // Seed a derivative asset in the database and provide storage delivery
@@ -497,8 +518,7 @@ describe('Member state and branding routes', () => {
     expect(statusCode).toBe(200);
     expect(deliveredBytes).toEqual(testPngBytes);
 
-    // Manager deletes the asset
-    const deleteManager = createAssetDeleteHandler(customRuntime, manager);
+    const deleteAdministrator = createAssetDeleteHandler(customRuntime, administrator);
     const failingRuntime = {
       ...customRuntime,
       storage: {
@@ -509,9 +529,9 @@ describe('Member state and branding routes', () => {
     await expect(
       createAssetDeleteHandler(
         failingRuntime,
-        manager,
+        administrator,
       )({
-        body: { action: 'delete', roomId, assetKind: 'logo' },
+        body: { action: 'delete', assetKind: 'logo' },
       } as never),
     ).rejects.toThrow('injected storage failure');
     expect(
@@ -522,8 +542,8 @@ describe('Member state and branding routes', () => {
       ).rows[0]?.object_key,
     ).toBe(testKey);
 
-    const deleteResult = await deleteManager({
-      body: { action: 'delete', roomId, assetKind: 'logo' },
+    const deleteResult = await deleteAdministrator({
+      body: { action: 'delete', assetKind: 'logo' },
     } as never);
     expect(deleteResult).toEqual({ deleted: true });
     expect(deletedKey).toBe(testKey);
@@ -533,12 +553,11 @@ describe('Member state and branding routes', () => {
     expect(restoredBrand.hasLogo).toBe(false);
 
     // Resetting branding configuration restores Duefold defaults
-    const brandingRoute = createBrandingHandler(runtime, manager);
-    const currentConfig = await brandingRoute({ body: { action: 'read', roomId } } as never);
+    const brandingRoute = createBrandingHandler(runtime, administrator);
+    const currentConfig = await brandingRoute({ body: { action: 'read' } } as never);
     await brandingRoute({
       body: {
         action: 'update',
-        roomId,
         organizationName: 'Duefold',
         accentColor: '#08766a',
         senderDisplayName: 'Duefold',

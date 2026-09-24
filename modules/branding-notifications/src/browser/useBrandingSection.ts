@@ -31,10 +31,10 @@ export interface BrandingSection {
   readonly denied: boolean;
   readonly failure: PresentedFailure | null;
   readonly saving: boolean;
-  readonly refresh: (roomId: string) => void;
+  readonly refresh: () => void;
   readonly save: (input: BrandingUpdate) => void;
   readonly uploadAsset: (assetKind: BrandingAssetKind, file: File) => Promise<void>;
-  readonly deleteAsset: (roomId: string, assetKind: BrandingAssetKind) => Promise<void>;
+  readonly deleteAsset: (assetKind: BrandingAssetKind) => Promise<void>;
 }
 
 export function useBrandingSection(handlers: {
@@ -45,10 +45,10 @@ export function useBrandingSection(handlers: {
   const [failure, setFailure] = useState<PresentedFailure | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const refresh = useCallback((roomId: string): void => {
+  const refresh = useCallback((): void => {
     setLoading(true);
     setFailure(null);
-    loadBranding(roomId).then(
+    loadBranding().then(
       (value) => {
         setLoading(false);
         setConfiguration(value);
@@ -128,8 +128,8 @@ export function useBrandingSection(handlers: {
       }
       throw new Error('BRANDING_PROCESSING_TIMEOUT');
     },
-    deleteAsset: async (roomId, assetKind) => {
-      await deleteBrandingAsset({ roomId, assetKind });
+    deleteAsset: async (assetKind) => {
+      await deleteBrandingAsset({ assetKind });
     },
   };
 }

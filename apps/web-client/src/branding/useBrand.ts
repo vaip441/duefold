@@ -19,7 +19,6 @@ function getBrandingSlot(): BrandingSlot | null {
   return null;
 }
 
-const BRAND_STYLE_ID = 'df-custom-brand-tokens';
 const LIGHT_GROUND = '#f2f3f1';
 const DARK_GROUND = '#161a18';
 
@@ -84,22 +83,28 @@ export function customAccentTokenCss(accentHex: string): string {
   return `:root {${light}\n}\n:root[data-theme='dark'] {${dark}\n}\n@media (prefers-color-scheme: dark) {\n  :root:not([data-theme]) {${dark}\n  }\n}`;
 }
 
-/** Applies only concrete WCAG-safe colours; no browser-dependent color-mix values. */
+/*
+ * Applies only concrete WCAG-safe colours; no browser-dependent color-mix values.
+ *
+ * Through an adopted stylesheet rather than a `<style>` element: the application's CSP
+ * is `style-src 'self'`, which blocks inline style elements, so the old element was
+ * refused in every browser and a configured accent never applied.
+ */
+let accentSheet: CSSStyleSheet | null = null;
+
 export function applyAccentTokens(accentHex: string | null): void {
-  const existing = document.getElementById(BRAND_STYLE_ID);
-  if (!accentHex || !/^#[0-9a-fA-F]{6}$/u.test(accentHex)) {
-    existing?.remove();
+  const valid = accentHex !== null && /^#[0-9a-fA-F]{6}$/u.test(accentHex);
+  if (!valid) {
+    if (accentSheet !== null)
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter(
+        (sheet) => sheet !== accentSheet,
+      );
     return;
   }
-  const accent = accentHex.toLowerCase();
-  const css = customAccentTokenCss(accent);
-  let style = existing as HTMLStyleElement | null;
-  if (style === null) {
-    style = document.createElement('style');
-    style.id = BRAND_STYLE_ID;
-    document.head.appendChild(style);
-  }
-  style.textContent = css;
+  accentSheet ??= new CSSStyleSheet();
+  if (!document.adoptedStyleSheets.includes(accentSheet))
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, accentSheet];
+  accentSheet.replaceSync(customAccentTokenCss(accentHex.toLowerCase()));
 }
 
 interface BrandContextValue {

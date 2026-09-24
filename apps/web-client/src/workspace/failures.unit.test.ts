@@ -43,7 +43,7 @@ describe('presentFailure', () => {
     expect(denied.kind).toBe('denied');
     expect(denied.body).not.toBe('');
     // The wording must name the refusal, not describe absence of content.
-    expect(denied.body).toContain('does not have access');
+    expect(denied.body).toContain('do not have access');
   });
 
   it('takes the stale-OIDC distinction from the server, never from the calling operation', () => {

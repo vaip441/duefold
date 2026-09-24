@@ -13,6 +13,8 @@ This is the only optional module. It owns constrained branding assets and config
 - [Lifecycle integration test](../../test/integration/branding-lifecycle.test.ts)
 - [Composition browser test](../../test/browser/composition.spec.ts)
 
+Branding is organization-wide: every mutation is gated on Owner or Admin in [the administration migration](migrations/032_branding_administration.sql), and the browser section sits under Administration. That migration also replaces core's `read_mail_identity()` so required mail carries the configured sender name; with this module omitted, core's version sends as the organization name.
+
 ## Does not own
 
 Authentication mail remains in [core-security](../core-security/README.md). Core UI tokens and visual language remain in [the shipped design record](../../DESIGN.md) and [web-client styles](../../apps/web-client/src/styles/).
