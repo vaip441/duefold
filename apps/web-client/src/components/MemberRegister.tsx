@@ -179,10 +179,10 @@ function InvitationRow({
         <span className="df-register__meta">{translate('members.rooms.none')}</span>
       </Cell>
       <Cell label={translate('members.columns.actions')}>
-        <div className="df-register__actions">
+        <div className="df-register__actions df-register__actions--inline">
           <button
             type="button"
-            className="df-button df-button--quiet"
+            className="df-button df-button--quiet df-button--inline"
             data-busy={busy ? 'true' : 'false'}
             disabled={anyBusy}
             onClick={() => {
@@ -266,11 +266,11 @@ function MemberRow({
         )}
       </Cell>
       <Cell label={translate('members.columns.actions')}>
-        <div className="df-register__actions">
+        <div className="df-register__actions df-register__actions--inline">
           {canAssign ? (
             <button
               type="button"
-              className="df-button df-button--quiet"
+              className="df-button df-button--quiet df-button--inline"
               disabled={anyBusy}
               onClick={(event) => {
                 onOpenRooms(event.currentTarget);
@@ -283,7 +283,7 @@ function MemberRow({
           {canSetRole ? (
             <button
               type="button"
-              className="df-button df-button--quiet"
+              className="df-button df-button--quiet df-button--inline"
               data-busy={busy ? 'true' : 'false'}
               disabled={anyBusy}
               onClick={() => {
@@ -308,7 +308,7 @@ function MemberRow({
           {canSetState ? (
             <button
               type="button"
-              className={`df-button df-button--quiet${subject.state === 'active' ? ' df-button--danger' : ''}`}
+              className={`df-button df-button--quiet df-button--inline${subject.state === 'active' ? ' df-button--danger' : ''}`}
               data-busy={busy ? 'true' : 'false'}
               disabled={anyBusy}
               onClick={() => {
@@ -331,7 +331,7 @@ function MemberRow({
           {canTransfer ? (
             <button
               type="button"
-              className="df-button df-button--quiet"
+              className="df-button df-button--quiet df-button--inline"
               disabled={anyBusy}
               onClick={onOpenTransfer}
             >

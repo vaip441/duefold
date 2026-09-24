@@ -84,6 +84,21 @@
   padding-inline: var(--space-2);
 }
 
+/* A quiet action set as text in a register row: no side padding, so its words line up
+   with the column, and hover underlines it rather than filling a ground that would hug
+   the letters. */
+.df-button--inline {
+  padding-inline: 0;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+@media (hover: hover) and (pointer: fine) {
+  .df-button--inline:hover:not(:disabled) {
+    background: none;
+    text-decoration-line: underline;
+  }
+}
+
 /* A link that behaves like a link, styled as one, not as a button. It carries
  * vertical padding so it still meets the 24px minimum target size (WCAG 2.2
  * 2.5.8) without looking like a control. */
@@ -516,6 +531,12 @@
 }
 .df-register__actions .df-button {
   white-space: nowrap;
+}
+/* Rows of inline actions wrap as lines of text: the words carry the separation, and
+   the 2.25rem target height already spaces wrapped lines. */
+.df-register__actions--inline,
+.df-grants__actions {
+  gap: 0 var(--space-5);
 }
 /* An action that removes someone's access reads as consequential before it is
    pressed; the confirmation still states the consequence in words. */
@@ -1039,7 +1060,6 @@
 .df-grants__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
   margin-top: var(--space-1);
 }
 

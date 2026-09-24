@@ -104,6 +104,12 @@ components:
     rounded: '{rounded.control}'
     padding: '{spacing.2} {spacing.2}'
     height: '2.25rem'
+  button-quiet-inline:
+    backgroundColor: 'transparent'
+    textColor: '{colors.ink-muted}'
+    typography: '{typography.body}'
+    padding: '{spacing.2} 0'
+    height: '2.25rem'
   input:
     backgroundColor: '{colors.ground-raised}'
     textColor: '{colors.ink}'
@@ -409,6 +415,11 @@ marker, a rotated 0.5rem square border used at narrow widths.
   archive, and policy changes are never primary.
 - **Quiet:** transparent border and ground, muted ink, `2.25rem` min height. For
   secondary actions such as sign-out-everywhere.
+- **Inline quiet:** a quiet action set as text inside a register row (Members, Access).
+  No side padding, so its words line up with the column; hover underlines it instead of
+  filling a ground. Its row wraps like lines of text, words `1.5rem` apart, with no
+  extra gap between wrapped lines because the `2.25rem` target height already spaces
+  them. Other registers keep bordered or default buttons with the ordinary `0.5rem` gap.
 - **Hover:** border darkens to `--ink-faint`, ground lifts to `--ground-raised`;
   the primary deepens to `--accent-strong`.
 - **Active:** `scale(0.985)` over 120ms, so the control confirms it heard the

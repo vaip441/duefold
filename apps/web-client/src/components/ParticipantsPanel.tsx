@@ -264,7 +264,7 @@ export function ParticipantsPanel({
                                     <button
                                       key={action}
                                       type="button"
-                                      className="df-button df-button--quiet"
+                                      className="df-button df-button--quiet df-button--inline"
                                       onClick={() => {
                                         beginChange(
                                           `${participant.viewerId}:${action}:${grant.grantId}`,
@@ -299,12 +299,12 @@ export function ParticipantsPanel({
                   )}
                 </td>
                 <td data-label={translate('participants.columns.actions')}>
-                  <div className="df-register__actions">
+                  <div className="df-register__actions df-register__actions--inline">
                     {/* Only granting is participant-level; expiry and revoke live on
                       the specific grant they change. */}
                     <button
                       type="button"
-                      className="df-button df-button--quiet"
+                      className="df-button df-button--quiet df-button--inline"
                       onClick={() => {
                         beginChange(`${participant.viewerId}:grant:`, {
                           changeAction: 'grant',
