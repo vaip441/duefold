@@ -8,7 +8,7 @@
     "./declaration": "./src/declaration.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1134.0",
+    "@aws-sdk/client-s3": "3.1136.0",
     "@aws-sdk/s3-request-presigner": "3.1134.0",
     "@duefold/composition": "1.0.0",
     "@duefold/core-security": "1.0.0",
