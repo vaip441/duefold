@@ -27,6 +27,10 @@ Owns the private content lifecycle: rooms and structure, uploads and quarantine,
 - [Browser-boundary authorization suite](../../test/authz/browser-boundary.test.ts)
 - [Viewer browser journey](../../test/browser/viewer.spec.ts)
 
+## Investor preview
+
+Room Managers (and Owners and Admins) read the room's published content in the reader layout through the `room.preview.*` member routes in [member preview routes](src/routes/member-preview.ts), backed by [member preview reads](src/member-preview.ts) and migration [034](migrations/034_member_investor_preview.sql). Visibility follows the viewer's publication rules: folders always, documents only when their published version has publication evidence. Pages are the stored derivatives without a watermark, and text layers carry no links. Each document opened writes one `room.preview.document` audit row in the same transaction. Preview never resolves a viewer session and never touches watermark caches, preview evidence, delivery telemetry, or download leases. See the [authorization suite](../../test/authz/member-investor-preview.test.ts) and the [browser journey](../../test/browser/investor-preview.spec.ts).
+
 Original bytes and storage URLs must never cross this boundary when download is denied. Upload processing remains quarantined and credential-free until validation succeeds.
 
 ## Does not own

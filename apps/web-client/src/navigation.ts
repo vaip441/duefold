@@ -12,7 +12,13 @@ import { useCallback, useEffect, useState } from 'react';
 export type MemberLocation =
   | { readonly kind: 'rooms' }
   | { readonly kind: 'administration'; readonly section: string }
-  | { readonly kind: 'room'; readonly roomId: string; readonly section: string };
+  | { readonly kind: 'room'; readonly roomId: string; readonly section: string }
+  | {
+      readonly kind: 'preview';
+      readonly roomId: string;
+      readonly documentId: string | null;
+      readonly page: number;
+    };
 
 export type ViewerLocation =
   | { readonly kind: 'rooms' }
@@ -30,20 +36,45 @@ function segments(pathname: string): readonly string[] {
   return pathname.split('/').filter((part) => part !== '');
 }
 
-export function parseMemberLocation(pathname: string): MemberLocation {
-  const [first, second, third] = segments(pathname);
+function pageFrom(search: string, documentId: string | null): number {
+  const page = Number.parseInt(new URLSearchParams(search).get('page') ?? '1', 10);
+  return documentId !== null && Number.isSafeInteger(page) && page >= 1 ? page : 1;
+}
+
+function documentFrom(marker: string | undefined, id: string | undefined): string | null {
+  return marker === 'documents' && id !== undefined && OPAQUE_ID.test(id) ? id : null;
+}
+
+export function parseMemberLocation(pathname: string, search = ''): MemberLocation {
+  const [first, second, third, fourth, fifth] = segments(pathname);
   if (first === 'administration')
     return {
       kind: 'administration',
       section: second !== undefined && SECTION.test(second) ? second : 'members',
     };
-  if (first === 'rooms' && second !== undefined && OPAQUE_ID.test(second))
+  if (first === 'rooms' && second !== undefined && OPAQUE_ID.test(second)) {
+    if (third === 'preview') {
+      const documentId = documentFrom(fourth, fifth);
+      return {
+        kind: 'preview',
+        roomId: second,
+        documentId,
+        page: pageFrom(search, documentId),
+      };
+    }
     return {
       kind: 'room',
       roomId: second,
       section: third !== undefined && SECTION.test(third) ? third : 'structure',
     };
+  }
   return { kind: 'rooms' };
+}
+
+function documentPath(base: string, documentId: string | null, page: number): string {
+  if (documentId === null) return base;
+  const document = `${base}/documents/${documentId}`;
+  return page > 1 ? `${document}?page=${String(page)}` : document;
 }
 
 export function formatMemberLocation(location: MemberLocation): string {
@@ -56,6 +87,12 @@ export function formatMemberLocation(location: MemberLocation): string {
       return location.section === 'structure'
         ? `/rooms/${location.roomId}`
         : `/rooms/${location.roomId}/${location.section}`;
+    case 'preview':
+      return documentPath(
+        `/rooms/${location.roomId}/preview`,
+        location.documentId,
+        location.page,
+      );
   }
 }
 
@@ -63,22 +100,13 @@ export function parseViewerLocation(pathname: string, search: string): ViewerLoc
   const [first, second, third, fourth] = segments(pathname);
   if (first !== 'rooms' || second === undefined || !OPAQUE_ID.test(second))
     return { kind: 'rooms' };
-  const documentId =
-    third === 'documents' && fourth !== undefined && OPAQUE_ID.test(fourth) ? fourth : null;
-  const page = Number.parseInt(new URLSearchParams(search).get('page') ?? '1', 10);
-  return {
-    kind: 'room',
-    roomId: second,
-    documentId,
-    page: documentId !== null && Number.isSafeInteger(page) && page >= 1 ? page : 1,
-  };
+  const documentId = documentFrom(third, fourth);
+  return { kind: 'room', roomId: second, documentId, page: pageFrom(search, documentId) };
 }
 
 export function formatViewerLocation(location: ViewerLocation): string {
   if (location.kind === 'rooms') return '/';
-  if (location.documentId === null) return `/rooms/${location.roomId}`;
-  const base = `/rooms/${location.roomId}/documents/${location.documentId}`;
-  return location.page > 1 ? `${base}?page=${String(location.page)}` : base;
+  return documentPath(`/rooms/${location.roomId}`, location.documentId, location.page);
 }
 
 export type Navigate<T> = (next: T, mode?: 'push' | 'replace') => void;

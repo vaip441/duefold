@@ -58,7 +58,7 @@ function safeText(value: unknown): string | undefined {
     return undefined;
   return value;
 }
-function parseTextLayer(value: unknown): readonly TextItem[] {
+export function parseTextLayer(value: unknown): readonly TextItem[] {
   if (!Array.isArray(value) || value.length > 100_000) return [];
   const items: TextItem[] = [];
   for (const entry of value) {

@@ -44,6 +44,8 @@ import { PageReader } from '../components/PageReader.tsx';
 import { ThemeSelect, type ThemeChoice } from '../components/ThemeSelect.tsx';
 import { translate } from '../i18n/translate.ts';
 import { findMatches } from '../viewer/find.ts';
+import { protectedPageSource } from '../viewer/page-source.ts';
+import { entryDepth } from '../viewer/structure-depth.ts';
 import { usePreviewEvidence } from '../viewer/usePreviewEvidence.ts';
 import { useViewerIntroduction } from '../branding/useViewerIntroduction.ts';
 import { formatViewerLocation, parseViewerLocation, useLocation } from '../navigation.ts';
@@ -113,6 +115,10 @@ export function ViewerReadingRoom({
      percentages of the sheet, so it scales with the image. */
   const [zoom, setZoom] = useState<Zoom>(100);
   const [activityId, setActivityId] = useState<string | null>(null);
+  const pageSource = useMemo(
+    () => (activityId === null ? null : protectedPageSource(activityId)),
+    [activityId],
+  );
   const [accessLost, setAccessLost] = useState(false);
   const [pendingSignOut, setPendingSignOut] = useState<'this-device' | 'everywhere' | null>(
     null,
@@ -361,21 +367,7 @@ export function ViewerReadingRoom({
 
   const entries = structure.kind === 'ready' ? structure.value : [];
 
-  // Depth for the finding-aid indent, derived from the parent chain the server
-  // disclosed. An entry whose parent is not in the response is a grant root and
-  // sits at depth 0.
-  const byResource = new Map(entries.map((item) => [item.resourceId, item]));
-  const depthOf = (entry: ViewerEntry): number => {
-    let depth = 0;
-    let parent = entry.parentFolderId;
-    while (parent !== null) {
-      const next = byResource.get(parent);
-      if (next === undefined) break;
-      depth += 1;
-      parent = next.parentFolderId;
-    }
-    return depth;
-  };
+  const depthOf = entryDepth(entries);
 
   const indexEntries =
     openRoomId === null
@@ -635,7 +627,7 @@ export function ViewerReadingRoom({
           {/* Selecting another document renders once with the previous document's
               metadata and activity before they reset; without the id check that
               render requests a page of the new document it has no activity for. */}
-          {activityId === null || openDocument.documentId !== openDocumentId ? (
+          {pageSource === null || openDocument.documentId !== openDocumentId ? (
             <p className="df-field__help">{translate('viewer.document.loading')}</p>
           ) : (
             <div className="df-page-zoom" data-zoom={zoom}>
@@ -644,7 +636,7 @@ export function ViewerReadingRoom({
                 documentId={openDocumentId}
                 pageNumber={pageNumber}
                 totalPages={openDocument.pageCount}
-                activityId={activityId}
+                source={pageSource}
                 matches={matches}
                 currentMatch={currentMatch}
                 onTextLayer={setLayer}

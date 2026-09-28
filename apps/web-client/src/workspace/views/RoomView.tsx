@@ -87,6 +87,8 @@ export interface RoomViewProps {
   readonly onEntriesChange: (entries: readonly WorkingEntry[]) => void;
   /** Opens the frame's publication dialog, which owns the dry run. */
   readonly onPublish: () => void;
+  /** Opens the investor preview of this room's published content. */
+  readonly onPreview: () => void;
 }
 
 const CORE_ROOM_TABS = [
@@ -146,6 +148,7 @@ export function RoomView({
   onRoomsChanged,
   onEntriesChange,
   onPublish,
+  onPreview,
 }: RoomViewProps): React.ReactElement {
   const [workspace, setWorkspace] = useState<Load<RoomWorkspace>>({ kind: 'loading' });
   const [actionFailure, setActionFailure] = useState<string | null>(null);
@@ -588,6 +591,7 @@ export function RoomView({
         sectionId={currentId}
         onSelect={onSectionChange}
         onPublish={onPublish}
+        onPreview={onPreview}
       />
       <SectionNav
         label={translate('workspace.supporting.label')}

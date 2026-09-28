@@ -127,6 +127,15 @@ export {
 } from './viewer.ts';
 
 export {
+  loadPreviewDocument,
+  loadPreviewRoom,
+  loadPreviewTextLayer,
+  previewPageImageUrl,
+  type PreviewRoom,
+  type PreviewRoomState,
+} from './room-preview.ts';
+
+export {
   applyGrantChange,
   createCounterparty,
   dryRunGrantChange,

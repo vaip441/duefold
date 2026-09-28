@@ -15,9 +15,10 @@ const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
  * type change past validation. An `Type.Integer()` querystring member therefore
  * can never validate. The page number is accepted as a bounded NUMERIC STRING
  * and converted by the handler, which keeps the strict no-coercion posture while
- * still rejecting anything that is not a plain 1-4 digit number.
+ * still rejecting anything that is not a plain number from 1 to 10000, the
+ * derivative page bound.
  */
-const PAGE_NUMBER = Type.String({ pattern: '^[1-9][0-9]{0,3}$' });
+export const PAGE_NUMBER = Type.String({ pattern: '^(?:[1-9][0-9]{0,3}|10000)$' });
 export const createSchema = {
   body: Type.Object(
     { roomId: ID, documentId: ID, pageNumber: Type.Integer({ minimum: 1, maximum: 10000 }) },

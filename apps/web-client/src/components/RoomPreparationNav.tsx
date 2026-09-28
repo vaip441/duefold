@@ -6,7 +6,9 @@
  * offering the other steps would lead them to a refusal.
  *
  * Publish ends the path but is not a section: it opens the server's dry-run dialog, and
- * it is the room's one primary action, so it is not duplicated anywhere else.
+ * it is the room's one primary action, so it is not duplicated anywhere else. A quiet
+ * investor preview sits just before it, because checking what investors will read is
+ * the last thing a Manager does before publishing.
  */
 
 import { translate, type MessageKey } from '../i18n/translate.ts';
@@ -30,6 +32,7 @@ export interface RoomPreparationNavProps {
   readonly sectionId: string;
   readonly onSelect: (sectionId: string) => void;
   readonly onPublish: () => void;
+  readonly onPreview: () => void;
 }
 
 export function RoomPreparationNav({
@@ -37,6 +40,7 @@ export function RoomPreparationNav({
   sectionId,
   onSelect,
   onPublish,
+  onPreview,
 }: RoomPreparationNavProps): React.ReactElement {
   const steps: readonly StepId[] = canManage
     ? ['collection', 'access', 'review']
@@ -60,13 +64,18 @@ export function RoomPreparationNav({
         </button>
       ))}
       {canManage ? (
-        <button
-          type="button"
-          className="df-button df-button--primary df-preparation__publish"
-          onClick={onPublish}
-        >
-          {translate('publish.action')}
-        </button>
+        <span className="df-preparation__actions">
+          <button type="button" className="df-button df-button--quiet" onClick={onPreview}>
+            {translate('preview.action')}
+          </button>
+          <button
+            type="button"
+            className="df-button df-button--primary df-preparation__publish"
+            onClick={onPublish}
+          >
+            {translate('publish.action')}
+          </button>
+        </span>
       ) : null}
     </nav>
   );

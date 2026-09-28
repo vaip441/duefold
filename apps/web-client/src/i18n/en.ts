@@ -336,6 +336,24 @@ export const messages = {
   'viewer.revoked': 'Your access to this room has changed. Nothing further is shown.',
   'viewer.expired': 'Your session has ended. Sign in again to keep reading.',
 
+  'preview.action': 'Preview as investor',
+  'preview.title': 'Investor preview',
+  'preview.banner':
+    'Pages are shown without the investor watermark. Downloads and links are inactive.',
+  'preview.audit':
+    'Each document you open here is recorded in the room audit under your name, never as investor activity.',
+  'preview.notVisible':
+    'Investors cannot reach this room yet, because it is not visible. Once it is, this is what they will read.',
+  'preview.empty': 'Nothing in this room is published yet.',
+  'preview.emptyHelp': 'Investors read only published documents. Publish changes to add them.',
+  'preview.document.unavailable': 'Investors cannot read this document.',
+  'preview.document.unavailableHelp':
+    'It is not published, or its published version is not ready. Check Review, then publish.',
+  'preview.exit': 'Exit preview',
+  'preview.denied': 'You can no longer preview this room. Your room access may have changed.',
+  'preview.download.allowed': 'Investors can download the original of this document.',
+  'preview.download.denied': 'Investors cannot download the original of this document.',
+
   /*
    * Participants, grants, uploads, and exports. Branding copy lives in the
    * optional module that owns it, so an omitted module takes its strings with it.

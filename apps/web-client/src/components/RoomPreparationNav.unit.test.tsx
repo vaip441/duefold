@@ -10,6 +10,7 @@ function render(canManage: boolean, sectionId = 'structure'): string {
       sectionId={sectionId}
       onSelect={() => undefined}
       onPublish={() => undefined}
+      onPreview={() => undefined}
     />,
   );
 }
@@ -31,7 +32,7 @@ describe('room preparation path', () => {
     expect(markup.match(/df-button--primary/gu)).toHaveLength(1);
     expect(markup).toMatch(
       new RegExp(
-        `class="[^"]*df-button--primary[^"]*"[^>]*>${messages['publish.action']}</button></nav>$`,
+        `class="[^"]*df-button--primary[^"]*"[^>]*>${messages['publish.action']}</button></span></nav>$`,
         'u',
       ),
     );
@@ -44,6 +45,18 @@ describe('room preparation path', () => {
     expect(markup).toContain(messages['workspace.steps.review']);
     expect(markup).not.toContain(messages['workspace.steps.access']);
     expect(markup).not.toContain(messages['publish.action']);
+    expect(markup).not.toContain(messages['preview.action']);
+  });
+
+  it('offers a Room Manager the investor preview as a quiet action just before Publish', () => {
+    const markup = render(true);
+    expect(markup).toMatch(
+      new RegExp(
+        `class="df-button df-button--quiet"[^>]*>${messages['preview.action']}</button><button[^>]*df-button--primary`,
+        'u',
+      ),
+    );
+    expect(markup.match(/df-button--primary/gu)).toHaveLength(1);
   });
 
   it('marks Collection current while adding documents', () => {

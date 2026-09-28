@@ -397,7 +397,11 @@
   color: var(--ink-faint);
   margin-inline-end: var(--space-1);
 }
-.df-preparation__publish {
+.df-preparation__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin-inline-start: auto;
   margin-block: var(--space-2);
 }
@@ -1158,15 +1162,19 @@
   .df-upload-list__item {
     grid-template-columns: 1fr;
   }
-  /* The publish button wraps onto its own row here, so the path drops its rule rather
-     than running it under the button; the current step keeps its accent underline. */
+  /* The actions wrap onto their own row here, so the path drops its rule rather than
+     running it under them; the current step keeps its accent underline. Publish fills
+     the row after the quiet preview, so it stays the room's one full-weight action. */
   .df-preparation {
     column-gap: var(--space-4);
     border-block-end: 0;
   }
-  .df-preparation__publish {
+  .df-preparation__actions {
     flex-basis: 100%;
     margin-inline-start: 0;
+  }
+  .df-preparation__publish {
+    flex-grow: 1;
   }
   .df-upload-picker__or {
     padding: 0;

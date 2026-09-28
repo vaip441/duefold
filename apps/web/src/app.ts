@@ -127,6 +127,10 @@ const ROUTE_FACTORIES = {
   'room.list': memberFactory('room.list'),
   'room.create': memberFactory('room.create'),
   'room.workspace.read': memberFactory('room.workspace.read'),
+  'room.preview.structure': memberFactory('room.preview.structure'),
+  'room.preview.document': memberFactory('room.preview.document'),
+  'room.preview.page.image': memberFactory('room.preview.page.image'),
+  'room.preview.page.text': memberFactory('room.preview.page.text'),
   'room.structure.mutate': memberFactory('room.structure.mutate'),
   'room.action': memberFactory('room.action'),
   'room.lifecycle': memberFactory('room.lifecycle'),
@@ -188,6 +192,10 @@ function memberFactory(
     | 'room.list'
     | 'room.create'
     | 'room.workspace.read'
+    | 'room.preview.structure'
+    | 'room.preview.document'
+    | 'room.preview.page.image'
+    | 'room.preview.page.text'
     | 'room.structure.mutate'
     | 'room.action'
     | 'room.lifecycle'

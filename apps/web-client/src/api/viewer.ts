@@ -150,6 +150,11 @@ export async function loadViewerDocument(
     path: `/api/viewer/document?roomId=${encodeURIComponent(input.roomId)}&documentId=${encodeURIComponent(input.documentId)}`,
     ...(signal === undefined ? {} : { signal }),
   });
+  return parseViewerDocument(payload);
+}
+
+/** Parses the `{ document }` envelope shared by the viewer and investor-preview routes. */
+export function parseViewerDocument(payload: unknown): ViewerDocument | null {
   if (!isRecord(payload)) throw new ApiError('unavailable');
   const document = payload['document'];
   if (document === null) return null;
@@ -256,6 +261,11 @@ export async function loadTextLayer(
     path: `/api/viewer/pages/text?roomId=${encodeURIComponent(input.roomId)}&documentId=${encodeURIComponent(input.documentId)}&pageNumber=${String(input.pageNumber)}`,
     ...(signal === undefined ? {} : { signal }),
   });
+  return parseTextLayerPayload(payload);
+}
+
+/** Parses a text layer, keeping only links whose shape the server vouched for. */
+export function parseTextLayerPayload(payload: unknown): TextLayer {
   if (!isRecord(payload)) throw new ApiError('unavailable');
   const rawItems = payload['items'];
   if (!Array.isArray(rawItems)) throw new ApiError('unavailable');

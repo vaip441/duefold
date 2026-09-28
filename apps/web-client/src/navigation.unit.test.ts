@@ -26,6 +26,35 @@ describe('member locations', () => {
     expect(parseMemberLocation('/read')).toEqual({ kind: 'rooms' });
     expect(parseMemberLocation('/rooms/%3Cscript%3E')).toEqual({ kind: 'rooms' });
   });
+
+  it('round-trips the investor preview, with and without an open document', () => {
+    for (const location of [
+      { kind: 'preview', roomId: ROOM, documentId: null, page: 1 },
+      { kind: 'preview', roomId: ROOM, documentId: DOCUMENT, page: 1 },
+      { kind: 'preview', roomId: ROOM, documentId: DOCUMENT, page: 7 },
+    ] as const) {
+      const [pathname = '', search = ''] = formatMemberLocation(location).split('?');
+      expect(parseMemberLocation(pathname, search === '' ? '' : `?${search}`)).toEqual(
+        location,
+      );
+    }
+    expect(
+      formatMemberLocation({ kind: 'preview', roomId: ROOM, documentId: DOCUMENT, page: 7 }),
+    ).toBe(`/rooms/${ROOM}/preview/documents/${DOCUMENT}?page=7`);
+  });
+
+  it('reads a malformed preview page or document as the room preview start', () => {
+    for (const search of ['', '?page=0', '?page=-3', '?page=two'])
+      expect(
+        parseMemberLocation(`/rooms/${ROOM}/preview/documents/${DOCUMENT}`, search),
+      ).toEqual({ kind: 'preview', roomId: ROOM, documentId: DOCUMENT, page: 1 });
+    expect(parseMemberLocation(`/rooms/${ROOM}/preview/documents/bad`, '?page=4')).toEqual({
+      kind: 'preview',
+      roomId: ROOM,
+      documentId: null,
+      page: 1,
+    });
+  });
 });
 
 describe('viewer locations', () => {

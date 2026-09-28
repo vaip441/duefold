@@ -41,6 +41,38 @@ export const moduleDeclaration: ModuleDeclaration = {
       handlerFactoryExport: 'createHandler',
     },
     {
+      id: 'room.preview.structure',
+      method: 'GET',
+      path: '/api/rooms/preview/structure',
+      audience: 'member',
+      handler: 'routes/member-preview-room.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
+      id: 'room.preview.document',
+      method: 'GET',
+      path: '/api/rooms/preview/document',
+      audience: 'member',
+      handler: 'routes/member-preview-document.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
+      id: 'room.preview.page.image',
+      method: 'GET',
+      path: '/api/rooms/preview/page/image',
+      audience: 'member',
+      handler: 'routes/member-preview-image.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
+      id: 'room.preview.page.text',
+      method: 'GET',
+      path: '/api/rooms/preview/page/text',
+      audience: 'member',
+      handler: 'routes/member-preview-text.ts',
+      handlerFactoryExport: 'createHandler',
+    },
+    {
       id: 'room.structure.mutate',
       method: 'POST',
       path: '/api/rooms/structure',
@@ -250,6 +282,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '027_upload_structure_attachment', file: '027_upload_structure_attachment.sql' },
     { id: '029_processed_version_draft', file: '029_processed_version_draft.sql' },
     { id: '030_watermark_cache_reuse', file: '030_watermark_cache_reuse.sql' },
+    { id: '034_member_investor_preview', file: '034_member_investor_preview.sql' },
   ],
   jobs: [
     {

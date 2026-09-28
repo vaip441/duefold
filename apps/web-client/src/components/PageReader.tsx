@@ -21,16 +21,10 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { isAborted } from '../api/abort.ts';
-import {
-  ApiError,
-  createProtectedPage,
-  loadTextLayer,
-  protectedPageImageUrl,
-  type TextLayer,
-  type TextLayerItem,
-} from '../api/client.ts';
+import { ApiError, type TextLayer, type TextLayerItem } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
 import { splitRuns, type FindMatch } from '../viewer/find.ts';
+import type { PageSource } from '../viewer/page-source.ts';
 import { Notice } from './Notice.tsx';
 
 export interface PageReaderProps {
@@ -38,36 +32,13 @@ export interface PageReaderProps {
   readonly documentId: string;
   readonly pageNumber: number;
   readonly totalPages: number;
-  readonly activityId: string;
+  /** Must be stable across renders: a new source re-requests the page. */
+  readonly source: PageSource;
   readonly matches: readonly FindMatch[];
   readonly currentMatch: number | null;
   readonly onTextLayer: (layer: TextLayer | null) => void;
   readonly onLinkActivate: (item: TextLayerItem) => void;
   readonly onUnauthorized: () => void;
-}
-
-type ProtectedPage = Awaited<ReturnType<typeof createProtectedPage>>;
-
-/*
- * Composing a watermarked page is the slow step, so the next page is composed
- * while the current one is read. Composition records nothing: evidence is
- * written only when the image is delivered. An in-flight composition is shared
- * with a reader who arrives at that page before it finishes, and a settled one
- * is dropped so the next request goes back to the server, which reuses the
- * composed page and rechecks access.
- */
-function composeProtectedPage(
-  composing: Map<string, Promise<ProtectedPage>>,
-  input: { readonly roomId: string; readonly documentId: string; readonly pageNumber: number },
-): Promise<ProtectedPage> {
-  const key = `${input.roomId}/${input.documentId}/${String(input.pageNumber)}`;
-  const inFlight = composing.get(key);
-  if (inFlight !== undefined) return inFlight;
-  const request = createProtectedPage(input).finally(() => {
-    composing.delete(key);
-  });
-  composing.set(key, request);
-  return request;
 }
 
 type PageState =
@@ -84,7 +55,7 @@ export function PageReader({
   documentId,
   pageNumber,
   totalPages,
-  activityId,
+  source,
   matches,
   currentMatch,
   onTextLayer,
@@ -95,7 +66,6 @@ export function PageReader({
   const [attempt, setAttempt] = useState(0);
   const captionId = useId();
   const currentMatchRef = useRef<HTMLSpanElement | null>(null);
-  const composing = useRef(new Map<string, Promise<ProtectedPage>>());
 
   /*
    * The parent callbacks are held in refs and deliberately NOT effect
@@ -118,14 +88,10 @@ export function PageReader({
     textLayerSink.current(null);
 
     /*
-     * The cache object must exist before the image is requested, because the
-     * delivery endpoint requires both a cache id and the activity id. The text
-     * layer does not depend on it and is fetched in parallel.
-     *
      * Only a SUCCESSFUL text response carrying no items is the designed
      * extraction-failure state. Substituting null for a rejected text request
      * turned 401, 403, and 500 into an apparently readable page with a fallback
-     * label, hiding revocation and real faults from the viewer, so a text failure
+     * label, hiding revocation and real faults from the reader, so a text failure
      * fails the page.
      *
      * The abort signal is the single cancellation source; a separate boolean flag
@@ -133,25 +99,12 @@ export function PageReader({
      */
     void (async () => {
       try {
-        const [page, layer] = await Promise.all([
-          composeProtectedPage(composing.current, { roomId, documentId, pageNumber }),
-          loadTextLayer({ roomId, documentId, pageNumber }, signal),
-        ]);
+        const loaded = await source.load({ roomId, documentId, pageNumber }, signal);
         if (isAborted(signal)) return;
-        setState({
-          kind: 'ready',
-          imageUrl: protectedPageImageUrl({ cacheId: page.cacheId, activityId }),
-          layer,
-        });
-        textLayerSink.current(layer);
-        // A failed read-ahead is not reported: arriving at that page retries it
-        // and surfaces any failure there.
+        setState({ kind: 'ready', imageUrl: loaded.imageUrl, layer: loaded.layer });
+        textLayerSink.current(loaded.layer);
         if (pageNumber < totalPages)
-          void composeProtectedPage(composing.current, {
-            roomId,
-            documentId,
-            pageNumber: pageNumber + 1,
-          }).catch(() => undefined);
+          source.prefetch({ roomId, documentId, pageNumber: pageNumber + 1 });
       } catch (error) {
         if (isAborted(signal)) return;
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -175,7 +128,7 @@ export function PageReader({
     return () => {
       controller.abort();
     };
-  }, [roomId, documentId, pageNumber, totalPages, activityId, attempt]);
+  }, [source, roomId, documentId, pageNumber, totalPages, attempt]);
 
   // Bring the current find match into view without animating a potentially
   // keyboard-repeated focus jump.
@@ -242,6 +195,12 @@ export function PageReader({
           alt={label}
           aria-describedby={captionId}
           draggable={false}
+          /* The image is fetched by the browser, not by the source, so a refused or
+             failed delivery is only seen here. Retrying re-reads the page through the
+             source, which reports a lost access as such. */
+          onError={() => {
+            setState({ kind: 'failed', message: translate('viewer.page.failed') });
+          }}
         />
         {layer === null ? null : (
           <div className="df-page__text" aria-hidden="false">

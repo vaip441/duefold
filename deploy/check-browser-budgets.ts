@@ -11,7 +11,8 @@ const budgets = {
   initial: 70_000,
   authentication: 10_000,
   viewer: 10_000,
-  member: 85_000,
+  // The member investor preview shares the reader, so those modules count here (§23).
+  member: 90_000,
 } as const;
 
 type BudgetGroup = keyof typeof budgets;

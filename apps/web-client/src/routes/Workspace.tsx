@@ -46,6 +46,7 @@ import type { Load } from '../workspace/state.ts';
 import { useOpenRoom } from '../workspace/useOpenRoom.ts';
 import { formatMemberLocation, parseMemberLocation, useLocation } from '../navigation.ts';
 import { AdministrationView } from '../workspace/views/AdministrationView.tsx';
+import { InvestorPreview } from '../workspace/views/InvestorPreview.tsx';
 import { RegisterView } from '../workspace/views/RegisterView.tsx';
 import { RoomView } from '../workspace/views/RoomView.tsx';
 
@@ -361,6 +362,21 @@ export function Workspace({
     return null;
   };
 
+  /* The preview replaces the member frame rather than nesting in it, so what the Manager
+     checks is the reading-room layout investors get. */
+  if (location.kind === 'preview')
+    return (
+      <InvestorPreview
+        location={location}
+        onNavigate={navigate}
+        onExit={() => {
+          navigate({ kind: 'room', roomId: location.roomId, section: 'structure' });
+        }}
+        theme={theme}
+        onThemeChange={onThemeChange}
+      />
+    );
+
   return (
     <AppShell
       title={
@@ -499,6 +515,9 @@ export function Workspace({
             onRoomsChanged={refreshRooms}
             onEntriesChange={setRoomEntries}
             onPublish={beginPublish}
+            onPreview={() => {
+              navigate({ kind: 'preview', roomId: openRoomId, documentId: null, page: 1 });
+            }}
           />
         </>
       ) : currentView.id === 'administration' ? (

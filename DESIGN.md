@@ -650,6 +650,17 @@ bucket, host, credential or address, and the server has none to send. What a che
 not see is said in its copy — the storage privacy check names the public URLs it cannot
 reach.
 
+**The investor preview never passes for what an investor sees.** A Room Manager's
+preview replaces the member frame with the reading-room layout, so the check is made
+against the real reader. Every preview screen leads with a caution notice titled
+Investor preview stating that pages lack the investor watermark and that downloads and
+links are inactive; the notes margin states that each opened document is audited under
+the Manager's name, and that investors cannot reach the room yet when it is not
+visible. The download policy is a sentence under Original file, never a control, and
+text-layer links render as inert text. Its entry is a quiet button before Publish on the
+preparation path, so Publish stays the room's one primary action; at 48rem the two wrap
+together onto their own row.
+
 ## Build-time composition in the browser
 
 Module composition is resolved at build time and is absent from the product UI.
@@ -676,7 +687,7 @@ source rewrite. Security and legal text is never machine-translated.
 
 - Room work follows one preparation path: **Collection → Access → Review → Publish**. Collection owns structure and ingestion (Add documents is an action inside it), Access owns readers and counterparties, Review is processing readiness, and Publish stays consequence-first behind the server dry-run dialog. The path is a ruled row of numbered steps (the current one carries an accent underline and `aria-current="step"`) that ends in the room's one primary button, **Publish changes**; no other control publishes. Only Exports and Settings sit in the supporting strip below the path; nothing appears in both. A Contributor's path is Collection → Review, with no Access, Publish, or Exports, because each would only lead to a refusal.
 - The browser title names the kind of view (Rooms, Room, Document, Administration, or the sign-in task) followed by the organization name, so tabs and assistive technology tell views apart. It is built only from message keys and never carries a room or document name, because browser history, synced history, and session restore keep titles after sign-out or revocation. The viewer sign-in title is the same for every address, like the rest of that surface.
-- The address bar carries the location: `/rooms/{id}/{section}` and `/administration/{section}` for members, `/rooms/{id}/documents/{id}?page=n` for viewers. Refresh, Back, and a copied link return to the same place; a path grants nothing, since every view still loads through the server. Page turns replace the history entry so Back leaves the document rather than stepping through pages.
+- The address bar carries the location: `/rooms/{id}/{section}`, `/rooms/{id}/preview[/documents/{id}?page=n]`, and `/administration/{section}` for members, `/rooms/{id}/documents/{id}?page=n` for viewers. Refresh, Back, and a copied link return to the same place; a path grants nothing, since every view still loads through the server. Page turns replace the history entry so Back leaves the document rather than stepping through pages.
 - Branding is organization-wide and lives under Administration, edited by Owners and Admins only; it never appears as a room section.
 - The notes margin is drawn only when the view has something to note. The register and Administration give that column back to the worktable.
 - Registers state shared meaning once in a legend above the table (room states, member roles) rather than in every row. Role and access changes that sign someone out take one deliberate press in `ConfirmationDialog`.

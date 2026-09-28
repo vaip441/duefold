@@ -69,7 +69,7 @@ const unusedStorage: WebStorage = {
  * passes here has actually been authorized.
  */
 const PNG_1X1 = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=',
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=',
   'base64',
 );
 
@@ -194,6 +194,11 @@ export interface TestServer {
       /** When 'expired', the grant is real but already lapsed. */
       readonly grant?: 'active' | 'expired' | 'none';
     };
+    /**
+     * Publishes one processed two-page document in `roomTitle`, so the investor
+     * preview has pages to read. The room becomes published.
+     */
+    readonly withPublishedDocument?: { readonly title: string };
     /** Seeds document versions in the given processing states. */
     readonly withProcessing?: readonly {
       readonly title: string;
@@ -227,6 +232,7 @@ export interface TestServer {
     /** This member's own address, so a test can name their row exactly. */
     readonly emailDisplay: string;
     readonly roomId: string | null;
+    readonly publishedDocumentId: string | null;
     /** Seeded colleagues, in the order requested. */
     readonly colleagueIds: readonly string[];
   }>;
@@ -426,6 +432,122 @@ export async function startTestServer(
   if (address === null || typeof address === 'string')
     throw new Error('test server did not bind a port');
 
+  /**
+   * One processed, published document with two text-bearing pages in a published room,
+   * seeded with real processing evidence. Returns the document id.
+   */
+  async function seedPublishedDocument(input: {
+    readonly roomId: string;
+    readonly actorId: string;
+    readonly title: string;
+    readonly downloadPolicy?: 'allow' | 'deny';
+  }): Promise<string> {
+    const documentId = createOpaqueId();
+    const versionId = createOpaqueId();
+    const folderEntryId = createOpaqueId();
+    const documentEntryId = createOpaqueId();
+    const jobId = createOpaqueId();
+    const leaseToken = createOpaqueId();
+    const audit = (): readonly string[] => [createOpaqueId(), createCorrelationId()];
+    await migrationPool.query(
+      'INSERT INTO document(id,room_id,display_title,created_by) VALUES($1,$2,$3,$4)',
+      [documentId, input.roomId, input.title, input.actorId],
+    );
+    // The structure entry references a real folder row in the same room; the
+    // integrity trigger rejects an entry whose folder does not exist there.
+    await migrationPool.query('INSERT INTO folder(id,room_id,created_by) VALUES($1,$2,$3)', [
+      folderEntryId,
+      input.roomId,
+      input.actorId,
+    ]);
+    /*
+     * A readable version needs real processing evidence: publication is gated on
+     * a clean scan with a matching signature version AND a verified derivative.
+     * Seeding a bare `ready_for_review` row would be the forged-evidence path the
+     * security kernel exists to refuse.
+     */
+    await migrationPool.query(
+      `INSERT INTO job_queue(id,job_type,idempotency_key,payload,state,attempts,lease_owner,lease_token,lease_expires_at)
+       VALUES($1,'document.source.validate',$2,jsonb_build_object('versionId',$3::text),'running',1,$4,$5,
+         transaction_timestamp()+interval '1 hour')`,
+      [jobId, createOpaqueId(), versionId, createOpaqueId(), leaseToken],
+    );
+    await migrationPool.query(
+      `INSERT INTO document_version(id,document_id,original_filename,object_key,declared_media_type,
+       detected_media_type,size_bytes,sha256,state,scan_signature_version)
+       VALUES($1,$2,'model.pdf',$3,'application/pdf','application/pdf',2048,$4,'ready_for_review','1')`,
+      [
+        versionId,
+        documentId,
+        `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
+        'a'.repeat(64),
+      ],
+    );
+    await migrationPool.query(
+      `INSERT INTO document_scan_evidence(version_id,job_id,lease_token,signature_version,signatures_published_at)
+       VALUES($1,$2,$3,'1',transaction_timestamp())`,
+      [versionId, jobId, leaseToken],
+    );
+    for (const page of [1, 2])
+      await migrationPool.query(
+        `INSERT INTO document_derivative(id,version_id,page_number,object_key,media_type,size_bytes,sha256,width,height,accessible_label,text_layer)
+         VALUES($1,$2,$3,$4,'image/png',256,$5,1200,1600,$6,$7::jsonb)`,
+        [
+          createOpaqueId(),
+          versionId,
+          page,
+          `derivatives/${createOpaqueId()}/${createOpaqueId()}`,
+          String(page).repeat(64).slice(0, 64),
+          `Page ${String(page)}`,
+          /*
+           * The column holds the positioned-run ARRAY itself, not an object
+           * wrapping it: a check constraint enforces `jsonb_typeof = 'array'`.
+           */
+          JSON.stringify([
+            {
+              text: page === 1 ? 'Revenue grew to 4.2M in 2026' : 'Appendix and résumé',
+              x: 0.1,
+              y: 0.1,
+              width: 0.6,
+              height: 0.03,
+            },
+          ]),
+        ],
+      );
+    await migrationPool.query(
+      `INSERT INTO working_structure_entry(id,room_id,folder_id,document_id,parent_folder_id,display_name,order_key)
+       VALUES($1,$2,$1,NULL,NULL,'Financials',1000),
+         ($3,$2,NULL,$4,$1,$5,2000)`,
+      [folderEntryId, input.roomId, documentEntryId, documentId, input.title],
+    );
+    await migrationPool.query(
+      `INSERT INTO published_structure_entry(room_id,entry_id,resource_kind,resource_id,parent_folder_id,display_name,description,order_key,source_revision,published_version_id)
+       VALUES($1,$2,'folder',$2,NULL,'Financials','',1000,1,NULL),
+         ($1,$3,'document',$4,$2,$5,'',2000,1,$6)`,
+      [input.roomId, folderEntryId, documentEntryId, documentId, input.title, versionId],
+    );
+    await migrationPool.query(
+      "UPDATE room SET state='published', published_revision=1 WHERE id=$1",
+      [input.roomId],
+    );
+    if (input.downloadPolicy === 'allow') {
+      const revision = (
+        await migrationPool.query<{ revision: number }>(
+          'SELECT revision FROM document WHERE id=$1',
+          [documentId],
+        )
+      ).rows[0]?.revision;
+      await runtimePool.query('SELECT set_document_download_policy($1,$2,$3,$4,$5,$6)', [
+        input.actorId,
+        documentId,
+        'allow',
+        revision ?? 1,
+        ...audit(),
+      ]);
+    }
+    return documentId;
+  }
+
   return {
     baseUrl: `https://127.0.0.1:${address.port}`,
     async setSupportContact(value) {
@@ -502,6 +624,7 @@ export async function startTestServer(
       }
 
       let roomId: string | null = null;
+      let publishedDocumentId: string | null = null;
       if (input.roomTitle !== undefined) {
         roomId = createOpaqueId();
         // Room creation requires owner/admin, so it is performed by a seeded owner
@@ -541,6 +664,13 @@ export async function startTestServer(
               createCorrelationId(),
             ],
           );
+
+        if (input.withPublishedDocument !== undefined)
+          publishedDocumentId = await seedPublishedDocument({
+            roomId,
+            actorId: ownerId,
+            title: input.withPublishedDocument.title,
+          });
 
         /*
          * A real viewer membership and a real grant, created through the same
@@ -788,6 +918,7 @@ export async function startTestServer(
         memberId,
         emailDisplay: `${local}@member.invalid`,
         roomId,
+        publishedDocumentId,
         colleagueIds,
         cookies: [
           {
@@ -807,12 +938,6 @@ export async function startTestServer(
       const granted = input.granted ?? true;
       const viewerId = createOpaqueId();
       const roomId = createOpaqueId();
-      const documentId = createOpaqueId();
-      const versionId = createOpaqueId();
-      const folderEntryId = createOpaqueId();
-      const documentEntryId = createOpaqueId();
-      const jobId = createOpaqueId();
-      const leaseToken = createOpaqueId();
       const managerId = createOpaqueId();
       const managerLocal = `v${managerId.slice(0, 10).toLowerCase()}`;
       const local = `r${viewerId.slice(0, 10).toLowerCase()}`;
@@ -852,119 +977,15 @@ export async function startTestServer(
         managerId,
         ...audit(),
       ]);
-      await migrationPool.query(
-        'INSERT INTO document(id,room_id,display_title,created_by) VALUES($1,$2,$3,$4)',
-        [documentId, roomId, input.documentTitle ?? 'Investor model', managerId],
-      );
-      // The structure entry references a real folder row in the same room; the
-      // integrity trigger rejects an entry whose folder does not exist there.
-      await migrationPool.query('INSERT INTO folder(id,room_id,created_by) VALUES($1,$2,$3)', [
-        folderEntryId,
+      const documentId = await seedPublishedDocument({
         roomId,
-        managerId,
-      ]);
-      /*
-       * A readable version needs real processing evidence: publication is gated on
-       * a clean scan with a matching signature version AND a verified derivative.
-       * Seeding a bare `ready_for_review` row would be the forged-evidence path the
-       * security kernel exists to refuse.
-       */
-      await migrationPool.query(
-        `INSERT INTO job_queue(id,job_type,idempotency_key,payload,state,attempts,lease_owner,lease_token,lease_expires_at)
-         VALUES($1,'document.source.validate',$2,jsonb_build_object('versionId',$3::text),'running',1,$4,$5,
-           transaction_timestamp()+interval '1 hour')`,
-        [jobId, createOpaqueId(), versionId, createOpaqueId(), leaseToken],
-      );
-      await migrationPool.query(
-        `INSERT INTO document_version(id,document_id,original_filename,object_key,declared_media_type,
-         detected_media_type,size_bytes,sha256,state,scan_signature_version)
-         VALUES($1,$2,'model.pdf',$3,'application/pdf','application/pdf',2048,$4,'ready_for_review','1')`,
-        [
-          versionId,
-          documentId,
-          `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
-          'a'.repeat(64),
-        ],
-      );
-      await migrationPool.query(
-        `INSERT INTO document_scan_evidence(version_id,job_id,lease_token,signature_version,signatures_published_at)
-         VALUES($1,$2,$3,'1',transaction_timestamp())`,
-        [versionId, jobId, leaseToken],
-      );
-      for (const page of [1, 2])
-        await migrationPool.query(
-          `INSERT INTO document_derivative(id,version_id,page_number,object_key,media_type,size_bytes,sha256,width,height,accessible_label,text_layer)
-           VALUES($1,$2,$3,$4,'image/png',256,$5,1200,1600,$6,$7::jsonb)`,
-          [
-            createOpaqueId(),
-            versionId,
-            page,
-            `derivatives/${createOpaqueId()}/${createOpaqueId()}`,
-            String(page).repeat(64).slice(0, 64),
-            `Page ${String(page)}`,
-            /*
-             * The column holds the positioned-run ARRAY itself, not an object
-             * wrapping it: a check constraint enforces `jsonb_typeof = 'array'`.
-             */
-            JSON.stringify([
-              {
-                text: page === 1 ? 'Revenue grew to 4.2M in 2026' : 'Appendix and résumé',
-                x: 0.1,
-                y: 0.1,
-                width: 0.6,
-                height: 0.03,
-              },
-            ]),
-          ],
-        );
-      await migrationPool.query(
-        `INSERT INTO working_structure_entry(id,room_id,folder_id,document_id,parent_folder_id,display_name,order_key)
-         VALUES($1,$2,$1,NULL,NULL,'Financials',1000),
-           ($3,$2,NULL,$4,$1,$5,2000)`,
-        [
-          folderEntryId,
-          roomId,
-          documentEntryId,
-          documentId,
-          input.documentTitle ?? 'Investor model',
-        ],
-      );
-      await migrationPool.query(
-        `INSERT INTO published_structure_entry(room_id,entry_id,resource_kind,resource_id,parent_folder_id,display_name,description,order_key,source_revision,published_version_id)
-         VALUES($1,$2,'folder',$2,NULL,'Financials','',1000,1,NULL),
-           ($1,$3,'document',$4,$2,$5,'',2000,1,$6)`,
-        [
-          roomId,
-          folderEntryId,
-          documentEntryId,
-          documentId,
-          input.documentTitle ?? 'Investor model',
-          versionId,
-        ],
-      );
-      await migrationPool.query(
-        "UPDATE room SET state='published', published_revision=1 WHERE id=$1",
-        [roomId],
-      );
+        actorId: managerId,
+        title: input.documentTitle ?? 'Investor model',
+        ...(input.downloadPolicy === undefined ? {} : { downloadPolicy: input.downloadPolicy }),
+      });
       await migrationPool.query(
         "UPDATE branding_configuration SET room_introduction='Materials prepared for your review.'",
       );
-      if (input.downloadPolicy === 'allow') {
-        const revision = (
-          await migrationPool.query<{ revision: number }>(
-            'SELECT revision FROM document WHERE id=$1',
-            [documentId],
-          )
-        ).rows[0]?.revision;
-        await runtimePool.query('SELECT set_document_download_policy($1,$2,$3,$4,$5,$6)', [
-          managerId,
-          documentId,
-          'allow',
-          revision ?? 1,
-          ...audit(),
-        ]);
-      }
-
       if (granted) {
         await runtimePool.query('SELECT add_viewer_to_room($1,$2,$3,$4,$5,$6,$7)', [
           createOpaqueId(),
