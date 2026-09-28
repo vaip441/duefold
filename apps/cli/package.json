@@ -1,12 +1,12 @@
 {
   "name": "@duefold/cli",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
   "dependencies": {
-    "@duefold/shared": "1.2.0",
-    "@duefold/core-security": "1.2.0",
+    "@duefold/shared": "1.3.0",
+    "@duefold/core-security": "1.3.0",
     "pg": "8.23.0"
   }
 }
