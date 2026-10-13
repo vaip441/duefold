@@ -69,4 +69,32 @@ describe('streaming export archive', () => {
       })(),
     ).rejects.toThrow('EXPORT_ZIP_NAME_INVALID');
   });
+
+  it('refuses to grow past the 32-bit ZIP offset limit before writing an out-of-range field', async () => {
+    // A reported length stands in for gigabytes of source bytes.
+    function reported(byteLength: number): Uint8Array {
+      return Object.defineProperty(new Uint8Array(1), 'byteLength', { value: byteLength });
+    }
+    const entry = (name: string, byteLength: number): ZipEntry => ({
+      name,
+      open: () => ({
+        async *[Symbol.asyncIterator]() {
+          await Promise.resolve();
+          yield reported(byteLength);
+        },
+      }),
+    });
+    const drain = async (entries: readonly ZipEntry[]): Promise<void> => {
+      for await (const chunk of streamingZip(entries)) expect(chunk).toBeDefined();
+    };
+    await expect(drain([entry('a.bin', 0xffffff00), entry('b.bin', 0x100)])).rejects.toThrow(
+      'EXPORT_ZIP_LIMIT_EXCEEDED',
+    );
+    // Header (30), name (5) and descriptor (16) count: one byte more cannot fit.
+    const largest = 0xffffffff - 30 - 5 - 16;
+    await expect(drain([entry('a.bin', largest)])).resolves.toBeUndefined();
+    await expect(drain([entry('a.bin', largest + 1)])).rejects.toThrow(
+      'EXPORT_ZIP_LIMIT_EXCEEDED',
+    );
+  });
 });

@@ -29,9 +29,7 @@ import {
   resolveInterstitial,
   signOut,
   type InterstitialTarget,
-  type TextLayer,
   type TextLayerItem,
-  type ViewerDocument,
   type ViewerEntry,
   type ViewerRoom,
 } from '../api/client.ts';
@@ -43,13 +41,13 @@ import { Notice } from '../components/Notice.tsx';
 import { PageReader } from '../components/PageReader.tsx';
 import { ThemeSelect, type ThemeChoice } from '../components/ThemeSelect.tsx';
 import { translate } from '../i18n/translate.ts';
-import { findMatches } from '../viewer/find.ts';
 import { protectedPageSource } from '../viewer/page-source.ts';
 import { entryDepth } from '../viewer/structure-depth.ts';
+import { useDocumentReader } from '../viewer/useDocumentReader.ts';
 import { usePreviewEvidence } from '../viewer/usePreviewEvidence.ts';
 import { useViewerIntroduction } from '../branding/useViewerIntroduction.ts';
 import { formatViewerLocation, parseViewerLocation, useLocation } from '../navigation.ts';
-import { DocumentPager, type Zoom } from '../components/DocumentPager.tsx';
+import { DocumentPager } from '../components/DocumentPager.tsx';
 import { RoomContents } from '../components/RoomContents.tsx';
 
 export interface ViewerReadingRoomProps {
@@ -90,6 +88,7 @@ function failureMessage(error: unknown): string {
      */
     case 'conflict':
     case 'invalid':
+    case 'export-too-large':
     case 'unavailable':
       return translate('error.unavailable.body');
   }
@@ -110,10 +109,19 @@ export function ViewerReadingRoom({
   const [structure, setStructure] = useState<Load<readonly ViewerEntry[]>>({
     kind: 'loading',
   });
-  const [document, setDocument] = useState<Load<ViewerDocument | null>>({ kind: 'loading' });
-  /* Page width as a share of the worktable. The text layer is positioned in
-     percentages of the sheet, so it scales with the image. */
-  const [zoom, setZoom] = useState<Zoom>(100);
+  const replacePage = useCallback(
+    (next: number) => {
+      if (location.kind === 'room') navigate({ ...location, page: next }, 'replace');
+    },
+    [location, navigate],
+  );
+  const reader = useDocumentReader({
+    documentId: openDocumentId,
+    page: pageNumber,
+    onPage: replacePage,
+    onStatus: setStatus,
+  });
+  const { document, openDocument, receiveDocument } = reader;
   const [activityId, setActivityId] = useState<string | null>(null);
   const pageSource = useMemo(
     () => (activityId === null ? null : protectedPageSource(activityId)),
@@ -124,10 +132,6 @@ export function ViewerReadingRoom({
     null,
   );
 
-  const [layer, setLayer] = useState<TextLayer | null>(null);
-  const [query, setQuery] = useState('');
-  const [currentMatch, setCurrentMatch] = useState<number | null>(null);
-
   const [interstitial, setInterstitial] = useState<{
     readonly open: boolean;
     readonly target: InterstitialTarget | null;
@@ -137,11 +141,7 @@ export function ViewerReadingRoom({
 
   const [download, setDownload] = useState<DownloadState>({ kind: 'idle' });
   const downloadAbort = useRef<AbortController | null>(null);
-
-  const matches = useMemo(
-    () => (layer === null ? [] : findMatches(layer.items, query)),
-    [layer, query],
-  );
+  const linkAbort = useRef<AbortController | null>(null);
 
   const onEvidenceRejected = useCallback(() => {
     setAccessLost(true);
@@ -160,7 +160,6 @@ export function ViewerReadingRoom({
   };
   const closeDocument = (): void => {
     if (openRoomId === null) return;
-    setActivityId(null);
     navigate({ kind: 'room', roomId: openRoomId, documentId: null, page: 1 });
   };
 
@@ -215,10 +214,7 @@ export function ViewerReadingRoom({
   useEffect(() => {
     if (openRoomId === null || openDocumentId === null) return;
     const controller = new AbortController();
-    setDocument({ kind: 'loading' });
-    setActivityId(null);
-    setQuery('');
-    setCurrentMatch(null);
+    receiveDocument({ documentId: openDocumentId, load: { kind: 'loading' } });
     setDownload({ kind: 'idle' });
 
     void (async () => {
@@ -228,7 +224,10 @@ export function ViewerReadingRoom({
           controller.signal,
         );
         if (isAborted(controller.signal)) return;
-        setDocument({ kind: 'ready', value: metadata });
+        receiveDocument({
+          documentId: openDocumentId,
+          load: { kind: 'ready', value: metadata },
+        });
         if (metadata === null) return;
         const activity = await beginPreview(
           {
@@ -243,14 +242,25 @@ export function ViewerReadingRoom({
       } catch (error) {
         if (isAborted(controller.signal)) return;
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        setDocument({ kind: 'failed', failure: failureMessage(error) });
+        receiveDocument({
+          documentId: openDocumentId,
+          load: { kind: 'failed', failure: failureMessage(error) },
+        });
       }
     })();
 
     return () => {
       controller.abort();
+      // Heartbeats follow the activity, so leaving the document by any route stops them.
+      setActivityId(null);
+      // A link or download started under this document must not answer under the next.
+      linkAbort.current?.abort();
+      linkAbort.current = null;
+      setInterstitial(null);
+      downloadAbort.current?.abort();
+      downloadAbort.current = null;
     };
-  }, [openRoomId, openDocumentId]);
+  }, [openRoomId, openDocumentId, receiveDocument]);
 
   const requestSignOut = (scope: 'this-device' | 'everywhere'): void => {
     setPendingSignOut(scope);
@@ -269,12 +279,17 @@ export function ViewerReadingRoom({
 
   const openLink = (item: TextLayerItem): void => {
     if (item.link === undefined) return;
+    linkAbort.current?.abort();
+    const controller = new AbortController();
+    linkAbort.current = controller;
     setInterstitial({ open: true, target: null, loading: true, failure: null });
-    resolveInterstitial(item.link.interstitialPath).then(
+    resolveInterstitial(item.link.interstitialPath, controller.signal).then(
       (target) => {
+        if (isAborted(controller.signal)) return;
         setInterstitial({ open: true, target, loading: false, failure: null });
       },
       () => {
+        if (isAborted(controller.signal)) return;
         setInterstitial({
           open: true,
           target: null,
@@ -293,6 +308,7 @@ export function ViewerReadingRoom({
    */
   const startDownload = (): void => {
     if (openRoomId === null || openDocumentId === null) return;
+    downloadAbort.current?.abort();
     const controller = new AbortController();
     downloadAbort.current = controller;
     setDownload({ kind: 'active', received: 0, total: 1 });
@@ -300,11 +316,12 @@ export function ViewerReadingRoom({
 
     void (async () => {
       try {
-        const lease = await createDownloadLease({
-          roomId: openRoomId,
-          documentId: openDocumentId,
-        });
-        if (isAborted(controller.signal)) return;
+        const lease = await createDownloadLease(
+          { roomId: openRoomId, documentId: openDocumentId },
+          controller.signal,
+        );
+        // Thrown rather than returned so a cancellation reaches the catch and settles the panel.
+        controller.signal.throwIfAborted();
         setDownload({ kind: 'active', received: 0, total: lease.sizeBytes });
         const chunks: ArrayBuffer[] = [];
         let received = 0;
@@ -316,7 +333,7 @@ export function ViewerReadingRoom({
             end,
             signal: controller.signal,
           });
-          if (isAborted(controller.signal)) return;
+          controller.signal.throwIfAborted();
           chunks.push(chunk);
           received += chunk.byteLength;
           setDownload({ kind: 'active', received, total: lease.sizeBytes });
@@ -340,6 +357,8 @@ export function ViewerReadingRoom({
         setDownload({ kind: 'done' });
         setStatus(translate('viewer.download.done'));
       } catch (error) {
+        // Superseded by a newer download or another document: that run owns the panel.
+        if (downloadAbort.current !== controller) return;
         if (isAborted(controller.signal)) {
           setDownload({ kind: 'cancelled' });
           setStatus(translate('viewer.download.cancelled'));
@@ -360,7 +379,7 @@ export function ViewerReadingRoom({
         });
         setStatus(translate('viewer.download.failed'));
       } finally {
-        downloadAbort.current = null;
+        if (downloadAbort.current === controller) downloadAbort.current = null;
       }
     })();
   };
@@ -385,47 +404,6 @@ export function ViewerReadingRoom({
           depth: depthOf(entry),
           kind: entry.resourceKind === 'folder' ? ('group' as const) : ('item' as const),
         }));
-
-  const openDocument = document.kind === 'ready' ? document.value : null;
-  const totalPages = openDocument?.pageCount ?? 0;
-
-  const goToPage = (next: number): void => {
-    if (next < 1 || next > totalPages || location.kind !== 'room') return;
-    /* Replace, not push: Back should leave the document, not step through its pages. */
-    navigate({ ...location, page: next }, 'replace');
-    setCurrentMatch(null);
-    setStatus(
-      translate('viewer.page.announce')
-        .replace('{page}', String(next))
-        .replace('{total}', String(totalPages)),
-    );
-  };
-
-  /* A page from a stale link past the end of a republished document opens page one. */
-  useEffect(() => {
-    if (openDocument === null || location.kind !== 'room') return;
-    if (location.page > openDocument.pageCount) navigate({ ...location, page: 1 }, 'replace');
-  }, [openDocument, location, navigate]);
-
-  const stepMatch = (delta: number): void => {
-    if (matches.length === 0) {
-      setStatus(translate('viewer.find.none'));
-      return;
-    }
-    /*
-     * With no match selected yet, stepping forward must land on the FIRST match
-     * and stepping backward on the LAST. Starting from -1 forward and 0 backward
-     * makes the modulo below produce exactly that.
-     */
-    const base = currentMatch ?? (delta > 0 ? -1 : 0);
-    const next = (base + delta + matches.length) % matches.length;
-    setCurrentMatch(next);
-    setStatus(
-      translate('viewer.find.position')
-        .replace('{index}', String(next + 1))
-        .replace('{count}', String(matches.length)),
-    );
-  };
 
   return (
     <AppShell
@@ -499,7 +477,6 @@ export function ViewerReadingRoom({
               type="button"
               className="df-button df-button--quiet"
               onClick={() => {
-                setActivityId(null);
                 navigate({ kind: 'rooms' });
               }}
             >
@@ -595,51 +572,29 @@ export function ViewerReadingRoom({
         </div>
       ) : (
         <>
-          <FindBar
-            query={query}
-            matchCount={matches.length}
-            currentMatch={currentMatch}
-            disabled={layer === null || layer.items.length === 0}
-            onQueryChange={(value) => {
-              setQuery(value);
-              setCurrentMatch(null);
-            }}
-            onNext={() => {
-              stepMatch(1);
-            }}
-            onPrevious={() => {
-              stepMatch(-1);
-            }}
-            onClear={() => {
-              setQuery('');
-              setCurrentMatch(null);
-            }}
-          />
+          <FindBar {...reader.findBar} />
 
           <DocumentPager
             pageNumber={pageNumber}
             pageCount={openDocument.pageCount}
-            zoom={zoom}
-            onPage={goToPage}
-            onZoom={setZoom}
+            zoom={reader.zoom}
+            onPage={reader.goToPage}
+            onZoom={reader.setZoom}
           />
 
-          {/* Selecting another document renders once with the previous document's
-              metadata and activity before they reset; without the id check that
-              render requests a page of the new document it has no activity for. */}
-          {pageSource === null || openDocument.documentId !== openDocumentId ? (
+          {pageSource === null ? (
             <p className="df-field__help">{translate('viewer.document.loading')}</p>
           ) : (
-            <div className="df-page-zoom" data-zoom={zoom}>
+            <div className="df-page-zoom" data-zoom={reader.zoom}>
               <PageReader
                 roomId={openRoomId}
                 documentId={openDocumentId}
                 pageNumber={pageNumber}
                 totalPages={openDocument.pageCount}
                 source={pageSource}
-                matches={matches}
-                currentMatch={currentMatch}
-                onTextLayer={setLayer}
+                matches={reader.matches}
+                currentMatch={reader.currentMatch}
+                onTextLayer={reader.onTextLayer}
                 onLinkActivate={openLink}
                 onUnauthorized={() => {
                   setAccessLost(true);
@@ -665,6 +620,7 @@ export function ViewerReadingRoom({
         loading={interstitial?.loading ?? false}
         failure={interstitial?.failure ?? null}
         onCancel={() => {
+          linkAbort.current?.abort();
           setInterstitial((current) => (current === null ? null : { ...current, open: false }));
         }}
       />

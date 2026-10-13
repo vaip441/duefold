@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import {
   discoverOidc,
+  parseOwnerAllowlist,
   type OidcClientAuthMethod,
 } from '../../../modules/core-security/src/auth/oidc.ts';
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
@@ -24,7 +25,7 @@ import { createSessionAuthenticator } from './authenticate.ts';
 import { assertDistinctDatabaseRoles } from './database-roles.ts';
 import { composedDeploymentFacts } from './deployment-facts.ts';
 import { loadStaticClient } from './static-client.ts';
-import { parseTrustedProxies } from './proxy.ts';
+import { resolveProxyTrust } from './proxy.ts';
 import { sandboxProgram } from '../../../modules/rooms-documents/src/processing/sandbox.ts';
 import { resolveSandboxIsolation } from '../../../modules/rooms-documents/src/processing/preflight.ts';
 import type { CoarseClient } from '../../../modules/core-security/src/auth/otp.ts';
@@ -55,6 +56,13 @@ function stringConfig(
     throw new Error(`invalid configuration: ${key}`);
   return value;
 }
+function optionalStringConfig(
+  config: Readonly<Record<string, string | number | boolean>>,
+  key: string,
+): string | undefined {
+  const value = config[key];
+  return typeof value === 'string' ? value : undefined;
+}
 function numberConfig(
   config: Readonly<Record<string, string | number | boolean>>,
   key: string,
@@ -69,6 +77,10 @@ function classifyClient(): CoarseClient {
 
 try {
   const config = loadConfig(webConfigSchema, process.env);
+  const trustProxy = resolveProxyTrust(
+    optionalStringConfig(config, 'DUEFOLD_TRUSTED_PROXIES'),
+    optionalStringConfig(config, 'DUEFOLD_TRUSTED_EDGE_HOPS'),
+  );
   const sandboxIsolation = resolveSandboxIsolation({
     isolation: stringConfig(config, 'DUEFOLD_SANDBOX_ISOLATION'),
     ...(typeof config['DUEFOLD_SANDBOX_DEGRADED_ACKNOWLEDGEMENT'] === 'string'
@@ -149,7 +161,7 @@ try {
     deployment: composedDeploymentFacts(oidcDiscoveryConformedAt),
     oidc: oidcConfig,
     oidcRedirectUri,
-    ownerAllowlist: stringConfig(config, 'DUEFOLD_OWNER_EMAIL_ALLOWLIST').split(','),
+    ownerAllowlist: parseOwnerAllowlist(stringConfig(config, 'DUEFOLD_OWNER_EMAIL_ALLOWLIST')),
     organizationName: stringConfig(config, 'DUEFOLD_ORGANIZATION_NAME'),
     afterAuthenticationPath: '/',
     otpDigestKey: stringConfig(config, 'DUEFOLD_OTP_DIGEST_KEY'),
@@ -202,10 +214,6 @@ try {
       });
     },
   };
-  const trustedProxiesRaw =
-    typeof config['DUEFOLD_TRUSTED_PROXIES'] === 'string'
-      ? config['DUEFOLD_TRUSTED_PROXIES']
-      : undefined;
   startupStage = 'application';
   const app = await buildWebApp({
     runtime,
@@ -241,7 +249,7 @@ try {
         ),
     },
     authenticate: createSessionAuthenticator(authPool, sessionPolicy),
-    trustProxy: parseTrustedProxies(trustedProxiesRaw),
+    trustProxy,
     // Fails startup when the client has not been built, rather than serving
     // nothing and looking like a routing fault.
     staticClient: await loadStaticClient(
@@ -257,6 +265,6 @@ try {
   closeResources = () => app.close();
   startupStage = 'listen';
   await app.listen({ host: '0.0.0.0', port: numberConfig(config, 'DUEFOLD_PORT') });
-} catch {
-  terminate();
+} catch (error) {
+  terminate(error);
 }

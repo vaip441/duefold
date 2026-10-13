@@ -1,7 +1,7 @@
 /** Pure derivations for the Settings section, kept testable without a DOM. */
 import type { DocumentEntry, DownloadPolicy, RoomSettings } from '../api/client.ts';
 import type { PresentedFailure } from './failures.ts';
-import { expiryInstant, formatDate } from './grants.ts';
+import { expiryInstant, formatDate, formatExpiryDay } from './grants.ts';
 import type { MessageKey } from '../i18n/translate.ts';
 import type { Load } from './state.ts';
 
@@ -76,12 +76,20 @@ export function parseExpiryField(
  * truncating to the minute would show 23:59 for an instant that is 23:59:59.999 and the
  * "exact inherited value" the review promises would not be the one displayed.
  */
-export function expiryDisplay(instant: string): {
-  readonly local: string;
-  readonly utc: string;
-} {
-  const iso = new Date(instant).toISOString();
-  return { local: formatDate(instant), utc: `${iso.slice(0, 19).replace('T', ' ')} UTC` };
+type InstantDisplay = Readonly<{ local: string; utc: string }>;
+
+function exactUtc(instant: string): string {
+  return `${new Date(instant).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+}
+
+/** A server instant such as a purge date, localized in the browser's zone. */
+export function expiryDisplay(instant: string): InstantDisplay {
+  return { local: formatDate(instant), utc: exactUtc(instant) };
+}
+
+/** A default access end date, localized as the day the manager chose rather than the next one. */
+export function accessExpiryDisplay(instant: string): InstantDisplay {
+  return { local: formatExpiryDay(instant), utc: exactUtc(instant) };
 }
 
 const BYTE_UNITS = ['B', 'kB', 'MB', 'GB', 'TB'] as const;

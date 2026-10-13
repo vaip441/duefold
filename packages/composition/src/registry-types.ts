@@ -33,6 +33,8 @@ export interface GeneratedJob {
   readonly id: string;
   readonly module: ModuleId;
   readonly handlerFactory: unknown;
+  readonly everySeconds?: number;
+  readonly onExhausted?: string;
 }
 
 export interface GeneratedConfigField {

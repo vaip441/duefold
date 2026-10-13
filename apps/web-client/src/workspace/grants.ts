@@ -25,15 +25,30 @@ const TARGET_LABEL: Readonly<Record<GrantTargetKind, MessageKey>> = {
   document: 'participants.grant.document',
 };
 
-/** Absolute server instant, formatted without arithmetic on the browser clock. */
-export function formatDate(iso: string): string {
+function formatDay(iso: string, timeZone: 'UTC' | undefined): string {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return iso;
   return parsed.toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    ...(timeZone === undefined ? {} : { timeZone }),
   });
+}
+
+/** Absolute server instant, formatted without arithmetic on the browser clock. */
+export function formatDate(iso: string): string {
+  return formatDay(iso, undefined);
+}
+
+/**
+ * An access expiry, as the day the manager chose.
+ *
+ * `expiryInstant` stores a chosen day as its last UTC millisecond, so the browser's zone
+ * would show the following day anywhere east of UTC.
+ */
+export function formatExpiryDay(iso: string): string {
+  return formatDay(iso, 'UTC');
 }
 
 export interface GrantDescription {
@@ -69,7 +84,7 @@ export function describeGrant(
           ? translate('participants.grant.expired', { date: '' }).trim()
           : translate('participants.grant.noExpiry')
         : translate(expired ? 'participants.grant.expired' : 'participants.grant.expires', {
-            date: formatDate(grant.expiresAt),
+            date: formatExpiryDay(grant.expiresAt),
           }),
     expired,
   };

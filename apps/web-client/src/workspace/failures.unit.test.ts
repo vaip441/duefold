@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { presentFailure } from './failures.ts';
 import { ApiError } from '../api/client.ts';
+import { failureForStatus } from '../api/transport.ts';
 
 describe('presentFailure', () => {
   it('offers a reload for a conflict and never for anything else', () => {
@@ -61,6 +62,14 @@ describe('presentFailure', () => {
     const ordinary = presentFailure(new ApiError('denied'));
     expect(ordinary.kind).toBe('denied');
     expect(ordinary.body).not.toContain('recent sign-in');
+  });
+
+  it('tells a member to split an export too large for one archive', () => {
+    expect(failureForStatus(400, 'EXPORT_TOO_LARGE')).toBe('export-too-large');
+    expect(failureForStatus(400, 'REQUEST_INVALID')).toBe('invalid');
+    const presented = presentFailure(new ApiError('export-too-large'));
+    expect(presented.body).toContain('Select fewer documents');
+    expect(presented.body).not.toBe(presentFailure(new ApiError('invalid')).body);
   });
 
   it('reports an unknown error as unavailable without leaking its text', () => {

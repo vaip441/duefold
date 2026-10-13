@@ -983,7 +983,7 @@ describe('trash, search, and bulk database boundary', () => {
       .slice(mutationStart, mutationEnd)
       .split(';')
       .filter((statement) => /(?:DELETE FROM|UPDATE)/u.test(statement));
-    expect(mutatingStatements).toHaveLength(12);
+    expect(mutatingStatements).toHaveLength(16);
     for (const statement of mutatingStatements)
       expect(statement).toMatch(
         /lease_owner\s*=\s*p_lease_owner[\s\S]*lease_token\s*=\s*p_lease_token[\s\S]*lease_expires_at\s*>\s*transaction_timestamp\(\)/u,

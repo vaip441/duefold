@@ -234,13 +234,16 @@ function renderJobs(
       imports.push(
         `import { ${job.handlerFactoryExport} as ${local} } from '${importSpecifier(resolve(outDir, 'jobs.ts'), target)}';`,
       );
-      entries.push(
-        `  {
-    id: ${JSON.stringify(job.id)},
-    module: ${JSON.stringify(declaration.id)},
-    handlerFactory: ${local},
-  },`,
-      );
+      const fields = [
+        `    id: ${JSON.stringify(job.id)},`,
+        `    module: ${JSON.stringify(declaration.id)},`,
+        `    handlerFactory: ${local},`,
+        ...(job.everySeconds === undefined ? [] : [`    everySeconds: ${job.everySeconds},`]),
+        ...(job.onExhausted === undefined
+          ? []
+          : [`    onExhausted: ${JSON.stringify(job.onExhausted)},`]),
+      ];
+      entries.push(`  {\n${fields.join('\n')}\n  },`);
     }
   }
   return `${GENERATED_HEADER}

@@ -471,14 +471,3 @@ export function createConfiguredMailer(input: {
           }),
   });
 }
-
-/** Compatibility wrapper for callers composed with SMTP before adapter selection. */
-export function createSmtpOtpMailer(input: {
-  readonly smtpUrl: string;
-  readonly from: string;
-}): OtpMailer {
-  return createRequiredMailer({
-    transport: createSmtpTransport({ smtpUrl: input.smtpUrl }),
-    from: input.from,
-  });
-}

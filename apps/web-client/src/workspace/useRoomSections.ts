@@ -12,9 +12,13 @@
  * an empty value. Rendering "nothing is processing" or "No exports yet" for a refused
  * request represents inaccessible data as absent, which is how revocation was once
  * hidden from a viewer.
+ *
+ * `continuesFrom` holds the cursor object the shown listing continues from. These hooks outlive a
+ * room switch, so a "load older" page that settles after a refresh or a switch continues a
+ * listing that is gone: its rows, its failure, and its busy state are all dropped.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   deleteFailedSource,
   downloadExportOnce,
@@ -23,20 +27,23 @@ import {
   loadProcessingState,
   preflightExport,
   retryProcessing,
+  type ExportPage,
   type ExportPreflight,
   type ExportPreset,
-  type ExportRecord,
+  type ProcessingPage,
   type ProcessingVersion,
 } from '../api/client.ts';
 import { presentFailure, type PresentedFailure } from './failures.ts';
 import type { Load } from './state.ts';
 
 export interface ProcessingSection {
-  readonly versions: Load<readonly ProcessingVersion[]>;
+  readonly listing: Load<ProcessingPage>;
   readonly failure: PresentedFailure | null;
   readonly busyVersionId: string | null;
+  readonly loadingMore: boolean;
   readonly refresh: (roomId: string, signal?: AbortSignal) => Promise<void>;
   readonly beginLoading: () => void;
+  readonly loadMore: (roomId: string) => void;
   readonly retry: (version: ProcessingVersion) => void;
   readonly deleteSource: (version: ProcessingVersion) => void;
 }
@@ -46,29 +53,67 @@ export function useProcessingSection(handlers: {
   readonly onSourceDeleted: () => void;
   readonly roomId: () => string | null;
 }): ProcessingSection {
-  const [versions, setVersions] = useState<Load<readonly ProcessingVersion[]>>({
-    kind: 'loading',
-  });
+  const [listing, setListing] = useState<Load<ProcessingPage>>({ kind: 'loading' });
   const [failure, setFailure] = useState<PresentedFailure | null>(null);
   const [busyVersionId, setBusyVersionId] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const continuesFrom = useRef<ProcessingPage['nextCursor']>(null);
 
   const refresh = useCallback(async (roomId: string, signal?: AbortSignal): Promise<void> => {
     setFailure(null);
     try {
-      const value = await loadProcessingState(roomId, signal);
-      setVersions({ kind: 'ready', value });
+      const value = await loadProcessingState(
+        signal === undefined ? { roomId } : { roomId, signal },
+      );
+      continuesFrom.current = value.nextCursor;
+      setLoadingMore(false);
+      setListing({ kind: 'ready', value });
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       const presented = presentFailure(error);
-      setVersions({ kind: 'failed', failure: presented.title });
+      continuesFrom.current = null;
+      setLoadingMore(false);
+      setListing({ kind: 'failed', failure: presented.title });
       setFailure(presented);
       throw error;
     }
   }, []);
 
   const beginLoading = useCallback((): void => {
-    setVersions({ kind: 'loading' });
+    continuesFrom.current = null;
+    setLoadingMore(false);
+    setListing({ kind: 'loading' });
   }, []);
+
+  const loadMore = (roomId: string): void => {
+    if (listing.kind !== 'ready' || listing.value.nextCursor === null) return;
+    const after = listing.value.nextCursor;
+    setLoadingMore(true);
+    setFailure(null);
+    loadProcessingState({ roomId, after }).then(
+      (page) => {
+        if (continuesFrom.current !== after) return;
+        continuesFrom.current = page.nextCursor;
+        setLoadingMore(false);
+        setListing((current) =>
+          current.kind === 'ready'
+            ? {
+                kind: 'ready',
+                value: {
+                  versions: [...current.value.versions, ...page.versions],
+                  nextCursor: page.nextCursor,
+                },
+              }
+            : current,
+        );
+      },
+      (error: unknown) => {
+        if (continuesFrom.current !== after) return;
+        setLoadingMore(false);
+        setFailure(presentFailure(error));
+      },
+    );
+  };
 
   const act = (
     version: ProcessingVersion,
@@ -93,11 +138,13 @@ export function useProcessingSection(handlers: {
   };
 
   return {
-    versions,
+    listing,
     failure,
     busyVersionId,
+    loadingMore,
     refresh,
     beginLoading,
+    loadMore,
     retry: (version) => {
       act(version, retryProcessing, handlers.onRetried);
     },
@@ -108,14 +155,16 @@ export function useProcessingSection(handlers: {
 }
 
 export interface ExportsSection {
-  readonly exports: Load<readonly ExportRecord[]>;
+  readonly listing: Load<ExportPage>;
   readonly failure: PresentedFailure | null;
+  readonly loadingMore: boolean;
   readonly preflight: ExportPreflight | null;
   readonly preflightPending: boolean;
   readonly generatePending: boolean;
   readonly downloadingId: string | null;
   readonly refresh: (roomId: string, signal?: AbortSignal) => void;
   readonly beginLoading: () => void;
+  readonly loadMore: (roomId: string) => void;
   readonly review: (input: {
     roomId: string;
     preset: ExportPreset;
@@ -132,8 +181,9 @@ export function useExportsSection(handlers: {
   readonly onGenerated: () => void;
   readonly onDownloaded: () => void;
 }): ExportsSection {
-  const [exports, setExports] = useState<Load<readonly ExportRecord[]>>({ kind: 'loading' });
+  const [listing, setListing] = useState<Load<ExportPage>>({ kind: 'loading' });
   const [failure, setFailure] = useState<PresentedFailure | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [preflight, setPreflight] = useState<ExportPreflight | null>(null);
   const [request, setRequest] = useState<{
     readonly preset: ExportPreset;
@@ -143,35 +193,74 @@ export function useExportsSection(handlers: {
   const [preflightPending, setPreflightPending] = useState(false);
   const [generatePending, setGeneratePending] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const continuesFrom = useRef<ExportPage['nextCursor']>(null);
 
   const refresh = useCallback((roomId: string, signal?: AbortSignal): void => {
     setFailure(null);
-    loadExports(roomId, signal).then(
+    loadExports(signal === undefined ? { roomId } : { roomId, signal }).then(
       (value) => {
-        setExports({ kind: 'ready', value });
+        continuesFrom.current = value.nextCursor;
+        setLoadingMore(false);
+        setListing({ kind: 'ready', value });
       },
       (error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         const presented = presentFailure(error);
-        setExports({ kind: 'failed', failure: presented.title });
+        continuesFrom.current = null;
+        setLoadingMore(false);
+        setListing({ kind: 'failed', failure: presented.title });
         setFailure(presented);
       },
     );
   }, []);
 
   const beginLoading = useCallback((): void => {
-    setExports({ kind: 'loading' });
+    continuesFrom.current = null;
+    setLoadingMore(false);
+    setListing({ kind: 'loading' });
   }, []);
 
+  const loadMore = (roomId: string): void => {
+    if (listing.kind !== 'ready' || listing.value.nextCursor === null) return;
+    const after = listing.value.nextCursor;
+    setLoadingMore(true);
+    setFailure(null);
+    loadExports({ roomId, after }).then(
+      (page) => {
+        if (continuesFrom.current !== after) return;
+        continuesFrom.current = page.nextCursor;
+        setLoadingMore(false);
+        setListing((current) =>
+          current.kind === 'ready'
+            ? {
+                kind: 'ready',
+                value: {
+                  exports: [...current.value.exports, ...page.exports],
+                  nextCursor: page.nextCursor,
+                },
+              }
+            : current,
+        );
+      },
+      (error: unknown) => {
+        if (continuesFrom.current !== after) return;
+        setLoadingMore(false);
+        setFailure(presentFailure(error));
+      },
+    );
+  };
+
   return {
-    exports,
+    listing,
     failure,
+    loadingMore,
     preflight,
     preflightPending,
     generatePending,
     downloadingId,
     refresh,
     beginLoading,
+    loadMore,
     review: (input) => {
       setPreflightPending(true);
       setFailure(null);

@@ -293,7 +293,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
       roomId: body.roomId,
     });
     const current = entries.find((entry) => entry.entryId === body.entryId);
-    if (current === undefined) throw new Error('STRUCTURE_ENTRY_UNREACHABLE');
+    if (current === undefined) throw await missingEntryFailure(runtime, identity, body.roomId);
 
     if (body.action === 'rename') {
       const updated = await mutateEntry({
@@ -350,6 +350,26 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   };
 }
 
+/*
+ * The working-structure reader returns nothing both for a room the caller may not work in
+ * and for an entry missing from one they may. Only the second is a stale view worth a
+ * reload; the first is the uniform denial, which the revision reader answers identically
+ * for a room that does not exist.
+ */
+async function missingEntryFailure(
+  runtime: WebRuntime,
+  identity: MemberIdentity,
+  roomId: string,
+): Promise<Error> {
+  const revisions = await runtime.pool.query<{ working_revision: number }>(
+    'SELECT working_revision FROM read_room_structure_revisions($1,$2)',
+    [roomId, identity.id],
+  );
+  return new Error(
+    revisions.rows.length === 0 ? 'ROOM_WORKSPACE_FORBIDDEN' : 'STRUCTURE_ENTRY_UNREACHABLE',
+  );
+}
+
 async function currentKey(
   runtime: WebRuntime,
   identity: MemberIdentity,
@@ -363,7 +383,7 @@ async function currentKey(
   ).rows[0];
   if (row === undefined) throw new Error('STRUCTURE_ENTRY_UNREACHABLE');
   const parsed = Number(row.order_key);
-  if (!Number.isFinite(parsed)) throw new Error('STRUCTURE_ENTRY_UNREACHABLE');
+  if (!Number.isFinite(parsed)) throw new Error('STRUCTURE_ORDER_KEY_INVALID');
   return parsed;
 }
 

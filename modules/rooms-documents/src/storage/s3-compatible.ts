@@ -162,6 +162,37 @@ function metadataRecord(
 ): Readonly<Record<string, string>> {
   return value ?? {};
 }
+/*
+ * Chunks are held by reference and copied once per part. Concatenating the
+ * pending buffer on every chunk re-copied the whole part each time, making large
+ * exports quadratic in part size.
+ */
+export async function* multipartParts(
+  stream: AsyncIterable<Uint8Array>,
+  partBytes: number,
+): AsyncGenerator<Buffer> {
+  let chunks: Uint8Array[] = [];
+  let pendingBytes = 0;
+  let total = 0;
+  for await (const chunk of stream) {
+    if (chunk.byteLength === 0) continue;
+    total += chunk.byteLength;
+    if (total > MAX_DIRECTORY_TOTAL_BYTES) throw new Error('EXPORT_AGGREGATE_LIMIT_EXCEEDED');
+    chunks.push(chunk);
+    pendingBytes += chunk.byteLength;
+    if (pendingBytes < partBytes) continue;
+    let pending = Buffer.concat(chunks, pendingBytes);
+    while (pending.byteLength >= partBytes) {
+      yield pending.subarray(0, partBytes);
+      pending = pending.subarray(partBytes);
+    }
+    // Copy the remainder so the uploaded part's buffer is not retained.
+    chunks = pending.byteLength > 0 ? [Buffer.from(pending)] : [];
+    pendingBytes = pending.byteLength;
+  }
+  if (pendingBytes > 0) yield Buffer.concat(chunks, pendingBytes);
+}
+
 export function createStorageClient(config: StorageConfig): S3Client {
   endpointUrl(config.endpoint);
   if (config.region === '' || config.bucket === '') throw new Error('STORAGE_CONFIG_INVALID');
@@ -405,7 +436,6 @@ export function createWorkerStorage(config: WorkerStorageConfig): WorkerStorage 
       );
       if (created.UploadId === undefined) throw new Error('STORAGE_CREATE_MULTIPART_FAILED');
       const completed: CompletedPart[] = [];
-      let pending = Buffer.alloc(0);
       let total = 0;
       const upload = async (bytes: Buffer): Promise<void> => {
         const partNumber = completed.length + 1;
@@ -424,18 +454,10 @@ export function createWorkerStorage(config: WorkerStorageConfig): WorkerStorage 
         completed.push({ PartNumber: partNumber, ETag: result.ETag, ChecksumSHA256: checksum });
       };
       try {
-        for await (const chunk of input.stream) {
-          if (chunk.byteLength === 0) continue;
-          total += chunk.byteLength;
-          if (total > MAX_DIRECTORY_TOTAL_BYTES)
-            throw new Error('EXPORT_AGGREGATE_LIMIT_EXCEEDED');
-          pending = Buffer.concat([pending, Buffer.from(chunk)]);
-          while (pending.byteLength >= MAX_MULTIPART_PART_BYTES) {
-            await upload(pending.subarray(0, MAX_MULTIPART_PART_BYTES));
-            pending = pending.subarray(MAX_MULTIPART_PART_BYTES);
-          }
+        for await (const part of multipartParts(input.stream, MAX_MULTIPART_PART_BYTES)) {
+          total += part.byteLength;
+          await upload(part);
         }
-        if (pending.byteLength > 0) await upload(pending);
         if (completed.length === 0) throw new Error('EXPORT_EMPTY');
         await client.send(
           new CompleteMultipartUploadCommand({

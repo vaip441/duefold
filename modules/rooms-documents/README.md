@@ -17,7 +17,6 @@ Owns the private content lifecycle: rooms and structure, uploads and quarantine,
 
 ## Viewer and protected delivery
 
-- [Viewer authorization](src/viewer-authorization.ts)
 - [Viewer discovery](src/viewer-discovery.ts)
 - [Protected delivery](src/protected-delivery.ts)
 - [Download policy](src/downloads.ts)
@@ -35,4 +34,4 @@ Original bytes and storage URLs must never cross this boundary when download is 
 
 ## Does not own
 
-Member identity and sessions belong to [core-security](../core-security/README.md). Participant invitations and grants belong to [participants-access](../participants-access/README.md). Optional branding belongs to [branding-notifications](../branding-notifications/README.md).
+Member identity and sessions belong to [core-security](../core-security/README.md); only the [sign-in retention sweep](src/jobs/sign-in-retention.ts) lives here, because it must wait for preview, download, and watermark rows that cascade from a session. Participant invitations and grants belong to [participants-access](../participants-access/README.md). Optional branding belongs to [branding-notifications](../branding-notifications/README.md).

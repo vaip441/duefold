@@ -12,18 +12,16 @@
  * apply the viewer's publication rules, so nothing here filters content for itself.
  */
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { isAborted } from '../../api/abort.ts';
 import {
   ApiError,
   loadPreviewDocument,
   loadPreviewRoom,
   type PreviewRoom,
-  type TextLayer,
-  type ViewerDocument,
 } from '../../api/client.ts';
 import { AppShell } from '../../components/AppShell.tsx';
-import { DocumentPager, type Zoom } from '../../components/DocumentPager.tsx';
+import { DocumentPager } from '../../components/DocumentPager.tsx';
 import { FindBar } from '../../components/FindBar.tsx';
 import { Notice } from '../../components/Notice.tsx';
 import { PageReader } from '../../components/PageReader.tsx';
@@ -31,9 +29,9 @@ import { RoomContents } from '../../components/RoomContents.tsx';
 import { ThemeSelect, type ThemeChoice } from '../../components/ThemeSelect.tsx';
 import { translate } from '../../i18n/translate.ts';
 import type { MemberLocation, Navigate } from '../../navigation.ts';
-import { findMatches } from '../../viewer/find.ts';
 import { memberPreviewPageSource } from '../../viewer/page-source.ts';
 import { entryDepth } from '../../viewer/structure-depth.ts';
+import { useDocumentReader } from '../../viewer/useDocumentReader.ts';
 import { failureMessage } from '../failure-message.ts';
 import type { Load } from '../state.ts';
 
@@ -64,25 +62,21 @@ export function InvestorPreview({
   const { roomId, documentId, page } = location;
   const [status, setStatus] = useState('');
   const [room, setRoom] = useState<Load<PreviewRoom>>({ kind: 'loading' });
-  /* Metadata is kept with the document it was read for, so after Back or Forward the
-     previous document's page count and policy never stand in for the new one's. */
-  const [loaded, setLoaded] = useState<{
-    readonly documentId: string | null;
-    readonly load: Load<ViewerDocument | null>;
-  }>({ documentId: null, load: { kind: 'loading' } });
-  const document: Load<ViewerDocument | null> =
-    loaded.documentId === documentId ? loaded.load : { kind: 'loading' };
   const [denied, setDenied] = useState(false);
-  const [zoom, setZoom] = useState<Zoom>(100);
-  const [layer, setLayer] = useState<TextLayer | null>(null);
-  const [query, setQuery] = useState('');
-  const [currentMatch, setCurrentMatch] = useState<number | null>(null);
   const downloadHeadingId = useId();
-
-  const matches = useMemo(
-    () => (layer === null ? [] : findMatches(layer.items, query)),
-    [layer, query],
+  const replacePage = useCallback(
+    (next: number) => {
+      onNavigate({ ...location, page: next }, 'replace');
+    },
+    [location, onNavigate],
   );
+  const reader = useDocumentReader({
+    documentId,
+    page,
+    onPage: replacePage,
+    onStatus: setStatus,
+  });
+  const { document, openDocument, receiveDocument } = reader;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,63 +99,31 @@ export function InvestorPreview({
   useEffect(() => {
     if (documentId === null) return;
     const controller = new AbortController();
-    setQuery('');
-    setCurrentMatch(null);
     loadPreviewDocument({ roomId, documentId }, controller.signal).then(
       (value) => {
-        setLoaded({ documentId, load: { kind: 'ready', value } });
+        receiveDocument({ documentId, load: { kind: 'ready', value } });
       },
       (error: unknown) => {
         if (isAborted(controller.signal)) return;
-        setLoaded({ documentId, load: { kind: 'failed', failure: previewFailure(error) } });
+        receiveDocument({
+          documentId,
+          load: { kind: 'failed', failure: previewFailure(error) },
+        });
       },
     );
     return () => {
       controller.abort();
     };
-  }, [roomId, documentId]);
+  }, [roomId, documentId, receiveDocument]);
 
   const entries = room.kind === 'ready' ? room.value.entries : [];
   const depthOf = entryDepth(entries);
-  const openDocument = documentId !== null && document.kind === 'ready' ? document.value : null;
-  const totalPages = openDocument?.pageCount ?? 0;
-
-  /* A page from a stale link past the end of a republished document opens page one. */
-  useEffect(() => {
-    if (openDocument !== null && page > openDocument.pageCount)
-      onNavigate({ ...location, page: 1 }, 'replace');
-  }, [openDocument, page, location, onNavigate]);
 
   const openDocumentById = (id: string): void => {
     onNavigate({ kind: 'preview', roomId, documentId: id, page: 1 });
   };
   const closeDocument = (): void => {
     onNavigate({ kind: 'preview', roomId, documentId: null, page: 1 });
-  };
-  const goToPage = (next: number): void => {
-    if (next < 1 || next > totalPages) return;
-    /* Replace, not push: Back should leave the document, not step through its pages. */
-    onNavigate({ ...location, page: next }, 'replace');
-    setCurrentMatch(null);
-    setStatus(
-      translate('viewer.page.announce')
-        .replace('{page}', String(next))
-        .replace('{total}', String(totalPages)),
-    );
-  };
-  const stepMatch = (delta: number): void => {
-    if (matches.length === 0) {
-      setStatus(translate('viewer.find.none'));
-      return;
-    }
-    const base = currentMatch ?? (delta > 0 ? -1 : 0);
-    const next = (base + delta + matches.length) % matches.length;
-    setCurrentMatch(next);
-    setStatus(
-      translate('viewer.find.position')
-        .replace('{index}', String(next + 1))
-        .replace('{count}', String(matches.length)),
-    );
   };
 
   const title =
@@ -254,43 +216,24 @@ export function InvestorPreview({
         </div>
       ) : (
         <>
-          <FindBar
-            query={query}
-            matchCount={matches.length}
-            currentMatch={currentMatch}
-            disabled={layer === null || layer.items.length === 0}
-            onQueryChange={(value) => {
-              setQuery(value);
-              setCurrentMatch(null);
-            }}
-            onNext={() => {
-              stepMatch(1);
-            }}
-            onPrevious={() => {
-              stepMatch(-1);
-            }}
-            onClear={() => {
-              setQuery('');
-              setCurrentMatch(null);
-            }}
-          />
+          <FindBar {...reader.findBar} />
           <DocumentPager
             pageNumber={page}
             pageCount={openDocument.pageCount}
-            zoom={zoom}
-            onPage={goToPage}
-            onZoom={setZoom}
+            zoom={reader.zoom}
+            onPage={reader.goToPage}
+            onZoom={reader.setZoom}
           />
-          <div className="df-page-zoom" data-zoom={zoom}>
+          <div className="df-page-zoom" data-zoom={reader.zoom}>
             <PageReader
               roomId={roomId}
               documentId={documentId}
               pageNumber={page}
               totalPages={openDocument.pageCount}
               source={memberPreviewPageSource}
-              matches={matches}
-              currentMatch={currentMatch}
-              onTextLayer={setLayer}
+              matches={reader.matches}
+              currentMatch={reader.currentMatch}
+              onTextLayer={reader.onTextLayer}
               onLinkActivate={() => undefined}
               onUnauthorized={() => {
                 setDenied(true);

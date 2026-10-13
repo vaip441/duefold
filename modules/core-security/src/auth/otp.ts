@@ -48,12 +48,32 @@ export function verifyOtpDigest(code: string, digest: string, key: string): bool
   const expected = Buffer.from(digest, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
-export function normalizeIp(ip: string): string {
+/** The network a client address belongs to. IPv6 is keyed by its /64, the smallest block
+ * one subscriber is normally given, so rotating addresses within it does not escape the
+ * per-network limits; an IPv4-mapped address is keyed as the IPv4 address. */
+export function clientNetwork(ip: string): string {
   const trimmed = ip.trim();
   const version = isIP(trimmed);
   if (version === 0) throw new Error('invalid network address');
   if (version === 4) return new URL(`http://${trimmed}`).hostname;
-  return new URL(`http://[${trimmed}]`).hostname.slice(1, -1);
+  // URL canonicalizes to lowercase hexadecimal groups, writing an embedded IPv4 in hex.
+  const [head = '', tail] = new URL(`http://[${trimmed}]`).hostname.slice(1, -1).split('::');
+  const left = head === '' ? [] : head.split(':');
+  const right = tail === undefined || tail === '' ? [] : tail.split(':');
+  const groups = [
+    ...left,
+    ...Array.from({ length: 8 - left.length - right.length }, () => '0'),
+    ...right,
+  ].map((group) => Number.parseInt(group, 16));
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff)
+    return groups
+      .slice(6)
+      .flatMap((group) => [group >> 8, group & 0xff])
+      .join('.');
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.toString(16))
+    .join(':')}::/64`;
 }
 export function networkCorrelation(
   ip: string,
@@ -62,7 +82,7 @@ export function networkCorrelation(
 ): { period: string; hmac: string } {
   const period = now.toISOString().slice(0, 7);
   const hmac = createHmac('sha256', key)
-    .update(`${period}\0${normalizeIp(ip)}`)
+    .update(`${period}\0${clientNetwork(ip)}`)
     .digest('hex');
   return { period, hmac };
 }
@@ -151,8 +171,8 @@ export async function createOtpChallenge(input: {
       `SELECT v.id FROM viewer v
        WHERE v.email_key = $1 AND v.state = 'active' AND EXISTS (
          SELECT 1 FROM invitation i WHERE i.kind = 'viewer' AND i.email_key = v.email_key
-           AND i.state IN ('pending','accepted') AND i.expires_at > transaction_timestamp()
-       ) FOR UPDATE`,
+           AND (i.state = 'accepted' OR (i.state = 'pending' AND i.expires_at > transaction_timestamp()))
+       ) AND viewer_holds_room_membership(v.id) FOR UPDATE`,
       [normalized.comparisonKey],
     );
     const id = createOpaqueId();
@@ -261,10 +281,16 @@ export async function consumeOtp(input: {
     await db.query("UPDATE otp_challenge SET state = 'consumed' WHERE id = $1", [
       input.challengeId,
     ]);
+    const correlationId = createCorrelationId();
+    await db.query('SELECT accept_viewer_invitation($1,$2,$3)', [
+      input.challengeId,
+      createOpaqueId(),
+      correlationId,
+    ]);
     await db.query(
       `INSERT INTO audit_event (id,event_type,actor_kind,actor_id,subject_id,result,reason_code,correlation_id)
        VALUES ($1,'auth.otp','viewer',$2,$3,'success','OTP_ACCEPTED',$4)`,
-      [createOpaqueId(), challenge.viewer_id, input.challengeId, createCorrelationId()],
+      [createOpaqueId(), challenge.viewer_id, input.challengeId, correlationId],
     );
     await db.query('COMMIT');
     return {

@@ -154,6 +154,6 @@ try {
     mailer.close();
     await pool.end();
   }
-} catch {
-  terminate();
+} catch (error) {
+  terminate(error);
 }

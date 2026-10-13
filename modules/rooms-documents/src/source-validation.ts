@@ -398,16 +398,39 @@ const ACTIVE_ELEMENT_NAMES =
  * in prose is still accepted because it is unpaired and not at the document
  * root -- see the paired/self-closing/root checks below.
  *
- * A tag body is bounded to keep matching linear and avoid a `<` in prose
- * scanning to the end of a large document looking for `>`.
+ * A tag body ends at the first `>` however far away it is: any length bound
+ * lets padding hide an attribute. Bodies are located with a forward-only cursor
+ * and never overlap, because scanning resumes after each body's `>`, so the
+ * whole document is inspected in linear time. A global `<a[^>]*>` regex would
+ * instead rescan to the next `>` from every unclosed `<a`.
  */
-const TAG_BODY = '[^>]{0,4096}';
-const MARKUP_TAG = new RegExp(`<\\s*(/?)\\s*(${ACTIVE_ELEMENT_NAMES})\\b(${TAG_BODY})>`, 'giu');
-const ROOT_MARKUP = new RegExp(`<\\s*(?:${ACTIVE_ELEMENT_NAMES})\\b${TAG_BODY}>`, 'iy');
-const XML_DOCUMENT = new RegExp(
-  `<\\?xml\\b${TAG_BODY}\\?>\\s*<[A-Za-z_][\\w:.-]*(?:\\s${TAG_BODY})?>`,
-  'iu',
-);
+const TAG_START = new RegExp(`<\\s*(?:(/)\\s*)?(${ACTIVE_ELEMENT_NAMES})\\b`, 'giu');
+const ROOT_MARKUP = new RegExp(`<\\s*(?:${ACTIVE_ELEMENT_NAMES})\\b[^>]*>`, 'iy');
+const XML_DECLARATION_START = /<\?xml\b/giu;
+const XML_ROOT_ELEMENT = /\s*<[A-Za-z_][\w:.-]*(?:\s[^>]*)?>/iy;
+/*
+ * A name run is matched only from its first character, so its trailing `=` test
+ * runs once per run; `\bon[a-z][\w:-]*\s*=` restarted at every `-on` inside one
+ * run and was quadratic in an unbounded body.
+ */
+const ATTRIBUTE_ASSIGNMENT = /(?<![\w:-])([\w:-]+)\s*=/gu;
+const EVENT_HANDLER_NAME = /(?:^|[:-])on[a-z]/iu;
+function assignsEventHandler(attributes: string): boolean {
+  for (const [, name] of attributes.matchAll(ATTRIBUTE_ASSIGNMENT))
+    if (EVENT_HANDLER_NAME.test(name ?? '')) return true;
+  return false;
+}
+/** Returns the first `>` at or after `start`; `start` must not decrease across calls. */
+function tagCloser(text: string): (start: number) => number | undefined {
+  let close = -1;
+  return (start) => {
+    if (close < start) {
+      const found = text.indexOf('>', start);
+      close = found < 0 ? text.length : found;
+    }
+    return close === text.length ? undefined : close;
+  };
+}
 /*
  * An unclosed start tag for a content-loading or scriptable element is still
  * dangerous: a browser recovers from `<script src=...` without a closing `>`
@@ -428,19 +451,40 @@ function startsWithMarkupRoot(text: string): boolean {
   ROOT_MARKUP.lastIndex = cursor;
   return ROOT_MARKUP.test(text);
 }
+function containsXmlDocument(text: string): boolean {
+  const closeFrom = tagCloser(text);
+  let checkedClose = -1;
+  XML_DECLARATION_START.lastIndex = 0;
+  while (XML_DECLARATION_START.exec(text) !== null) {
+    const start = XML_DECLARATION_START.lastIndex;
+    const close = closeFrom(start);
+    if (close === undefined) return false;
+    if (close === checkedClose || text[close - 1] !== '?') continue;
+    checkedClose = close;
+    XML_ROOT_ELEMENT.lastIndex = close + 1;
+    if (XML_ROOT_ELEMENT.test(text)) return true;
+  }
+  return false;
+}
 function containsActiveMarkup(text: string): boolean {
   if (
     /<!doctype\s+html\b/iu.test(text) ||
-    XML_DOCUMENT.test(text) ||
+    containsXmlDocument(text) ||
     DANGEROUS_UNCLOSED_TAG.test(text) ||
     startsWithMarkupRoot(text)
   )
     return true;
+  const closeFrom = tagCloser(text);
   const opened = new Set<string>();
-  for (const match of text.matchAll(MARKUP_TAG)) {
+  TAG_START.lastIndex = 0;
+  for (let match = TAG_START.exec(text); match !== null; match = TAG_START.exec(text)) {
+    const start = TAG_START.lastIndex;
+    const close = closeFrom(start);
+    if (close === undefined) break;
+    TAG_START.lastIndex = close + 1;
     const closing = match[1] === '/';
     const name = match[2]?.toLowerCase();
-    const attributes = match[3] ?? '';
+    const attributes = text.slice(start, close);
     if (name === undefined) continue;
     if (closing) {
       if (opened.has(name)) return true;
@@ -448,8 +492,8 @@ function containsActiveMarkup(text: string): boolean {
     }
     if (
       name === 'script' ||
-      /\/\s*$/u.test(attributes) ||
-      /\bon[a-z][\w:-]*\s*=/iu.test(attributes)
+      attributes.trimEnd().endsWith('/') ||
+      assignsEventHandler(attributes)
     )
       return true;
     opened.add(name);
@@ -467,7 +511,7 @@ function textType(bytes: Uint8Array, binaryMatched = false): SourceMediaType {
     text.includes('\0') ||
     containsActiveMarkup(text) ||
     /<\?(?:php|=)/iu.test(text) ||
-    /(?:^|[\r\n])\s*#!/u.test(text) ||
+    /(?:^|[\r\n])[^\S\r\n]*#!/u.test(text) ||
     /\bjavascript\s*:/iu.test(text)
   )
     throw new Error('SOURCE_ACTIVE_CONTENT_REJECTED');

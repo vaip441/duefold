@@ -15,10 +15,7 @@ import {
 } from '../../modules/core-security/src/auth/otp.ts';
 import { createHandler as createOtpDeliveryHandler } from '../../modules/core-security/src/jobs/otp-delivery.ts';
 import {
-  beginOidc,
   claimFirstOwner,
-  consumeOidcTransaction,
-  persistOidcTransaction,
   resolveOidcMember,
 } from '../../modules/core-security/src/auth/oidc.ts';
 import {
@@ -30,6 +27,7 @@ import {
 import { createSessionAuthenticator } from '../../apps/web/src/authenticate.ts';
 import type { FastifyRequest } from 'fastify';
 import { JobRunner } from '../../apps/worker/src/runner.ts';
+import { deliverChallenge } from '../support/otp-delivery.ts';
 
 const bootstrapPool = new Pool({
   host: '/var/run/postgresql',
@@ -62,6 +60,7 @@ const workerPool = new Pool({
 });
 const ownerId = createOpaqueId();
 const viewerId = createOpaqueId();
+const viewerRoomId = createOpaqueId();
 const sessionPolicy = { idleMinutes: 30, absoluteHours: 12 };
 
 async function migrateFresh(): Promise<void> {
@@ -98,6 +97,22 @@ async function reset(): Promise<void> {
   } finally {
     client.release();
   }
+  await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+    viewerRoomId,
+    'Viewer room',
+    '',
+    ownerId,
+    createOpaqueId(),
+    createCorrelationId(),
+  ]);
+  await addViewerToRoom(viewerId);
+}
+/** OTP issue requires a live room membership. */
+async function addViewerToRoom(viewer: string): Promise<void> {
+  await migrationPool.query(
+    'INSERT INTO viewer_room_membership (id,viewer_id,room_id) VALUES ($1,$2,$3)',
+    [createOpaqueId(), viewer, viewerRoomId],
+  );
 }
 
 beforeAll(reset);
@@ -111,30 +126,6 @@ afterAll(async () => {
 
 function sessionRequest(secret: string): FastifyRequest {
   return { cookies: { '__Host-duefold_session': secret } } as unknown as FastifyRequest;
-}
-async function deliverChallenge(
-  challengeId: string,
-  clock: FixedClock,
-): Promise<string | null> {
-  const delivered: { code?: string } = {};
-  const handler = createOtpDeliveryHandler({
-    pool: workerPool,
-    otpDigestKey: Buffer.alloc(32, 1).toString('base64url'),
-    clock,
-    mailer: {
-      deliver: (message) => {
-        if (message.challengeId === challengeId) delivered.code = message.code;
-        return Promise.resolve();
-      },
-      close: () => undefined,
-    },
-  });
-  const runner = new JobRunner(workerPool, new Map([[OTP_DELIVERY_JOB, handler]]));
-  for (let index = 0; index < 20; index += 1) {
-    await runner.runOne();
-    if (delivered.code !== undefined) break;
-  }
-  return delivered.code ?? null;
 }
 function sqlState(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
@@ -221,26 +212,6 @@ describe('security migration and role boundaries', () => {
         )
       ).rows[0]?.global_role,
     ).toBe('owner');
-  });
-
-  it('persists OIDC state and consumes it strictly once', async () => {
-    const configuration = new (await import('openid-client')).Configuration(
-      {
-        issuer: 'https://issuer.example',
-        authorization_endpoint: 'https://issuer.example/auth',
-      },
-      'client',
-    );
-    const transaction = await beginOidc(configuration, 'https://duefold.example/callback');
-    await persistOidcTransaction(authPool, transaction);
-    expect(await consumeOidcTransaction(authPool, transaction.state)).toMatchObject({
-      state: transaction.state,
-      nonce: transaction.nonce,
-      codeVerifier: transaction.codeVerifier,
-    });
-    await expect(consumeOidcTransaction(authPool, transaction.state)).rejects.toThrow(
-      'OIDC_TRANSACTION_INVALID',
-    );
   });
 
   it('prevents runtime mutation of audit rows through a real role login', async () => {
@@ -573,7 +544,7 @@ describe('OTP invitation binding and concurrency', () => {
 
   it('binds an eligible delivery job to the exact viewer and gives unknown addresses equivalent queued work', async () => {
     const eligible = await createOtpChallenge({ ...base, email: 'VIEWER@example.com' });
-    const eligibleCode = await deliverChallenge(eligible.id, clock);
+    const eligibleCode = await deliverChallenge(workerPool, eligible.id, clock);
     expect(eligibleCode).toMatch(/^\d{8}$/u);
     if (eligibleCode === null) throw new Error('eligible code missing');
     expect(
@@ -596,7 +567,7 @@ describe('OTP invitation binding and concurrency', () => {
       job_type: OTP_DELIVERY_JOB,
       payload: { challengeId: unknown.id },
     });
-    expect(await deliverChallenge(unknown.id, clock)).toBeNull();
+    expect(await deliverChallenge(workerPool, unknown.id, clock)).toBeNull();
     expect(
       await authPool.query('SELECT digest,expires_at,state FROM otp_challenge WHERE id = $1', [
         unknown.id,
@@ -721,7 +692,7 @@ describe('OTP invitation binding and concurrency', () => {
     expect(attempts.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
     const challenge = attempts.find(({ status }) => status === 'fulfilled');
     if (challenge?.status !== 'fulfilled') throw new Error('challenge missing');
-    const code = await deliverChallenge(challenge.value.id, clock);
+    const code = await deliverChallenge(workerPool, challenge.value.id, clock);
     if (code === null) throw new Error('challenge code missing');
     for (let index = 0; index < 5; index += 1)
       expect(
@@ -756,7 +727,7 @@ describe('sessions and immediate principal invalidation', () => {
       client: { browser: 'other', os: 'other', device: 'other' },
       clock,
     });
-    const code = await deliverChallenge(challenge.id, clock);
+    const code = await deliverChallenge(workerPool, challenge.id, clock);
     if (code === null) throw new Error('challenge code missing');
     await migrationPool.query(`CREATE FUNCTION fail_test_audit_insert() RETURNS trigger
       LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END $$`);
@@ -1195,7 +1166,10 @@ describe('durable worker leases', () => {
       workerPool,
       new Map([['test.fail', () => Promise.reject(new Error('fixture failure'))]]),
     );
-    await runner.runOne();
+    expect(await runner.runOne()).toBe(true);
+    expect(await runner.runOne(), 'the exhaustion sweep fails it without running it').toBe(
+      false,
+    );
     expect(
       (
         await workerPool.query<{ state: string }>('SELECT state FROM job_queue WHERE id = $1', [

@@ -99,6 +99,20 @@ beforeAll(async () => {
   } finally {
     client.release();
   }
+  // OTP issue requires a live room membership.
+  const viewerRoomId = createOpaqueId();
+  await databasePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+    viewerRoomId,
+    'Viewer room',
+    '',
+    ownerId,
+    createOpaqueId(),
+    createCorrelationId(),
+  ]);
+  await migrationPool.query(
+    'INSERT INTO viewer_room_membership (id,viewer_id,room_id) VALUES ($1,$2,$3)',
+    [createOpaqueId(), viewerId, viewerRoomId],
+  );
 });
 afterAll(async () => {
   await unauthenticated.close();

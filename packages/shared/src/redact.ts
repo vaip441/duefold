@@ -3,10 +3,23 @@ const TELEMETRY_EVENTS = [
   'process.failure',
   'auth.oidc.refused',
   'database.connection.lost',
+  'job.exhaustion.failed',
+  'upload.cleanup.failed',
 ] as const;
+/** A setting a process refuses to start with, named so the operator knows which to fix. */
+export const STARTUP_REFUSAL_CODES = [
+  'DUEFOLD_CLIENT_ADDRESS_SOURCE_REQUIRED',
+  'DUEFOLD_TRUSTED_PROXIES_EMPTY',
+  'DUEFOLD_TRUSTED_PROXIES_TRUST_ALL_FORBIDDEN',
+  'DUEFOLD_TRUSTED_PROXIES_HOP_COUNT_FORBIDDEN',
+  'DUEFOLD_TRUSTED_EDGE_HOPS_INVALID',
+  'DUEFOLD_TRUSTED_EDGE_HOPS_WITH_TRUSTED_PROXIES',
+] as const;
+export type StartupRefusalCode = (typeof STARTUP_REFUSAL_CODES)[number];
 const TELEMETRY_CODES = [
   'REQUEST_FAILED',
   'PROCESS_FAILED',
+  ...STARTUP_REFUSAL_CODES,
   /*
    * Closed set of sign-in refusal reasons. These are the server's own constants,
    * never provider or database text, and they name a cause without identifying a
@@ -18,6 +31,7 @@ const TELEMETRY_CODES = [
    * check. Diagnosing a real outage required reading the source and guessing.
    */
   'OIDC_TRANSACTION_INVALID',
+  'OIDC_BROWSER_BINDING_INVALID',
   'OIDC_REQUIRED_CLAIMS_MISSING',
   'OIDC_TOKEN_EXPIRED',
   'OIDC_AUTH_TIME_REQUIRED',
@@ -34,6 +48,7 @@ const TELEMETRY_CODES = [
   'MEMBER_INVITATION_REQUIRED',
   'BOOTSTRAP_IDENTITY_NOT_ALLOWED',
   'OWNER_ALREADY_EXISTS',
+  'OIDC_BEGIN_RATE_LIMITED',
   /*
    * A lost database connection reports the SQLSTATE the driver gave and nothing else. The
    * class is what an operator acts on — an administrator command, a crash, an idle timeout —
@@ -45,6 +60,14 @@ const TELEMETRY_CODES = [
   '08006',
   '08003',
   'UNKNOWN',
+  /*
+   * Best-effort cleanup that failed after the outcome it follows was already settled. The
+   * outcome stands; these say which leftover an operator, or the multipart reaper, must clear.
+   */
+  'EXHAUSTED_WORK_FAILED',
+  'UPLOAD_FAILURE_UNRECORDED',
+  'MULTIPART_ABORT_FAILED',
+  'UPLOAD_OBJECT_DELETE_FAILED',
 ] as const;
 const TELEMETRY_LEVELS = ['info', 'warn', 'error'] as const;
 const TELEMETRY_SERVICES = ['web', 'worker', 'cli'] as const;

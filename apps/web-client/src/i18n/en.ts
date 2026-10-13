@@ -377,6 +377,8 @@ export const messages = {
     'Someone else changed this while you were working, or it already exists. Reload to see the current state, then make the change again.',
   'error.conflict.reload': 'Reload',
   'error.invalid.body': 'That request was not accepted. Check the values and try again.',
+  'error.exportTooLarge.body':
+    'These documents are too large to fit in one export. Select fewer documents and export the rest separately.',
   'error.freshSignIn.title': 'Recent sign-in needed',
   'error.freshSignIn.body':
     'This change affects who can read the room, so it needs a recent sign-in. Sign in again, then repeat the change.',
@@ -816,9 +818,13 @@ export const messages = {
   'processing.delete.confirmLabel': 'Type {phrase} to delete',
   'processing.delete.confirm': 'Delete permanently',
   'processing.refresh': 'Check again',
+  'processing.more': 'Load older files',
+  'processing.loadingMore': 'Loading older files\u2026',
 
   'exports.heading': 'Exports',
   'exports.loading': 'Loading exports',
+  'exports.more': 'Load older exports',
+  'exports.loadingMore': 'Loading older exports\u2026',
   'exports.empty': 'No exports yet.',
   'exports.emptyHelp':
     'An export gathers this room’s records into a single file you download once.',

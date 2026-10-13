@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
+import type { TelemetryRecord } from '@duefold/shared/redact';
 import type { MemberIdentity } from '../../core-security/src/authorization.ts';
 import { SOURCE_MEDIA_TYPES, type SourceMediaType } from './source-validation.ts';
 import { assertFormatEnabled } from './release-policy.ts';
@@ -239,6 +240,7 @@ export async function finalizeUpload(dependencies: {
   readonly identity: MemberIdentity;
   readonly input: FinalizeUploadInput;
   readonly now: Date;
+  readonly log: { warn(record: TelemetryRecord): void };
 }): Promise<{ readonly documentId: string; readonly versionId: string }> {
   const selected = await dependencies.pool.query<UploadIntentRow>(
     'SELECT * FROM upload_intent WHERE id = $1',
@@ -343,8 +345,17 @@ export async function finalizeUpload(dependencies: {
       client.release();
     }
   } catch (error) {
-    await dependencies.pool.query(
-      `WITH changed AS (
+    // The completion failure is what the caller sees, so each cleanup step reports a fixed
+    // code instead of replacing it. The multipart reaper clears what a failed intent holds.
+    const reportCleanupFailure = (
+      code:
+        'UPLOAD_FAILURE_UNRECORDED' | 'UPLOAD_OBJECT_DELETE_FAILED' | 'MULTIPART_ABORT_FAILED',
+    ): void => {
+      dependencies.log.warn({ event: 'upload.cleanup.failed', code });
+    };
+    const failureRecorded = await dependencies.pool
+      .query(
+        `WITH changed AS (
          UPDATE upload_intent SET state = 'failed'
          WHERE id = $1 AND state = 'completing' RETURNING id,member_id,room_id
        )
@@ -352,9 +363,26 @@ export async function finalizeUpload(dependencies: {
          (id,event_type,actor_kind,actor_id,room_id,resource_type,resource_id,result,reason_code,correlation_id)
        SELECT $2,'upload.failed','member',member_id,room_id,'upload_intent',id,
          'failure','UPLOAD_FINALIZE_FAILED',$3 FROM changed`,
-      [intent.id, createOpaqueId(), createCorrelationId()],
-    );
-    if (completedObject) await dependencies.storage.deleteObject(intent.object_key);
+        [intent.id, createOpaqueId(), createCorrelationId()],
+      )
+      .then(
+        (result) => result.rowCount === 1,
+        () => false,
+      );
+    if (!failureRecorded) reportCleanupFailure('UPLOAD_FAILURE_UNRECORDED');
+    // A completion error can follow a version commit whose acknowledgement was lost, so the
+    // completed object is deleted only once this intent is known to have failed.
+    if (completedObject) {
+      if (failureRecorded)
+        await dependencies.storage.deleteObject(intent.object_key).catch(() => {
+          reportCleanupFailure('UPLOAD_OBJECT_DELETE_FAILED');
+        });
+    } else
+      await dependencies.storage
+        .abortMultipart({ key: intent.object_key, uploadId: intent.upload_id })
+        .catch(() => {
+          reportCleanupFailure('MULTIPART_ABORT_FAILED');
+        });
     throw error;
   }
 }

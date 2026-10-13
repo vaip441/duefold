@@ -8,7 +8,7 @@
  * cannot pass by making everything empty.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   counterpartyNameTaken,
   describeGrant,
@@ -68,6 +68,28 @@ describe('describeGrant', () => {
     expect(expired.expiry).toContain('Expired');
     // The date is still stated, so a Manager can see WHEN it lapsed.
     expect(expired.expiry).toMatch(/2020/u);
+  });
+
+  describe('east of UTC', () => {
+    const zone = process.env['TZ'];
+    afterEach(() => {
+      if (zone === undefined) delete process.env['TZ'];
+      else process.env['TZ'] = zone;
+    });
+
+    it('states the day the manager chose, not the next one', () => {
+      process.env['TZ'] = 'Europe/Tallinn';
+      const chosen = expiryInstant('2026-10-20')?.toISOString() ?? '';
+      const day = (date: number): string =>
+        new Date(Date.UTC(2026, 9, date, 12)).toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+      const { expiry } = describeGrant(grant({ expiresAt: chosen }), null);
+      expect(expiry).toContain(day(20));
+      expect(expiry).not.toContain(day(21));
+    });
   });
 
   it('names a grant with no end date rather than leaving the expiry blank', () => {

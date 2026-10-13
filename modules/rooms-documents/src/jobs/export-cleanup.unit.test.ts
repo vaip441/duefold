@@ -26,10 +26,6 @@ describe('export cleanup job', () => {
           order.push('finalize');
           return Promise.resolve({ rows: [{ finalize_export_cleanup: true }] });
         }
-        if (sql.startsWith('INSERT INTO job_queue')) {
-          order.push('schedule');
-          return Promise.resolve({ rows: [], rowCount: 1 });
-        }
         return Promise.reject(new Error('unexpected SQL'));
       }),
     };
@@ -55,7 +51,7 @@ describe('export cleanup job', () => {
         assertLease: () => Promise.resolve(),
       },
     );
-    expect(order).toEqual(['expire', 'claim', 'delete', 'finalize', 'schedule']);
+    expect(order).toEqual(['expire', 'claim', 'delete', 'finalize']);
   });
 
   it('does not finalize when physical deletion fails', async () => {

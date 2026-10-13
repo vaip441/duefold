@@ -8,7 +8,7 @@
 import { useId, useRef, useState } from 'react';
 import type { DownloadPolicy, RoomSettings } from '../api/client.ts';
 import { translate, type MessageKey } from '../i18n/translate.ts';
-import { expiryDisplay, parseExpiryField } from '../workspace/room-settings.ts';
+import { accessExpiryDisplay, parseExpiryField } from '../workspace/room-settings.ts';
 import type { RoomSettingsSection } from '../workspace/useRoomSettings.ts';
 import { ConfirmationDialog, type ConfirmationContent } from './ConfirmationDialog.tsx';
 
@@ -106,7 +106,7 @@ export function RoomPolicyControls({
                           ? translate('settings.expiry.consequenceNone')
                           : translate(
                               'settings.expiry.consequence',
-                              expiryDisplay(outcome.value.resolvedExpiresAt),
+                              accessExpiryDisplay(outcome.value.resolvedExpiresAt),
                             )}
                       </p>
                     ),
@@ -182,7 +182,7 @@ export function RoomPolicyControls({
             ? translate('settings.expiry.none')
             : translate(
                 'settings.expiry.current',
-                expiryDisplay(settings.defaultGrantExpiresAt),
+                accessExpiryDisplay(settings.defaultGrantExpiresAt),
               )}
         </p>
         <div className="df-field">

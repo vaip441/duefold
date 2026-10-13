@@ -4,7 +4,7 @@ import { parseSingleRange } from './downloads.ts';
 import {
   monthlyNetworkCorrelation,
   composeWatermarkPage,
-  parseTextLayerForTesting,
+  parseTextLayer,
 } from './protected-delivery.ts';
 import { sandboxProgram } from './processing/sandbox.ts';
 import { fileURLToPath } from 'node:url';
@@ -72,11 +72,9 @@ describe('protected delivery security normalization', () => {
       width: 100,
       height: 20,
     }));
-    expect(parseTextLayerForTesting(layer).map((item) => item.text)).toEqual(legitimate);
+    expect(parseTextLayer(layer).map((item) => item.text)).toEqual(legitimate);
     for (const unsafe of ['<script>alert(1)</script>', '<img src=x>', '<video>'])
-      expect(
-        parseTextLayerForTesting([{ text: unsafe, x: 0, y: 0, width: 1, height: 1 }]),
-      ).toEqual([]);
+      expect(parseTextLayer([{ text: unsafe, x: 0, y: 0, width: 1, height: 1 }])).toEqual([]);
   });
   it('accepts only one bounded explicit byte range', () => {
     expect(parseSingleRange('bytes=0-9', 10)).toEqual({ start: 0, endInclusive: 9 });

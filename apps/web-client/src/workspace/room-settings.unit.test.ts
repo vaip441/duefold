@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { RoomSettings } from '../api/client.ts';
 import {
-  expiryDisplay,
+  accessExpiryDisplay,
   formatByteSize,
   parseExpiryField,
   readFor,
@@ -85,11 +85,36 @@ describe('readFor', () => {
   });
 });
 
-describe('expiryDisplay', () => {
+describe('accessExpiryDisplay', () => {
   /* Seconds included, because an expiry is the END of the chosen day: shown to the minute,
      the value displayed would not be the value the review promised. */
   it('always carries the exact UTC instant beside the localized one', () => {
-    expect(expiryDisplay('2027-09-21T23:59:59.999+00:00').utc).toBe('2027-09-21 23:59:59 UTC');
+    expect(accessExpiryDisplay('2027-09-21T23:59:59.999+00:00').utc).toBe(
+      '2027-09-21 23:59:59 UTC',
+    );
+  });
+
+  describe('east of UTC', () => {
+    const zone = process.env['TZ'];
+    afterEach(() => {
+      if (zone === undefined) delete process.env['TZ'];
+      else process.env['TZ'] = zone;
+    });
+
+    it('states the day the manager chose, not the next one', () => {
+      process.env['TZ'] = 'Europe/Tallinn';
+      const chosen = parseExpiryField('2026-10-20', new Date('2026-10-13T00:00:00Z'));
+      if (!chosen.ok || chosen.expiresAt === null) throw new Error('expected a default');
+      const day = (date: number): string =>
+        new Date(Date.UTC(2026, 9, date, 12)).toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+      const { local } = accessExpiryDisplay(chosen.expiresAt);
+      expect(local).toBe(day(20));
+      expect(local).not.toBe(day(21));
+    });
   });
 });
 

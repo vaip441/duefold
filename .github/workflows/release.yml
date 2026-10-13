@@ -181,7 +181,7 @@ jobs:
             advisory=(--security-advisory)
           fi
           node deploy/sign-release-manifest.ts \
-            --version "${{ github.ref_name }}" \
+            --version "${GITHUB_REF_NAME#v}" \
             --web-digest "${{ steps.build-web.outputs.digest }}" \
             --worker-digest "${{ steps.build-worker.outputs.digest }}" \
             "${advisory[@]}" \

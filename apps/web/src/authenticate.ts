@@ -109,7 +109,6 @@ export function createSessionAuthenticator(
       principal = {
         kind: 'viewer',
         id: session.viewer_id,
-        sessionId: session.id,
         sessionProof: session.secret_digest,
       };
     }

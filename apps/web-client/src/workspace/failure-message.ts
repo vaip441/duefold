@@ -31,6 +31,8 @@ export function failureMessage(error: unknown): string {
       return translate('error.conflict.body');
     case 'invalid':
       return translate('error.invalid.body');
+    case 'export-too-large':
+      return translate('error.exportTooLarge.body');
     case 'unavailable':
       return translate('error.unavailable.body');
   }

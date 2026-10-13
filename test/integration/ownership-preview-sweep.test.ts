@@ -7,10 +7,11 @@
  *
  * Driven through the real `JobRunner` against the real queue rather than by calling the
  * handler directly: what needs proving is that the migration seeds the job, that the
- * runner's registry reaches the handler, and that the handler re-arms the schedule under
- * its own lease. Calling the function would prove only that DELETE works.
+ * runner's registry reaches the handler, and that the runner keeps the schedule going.
+ * Calling the function would prove only that DELETE works.
  */
 
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
@@ -184,8 +185,8 @@ describe('the ownership preview sweep', () => {
   /*
    * THE SCHEDULE MUST SURVIVE ITS OWN RUN.
    *
-   * The sweep is not driven by an external scheduler: each run queues the next inside the
-   * lease that performed it, like `export.cleanup`. If the follow-up were not written, the
+   * The sweep is not driven by an external scheduler: the runner queues the next run when it
+   * claims one, as for every recurring job. If the follow-up were not written, the
    * migration's single seeded row would be consumed on first run and the sweep would never
    * happen again — the table would grow unbounded and nothing would report it.
    */
@@ -212,6 +213,39 @@ describe('the ownership preview sweep', () => {
     expect(pending?.available_at.getTime()).toBeGreaterThan(Date.now() + 30 * 60 * 1000);
   });
 
+  it('keeps its schedule when a run fails on its final attempt', async () => {
+    const before = await queuedIds();
+    await releaseSweep();
+    await migrationPool.query(
+      "UPDATE job_queue SET max_attempts = 1 WHERE job_type = 'ownership.preview.purge' AND state = 'pending'",
+    );
+    await migrationPool.query(`CREATE FUNCTION fail_preview_purge() RETURNS trigger
+      LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected purge failure'; END $$`);
+    await migrationPool.query(
+      'CREATE TRIGGER fail_preview_purge BEFORE DELETE ON ownership_transfer_preview FOR EACH STATEMENT EXECUTE FUNCTION fail_preview_purge()',
+    );
+    try {
+      expect(await runner().runOne()).toBe(true);
+      expect(await runner().runOne()).toBe(false);
+    } finally {
+      await migrationPool.query(
+        'DROP TRIGGER fail_preview_purge ON ownership_transfer_preview',
+      );
+      await migrationPool.query('DROP FUNCTION fail_preview_purge()');
+    }
+    const states = (
+      await migrationPool.query<{ id: string; state: string }>(
+        "SELECT id, state FROM job_queue WHERE job_type='ownership.preview.purge'",
+      )
+    ).rows;
+    expect(states.filter(({ id }) => before.includes(id)).map(({ state }) => state)).toContain(
+      'failed',
+    );
+    expect(
+      states.filter(({ id }) => !before.includes(id)).map(({ state }) => state),
+    ).toStrictEqual(['pending']);
+  });
+
   /* The runtime credential must not be able to destroy transfer evidence: deleting a
      preview is how a caller would erase the record that a dry run was required. */
   it('is callable by the worker alone', async () => {
@@ -221,5 +255,31 @@ describe('the ownership preview sweep', () => {
     await expect(
       workerPool.query('SELECT purge_ownership_transfer_previews()'),
     ).resolves.toBeDefined();
+  });
+
+  it('is restarted by migration 038 when its schedule has ended, ignoring an exhausted run', async () => {
+    const migration = readFileSync(
+      'modules/core-security/migrations/038_member_sign_in_hardening.sql',
+      'utf8',
+    );
+    const restart = migration.slice(
+      migration.indexOf(
+        'INSERT INTO job_queue (id,job_type,idempotency_key,payload,available_at,max_attempts)',
+      ),
+    );
+    await migrationPool.query(
+      `UPDATE job_queue SET state='running',attempts=max_attempts,lease_owner='expired-worker',
+         lease_token='expired-token',lease_expires_at=statement_timestamp()-interval '1 minute'
+       WHERE job_type='ownership.preview.purge' AND state='pending'`,
+    );
+    await migrationPool.query(restart);
+    await migrationPool.query(restart);
+    expect(
+      (
+        await migrationPool.query<{ idempotency_key: string }>(
+          "SELECT idempotency_key FROM job_queue WHERE job_type='ownership.preview.purge' AND state='pending'",
+        )
+      ).rows,
+    ).toStrictEqual([{ idempotency_key: 'ownership-preview-purge:restart-038' }]);
   });
 });

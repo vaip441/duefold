@@ -30,7 +30,7 @@ import type {
 import { translate, translateCount } from '../i18n/translate.ts';
 import {
   describeGrant,
-  formatDate,
+  formatExpiryDay,
   grantableTargets,
   validateGrantDraft,
   type GrantDraft,
@@ -577,7 +577,7 @@ function GrantChangeForm({
             {impact.resolvedExpiresAt === null
               ? translate('grant.impact.noExpiry')
               : translate('grant.impact.expiry', {
-                  date: formatDate(impact.resolvedExpiresAt),
+                  date: formatExpiryDay(impact.resolvedExpiresAt),
                 })}
           </p>
           {impact.paths.length === 0 ? null : (

@@ -83,6 +83,18 @@ export interface JobDeclaration {
   readonly handler: string;
   readonly handlerFactoryExport: 'createHandler';
   readonly service: Extract<ServiceTarget, 'worker'>;
+  /**
+   * Makes the job recurring: claiming a run queues the next one this many seconds out.
+   * A recurring job takes no payload; every successor is queued with `{}`.
+   */
+  readonly everySeconds?: number;
+  /**
+   * Lowercase name of a function in the `public` schema, called as
+   * `fn(job_id, audit_id, correlation_id, follow_up_job_id)` in the transaction that fails
+   * the job after its last attempt. A missing function defers the job as
+   * EXHAUSTION_HOOK_FAILED, which installation status reports as failed.
+   */
+  readonly onExhausted?: string;
 }
 
 export interface ConfigFieldDeclaration {

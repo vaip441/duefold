@@ -149,6 +149,24 @@ describe('page shape', () => {
   });
 });
 
+describe('cursor query', () => {
+  const validateQuery = ajv.compile(schema.querystring);
+  const query = (afterCreatedAt: string) => ({
+    afterCreatedAt,
+    afterSubjectId: 'a'.repeat(32),
+  });
+
+  it('accepts the timestamp text read_members issues', () => {
+    expect(validateQuery(query('2026-09-20 10:00:00.123456+00'))).toBe(true);
+    expect(validateQuery(query('2026-09-20 10:00:00+05:30'))).toBe(true);
+  });
+
+  it('refuses a timestamp PostgreSQL could not cast, before it reaches the database', () => {
+    expect(validateQuery(query('not a timestamp, padded long'))).toBe(false);
+    expect(validateQuery(query('2026-09-20 10:00:00.1234567+00'))).toBe(false);
+  });
+});
+
 describe('the wire type refuses what the schema refuses', () => {
   it('keeps the union discriminated rather than flattening it', () => {
     expectTypeOf<Extract<MemberListSubject, { subjectKind: 'member' }>>().toHaveProperty(

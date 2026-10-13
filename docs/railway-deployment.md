@@ -233,17 +233,36 @@ DUEFOLD_STORAGE_WEB_SECRET_ACCESS_KEY=<duefold-web token secret>
 DUEFOLD_WATERMARK_IMAGE_PROGRAM=/usr/bin/magick-im7.q16
 PORT=8080
 DUEFOLD_PORT=8080
+DUEFOLD_TRUSTED_EDGE_HOPS=1
 ```
 
 Set both `PORT` and `DUEFOLD_PORT`. Railway uses `PORT` for its health check and
 edge routing; `DUEFOLD_PORT` is what the server binds.
 
-Leave `DUEFOLD_TRUSTED_PROXIES` unset. Railway appends the client IP to any
-`X-Forwarded-For` a caller supplies and publishes no stable proxy CIDR, so there
-is no value that would be safe to trust. The consequence is that per-IP rate
-limiting on sign-in codes keys on Railway's edge address rather than the reader's,
-making it coarser. Duefold rejects `true` and hop counts precisely to stop this
-from becoming a silent spoofing hole.
+Set `DUEFOLD_TRUSTED_EDGE_HOPS=1` and leave `DUEFOLD_TRUSTED_PROXIES` unset;
+setting both fails startup, and so does setting neither. Railway publishes no
+stable proxy CIDR, so there is no address to put in `DUEFOLD_TRUSTED_PROXIES`.
+Without the setting every request would appear to come from Railway's edge, and
+the per-network limits on sign-in codes and on starting OIDC sign-in would become
+one bucket for the whole installation: one anonymous caller could block team and
+owner sign-in for everyone. Upgrading from 1.3.0 or earlier needs a particular
+order; see [Upgrading from 1.3.0 or earlier](#upgrading-from-130-or-earlier).
+
+With the setting, Duefold takes the client address from the right-most
+`X-Forwarded-For` entry and ignores everything to its left. That is safe on
+Railway because its edge is the only way to reach the container and it appends
+the address it actually received to whatever `X-Forwarded-For` a caller sent: a
+caller can forge the entries on the left, never the one the edge adds. Never set
+it where clients can reach the container directly, through a TCP proxy, a public
+port, or another ingress, because there a caller writes the right-most entry
+itself. Only `1` is accepted. `DUEFOLD_TRUSTED_PROXIES` still rejects `true` and
+hop counts.
+
+Other services on the same Railway private network can reach the web container
+directly and set the right-most `X-Forwarded-For` entry, so enable the setting
+only while every service on that network is operator-controlled. With it on,
+`X-Forwarded-Host` and `X-Forwarded-Proto` from the edge are trusted as well,
+although nothing reads them today.
 
 ### Worker service only
 
@@ -296,6 +315,34 @@ railway ssh --service worker -- \
 The web service fails its health check until migrations have applied, so expect
 the first deployment to go healthy only after this step. Redeploy it if Railway
 already marked it failed.
+
+### Upgrading from 1.3.0 or earlier
+
+This release adds `DUEFOLD_TRUSTED_EDGE_HOPS`, and neither obvious order works on
+its own. 1.3.0 fails startup on any `DUEFOLD_*` variable it does not know, so
+applying the variable first redeploys 1.3.0 into a crash loop. The new web service
+refuses to start without it, so deploying first fails too. Make the variable and
+the new release one change, so the first deployment that sees the variable runs
+the new code:
+
+1. Commit the variable to the web service without redeploying:
+
+   ```sh
+   railway variable set DUEFOLD_TRUSTED_EDGE_HOPS=1 --service web --skip-deploys
+   ```
+
+   In the dashboard, stage the variable and hold **Alt** while clicking
+   **Deploy**. A plain **Deploy** on the staged change redeploys the running
+   1.3.0 code with the variable and crashes it.
+
+2. Deploy the new release to both services, which picks the variable up:
+
+   ```sh
+   railway up --service web
+   railway up --service worker
+   ```
+
+3. Run migrations as above. The web service goes healthy once they have applied.
 
 ## 8. Verify
 

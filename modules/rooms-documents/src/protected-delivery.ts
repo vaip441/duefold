@@ -83,10 +83,6 @@ export function parseTextLayer(value: unknown): readonly TextItem[] {
   return items;
 }
 
-export function parseTextLayerForTesting(value: unknown): readonly TextItem[] {
-  return parseTextLayer(value);
-}
-
 export function resolveInterstitialTarget(value: unknown): SafeHttpsLink {
   const normalized = normalizeSafeHttpsLink(value);
   if (normalized === undefined) throw new Error('EXTERNAL_LINK_UNSAFE');

@@ -35,6 +35,9 @@ export interface ProcessingPanelProps {
   readonly denied: boolean;
   readonly failure: PresentedFailure | null;
   readonly busyVersionId: string | null;
+  readonly hasMore: boolean;
+  readonly loadingMore: boolean;
+  readonly onLoadMore: () => void;
   readonly onRetry: (version: ProcessingVersion) => void;
   readonly onDeleteSource: (version: ProcessingVersion) => void;
   readonly onRefresh: () => void;
@@ -49,6 +52,9 @@ export function ProcessingPanel({
   denied,
   failure,
   busyVersionId,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   onRetry,
   onDeleteSource,
   onRefresh,
@@ -241,6 +247,19 @@ export function ProcessingPanel({
           </tbody>
         </table>
       )}
+      {hasMore ? (
+        <div className="df-panel__actions">
+          <button
+            type="button"
+            className="df-button"
+            data-busy={loadingMore ? 'true' : 'false'}
+            disabled={loadingMore}
+            onClick={onLoadMore}
+          >
+            {loadingMore ? translate('processing.loadingMore') : translate('processing.more')}
+          </button>
+        </div>
+      ) : null}
 
       <p className="df-field__help">{translate('processing.retry.once')}</p>
       <button type="button" className="df-button df-button--quiet" onClick={onRefresh}>

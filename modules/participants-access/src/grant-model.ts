@@ -3,7 +3,6 @@ import type { MemberIdentity } from '../../core-security/src/authorization.ts';
 
 export type GrantSource = 'direct' | 'counterparty';
 export type GrantTargetKind = 'room' | 'folder' | 'document';
-export type DownloadPolicy = 'allow' | 'deny';
 
 export interface EffectivePermission {
   readonly grantId: string;
@@ -42,21 +41,4 @@ export async function readEffectivePermissionPreview(input: {
     expiresAt: row.expires_at?.toISOString() ?? null,
     documentLevelException: row.document_level_exception,
   }));
-}
-
-/** Uniform document policy; the caller must separately authorize document access. */
-export async function resolveDocumentDownloadPolicy(input: {
-  readonly pool: Pool;
-  readonly viewerId: string;
-  readonly sessionId: string;
-  readonly roomId: string;
-  readonly documentId: string;
-}): Promise<DownloadPolicy> {
-  const result = await input.pool.query<{ policy: string | null }>(
-    'SELECT policy FROM read_viewer_document_download_policy($1,$2,$3,$4)',
-    [input.viewerId, input.sessionId, input.roomId, input.documentId],
-  );
-  const policy = result.rows[0]?.policy;
-  if (policy !== 'allow' && policy !== 'deny') throw new Error('DOWNLOAD_POLICY_UNAVAILABLE');
-  return policy;
 }

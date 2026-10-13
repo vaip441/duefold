@@ -37,17 +37,17 @@ export function usePreviewEvidence({ activityId, onRejected }: PreviewEvidenceIn
   // Held in a ref so the inactivity timer can be reset by interaction without
   // re-running the effect and restarting the heartbeat cadence.
   const lastInteraction = useRef<number>(Date.now());
-  const closed = useRef(false);
 
   useEffect(() => {
     if (activityId === null) return;
-    closed.current = false;
     lastInteraction.current = Date.now();
+    // Per activity, so a late answer for a closed activity cannot stop the next one.
+    let closed = false;
     let timer: number | undefined;
 
     const finish = (status: 'closed' | 'inactive'): void => {
-      if (closed.current) return;
-      closed.current = true;
+      if (closed) return;
+      closed = true;
       // Failure here is silent by design: the server also finalizes an activity
       // from its own inactivity job, so a lost close is recovered server-side
       // rather than retried from a page that may be unloading.
@@ -55,7 +55,7 @@ export function usePreviewEvidence({ activityId, onRejected }: PreviewEvidenceIn
     };
 
     const beat = (): void => {
-      if (closed.current) return;
+      if (closed) return;
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastInteraction.current >= INACTIVITY_MS) {
         finish('inactive');
@@ -63,14 +63,16 @@ export function usePreviewEvidence({ activityId, onRejected }: PreviewEvidenceIn
       }
       heartbeatPreview(activityId).then(
         (accepted) => {
+          if (closed) return;
           // A refused heartbeat means the session or grant no longer authorizes
           // this activity. The surface stops rather than continuing to render.
           if (!accepted) {
-            closed.current = true;
+            closed = true;
             onRejected();
           }
         },
         (error: unknown) => {
+          if (closed) return;
           /*
            * A rejected heartbeat REQUEST is not the same as a refused heartbeat.
            * Discarding it silently let a revoked viewer keep reading while the
@@ -82,7 +84,7 @@ export function usePreviewEvidence({ activityId, onRejected }: PreviewEvidenceIn
             error instanceof ApiError &&
             (error.failure === 'unauthenticated' || error.failure === 'denied')
           ) {
-            closed.current = true;
+            closed = true;
             onRejected();
           }
         },

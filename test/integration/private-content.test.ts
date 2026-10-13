@@ -3,15 +3,18 @@ import { Pool } from 'pg';
 import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
 import { migrate } from '../../modules/core-security/src/db/migrate.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
+import type { TelemetryRecord } from '@duefold/shared/redact';
 import {
   createUploadIntent,
   finalizeUpload,
 } from '../../modules/rooms-documents/src/uploads.ts';
+import { requestManualProcessingRetry } from '../../modules/rooms-documents/src/processing-retry.ts';
 import {
   createWebStorage,
   createWorkerStorage,
   webStorageConfig,
   workerStorageConfig,
+  type MultipartIdentity,
   type WebStorage,
 } from '../../modules/rooms-documents/src/storage/s3-compatible.ts';
 import { createHandler as createMultipartReapHandler } from '../../modules/rooms-documents/src/jobs/multipart-reap.ts';
@@ -50,6 +53,7 @@ const runtimePool = new Pool({ connectionString: process.env['DUEFOLD_TEST_DATAB
 const workerPool = new Pool({
   connectionString: process.env['DUEFOLD_TEST_WORKER_DATABASE_URL'],
 });
+const silentLog = { warn: () => undefined };
 const ownerId = createOpaqueId();
 const contributorId = createOpaqueId();
 const roomId = createOpaqueId();
@@ -167,6 +171,7 @@ describe('multipart intent and quarantine transaction', () => {
         parts: [{ partNumber: 1, etag }],
       },
       now: new Date(),
+      log: silentLog,
     });
     const forgedJobId = createOpaqueId();
     const forgedToken = createOpaqueId();
@@ -248,6 +253,7 @@ describe('multipart intent and quarantine transaction', () => {
         parts: [{ partNumber: 1, etag }],
       },
       now: new Date(),
+      log: silentLog,
     });
     expect(
       (
@@ -427,6 +433,7 @@ describe('multipart intent and quarantine transaction', () => {
         parts: [{ partNumber: 1, etag }],
       },
       now: new Date(),
+      log: silentLog,
     });
     const workerStorage = createWorkerStorage(
       workerStorageConfig({
@@ -486,6 +493,7 @@ describe('multipart intent and quarantine transaction', () => {
         parts: [{ partNumber: 1, etag }],
       },
       now: new Date(),
+      log: silentLog,
     });
     const malware = await startClamAvTestEndpoint({
       signatureDate: new Date(),
@@ -565,6 +573,7 @@ describe('multipart intent and quarantine transaction', () => {
         parts: [{ partNumber: 1, etag }],
       },
       now: new Date(),
+      log: silentLog,
     });
     const malformed = await startClamAvTestEndpoint({
       signatureDate: new Date(),
@@ -635,6 +644,7 @@ describe('multipart intent and quarantine transaction', () => {
           parts: [{ partNumber: 1, etag }],
         },
         now: new Date(),
+        log: silentLog,
       }),
     ).rejects.toThrow('UPLOAD_FORBIDDEN');
     expect(
@@ -666,6 +676,7 @@ describe('multipart intent and quarantine transaction', () => {
             parts: [{ partNumber: 1, etag }],
           },
           now: new Date(),
+          log: silentLog,
         }),
       ).rejects.toThrow('injected upload audit failure');
       expect(
@@ -813,5 +824,139 @@ describe('multipart intent and quarantine transaction', () => {
     await expect(
       runtimePool.query('DELETE FROM document_version WHERE id = $1', [versionId]),
     ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('aborts the multipart upload when completion fails without masking the failure', async () => {
+    const { created, etag, objectKey } = await createAndUpload(owner, 'abandoned parts');
+    const aborted: MultipartIdentity[] = [];
+    const logged: TelemetryRecord[] = [];
+    await expect(
+      finalizeUpload({
+        pool: runtimePool,
+        storage: {
+          ...storage,
+          completeMultipart: () => Promise.reject(new Error('fixture completion failure')),
+          abortMultipart: (identity) => {
+            aborted.push(identity);
+            return Promise.reject(new Error('fixture abort failure'));
+          },
+        },
+        identity: owner,
+        input: {
+          intentId: created.intentId,
+          uploadId: created.uploadId,
+          parts: [{ partNumber: 1, etag }],
+        },
+        now: new Date(),
+        log: { warn: (record) => logged.push(record) },
+      }),
+    ).rejects.toThrow('fixture completion failure');
+    expect(aborted).toStrictEqual([{ key: objectKey, uploadId: created.uploadId }]);
+    expect(logged).toStrictEqual([
+      { event: 'upload.cleanup.failed', code: 'MULTIPART_ABORT_FAILED' },
+    ]);
+    expect(
+      (
+        await runtimePool.query<{ state: string }>(
+          'SELECT state FROM upload_intent WHERE id = $1',
+          [created.intentId],
+        )
+      ).rows[0]?.state,
+    ).toBe('failed');
+  });
+
+  async function quarantinedVersion(text: string): Promise<string> {
+    const { created, etag } = await createAndUpload(owner, text);
+    const finalized = await finalizeUpload({
+      pool: runtimePool,
+      storage,
+      identity: owner,
+      input: {
+        intentId: created.intentId,
+        uploadId: created.uploadId,
+        parts: [{ partNumber: 1, etag }],
+      },
+      now: new Date(),
+      log: silentLog,
+    });
+    return finalized.versionId;
+  }
+
+  async function expectRetryableAfterExhaustion(versionId: string): Promise<void> {
+    expect(
+      (
+        await migrationPool.query<{
+          state: string;
+          failure_kind: string;
+          failure_code: string;
+        }>('SELECT state,failure_kind,failure_code FROM document_version WHERE id = $1', [
+          versionId,
+        ])
+      ).rows[0],
+    ).toStrictEqual({
+      state: 'processing_failed',
+      failure_kind: 'transient',
+      failure_code: 'PROCESSING_ATTEMPTS_EXHAUSTED',
+    });
+    expect(
+      (
+        await migrationPool.query<{ job_type: string; state: string }>(
+          "SELECT job_type,state FROM job_queue WHERE payload->>'versionId' = $1 ORDER BY job_type",
+          [versionId],
+        )
+      ).rows,
+    ).toStrictEqual([
+      { job_type: 'document.retention.sweep', state: 'pending' },
+      { job_type: 'document.source.validate', state: 'failed' },
+    ]);
+    expect(
+      (
+        await migrationPool.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM audit_event WHERE resource_id = $1
+             AND event_type = 'document.processing' AND reason_code = 'PROCESSING_ATTEMPTS_EXHAUSTED'`,
+          [versionId],
+        )
+      ).rows[0]?.n,
+    ).toBe(1);
+    await requestManualProcessingRetry({ pool: runtimePool, identity: owner, versionId });
+    expect(
+      (
+        await migrationPool.query<{ state: string }>(
+          'SELECT state FROM document_version WHERE id = $1',
+          [versionId],
+        )
+      ).rows[0]?.state,
+    ).toBe('quarantine');
+  }
+
+  it('fails a version whose validation was killed on every attempt so Retry is offered', async () => {
+    const versionId = await quarantinedVersion('killed validation');
+    await workerPool.query(
+      `UPDATE job_queue SET state = 'running',attempts = max_attempts,lease_owner = $2,
+         lease_token = $3,lease_expires_at = transaction_timestamp() - interval '1 second',
+         available_at = '2000-01-01'
+       WHERE job_type = 'document.source.validate' AND payload->>'versionId' = $1`,
+      [versionId, createOpaqueId(), createOpaqueId()],
+    );
+    await new JobRunner(workerPool, new Map()).runOne();
+    await expectRetryableAfterExhaustion(versionId);
+  });
+
+  it('fails a version whose validation threw on its final attempt so Retry is offered', async () => {
+    const versionId = await quarantinedVersion('failing validation');
+    await workerPool.query(
+      `UPDATE job_queue SET attempts = max_attempts - 1,available_at = '2000-01-01'
+       WHERE job_type = 'document.source.validate' AND payload->>'versionId' = $1`,
+      [versionId],
+    );
+    const runner = new JobRunner(
+      workerPool,
+      new Map([
+        ['document.source.validate', () => Promise.reject(new Error('fixture final failure'))],
+      ]),
+    );
+    expect(await runner.runOne()).toBe(true);
+    await runner.runOne();
+    await expectRetryableAfterExhaustion(versionId);
   });
 });

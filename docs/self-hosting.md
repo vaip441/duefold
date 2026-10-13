@@ -22,13 +22,13 @@ Duefold serves one organization per installation. The reference deployment needs
    }
    ```
 
-5. Start the installation:
+5. Create the containers and the Compose network without starting them. The web service refuses to start until step 6 names the proxy:
 
    ```sh
-   docker compose up -d
+   docker compose create
    ```
 
-6. Trust the proxy. Requests reach Duefold from the Compose network's gateway, not `127.0.0.1`. Set `DUEFOLD_TRUSTED_PROXIES` to that address—never `true` or a hop count—and apply it:
+6. Trust the proxy and start. Requests reach Duefold from the Compose network's gateway, not `127.0.0.1`. Set `DUEFOLD_TRUSTED_PROXIES` in `.env` to that address—never `true` or a hop count—and leave `DUEFOLD_TRUSTED_EDGE_HOPS` unset; it is only for a platform edge that is the sole ingress, such as [Railway](railway-deployment.md). Then start the installation:
 
    ```sh
    docker network inspect duefold_default --format '{{(index .IPAM.Config 0).Gateway}}'
@@ -81,7 +81,9 @@ docker compose run --rm \
   migrate updates check-file /tmp/release-manifest.json
 ```
 
-The command exits non-zero if the signature, payload, or public key does not verify, or if the manifest offers a newer release that carries a security advisory. It records its answer for the **Status** section, where it reads as stale after thirty days: run it whenever a release is published. After it succeeds, confirm a current tested backup, set `DUEFOLD_IMAGE_TAG` to the new version, then run:
+The command exits non-zero if the signature, payload, or public key does not verify, or if the manifest offers a newer release that carries a security advisory. It records its answer for the **Status** section, where it reads as stale after thirty days: run it whenever a release is published. After it succeeds, confirm a current tested backup, set `DUEFOLD_IMAGE_TAG` to the new version, then run the commands below.
+
+When upgrading from 1.3.0 or earlier, first make sure `.env` sets `DUEFOLD_TRUSTED_PROXIES` as in [step 6](#start): the new web service refuses to start without it. 1.3.0 already reads that variable, so setting it before the upgrade is safe.
 
 ```sh
 docker compose pull

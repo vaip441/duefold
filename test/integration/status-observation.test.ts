@@ -1,9 +1,10 @@
 /**
  * The hourly status observation, driven through the real `JobRunner` against the real
  * queue, the S3 test endpoint and the clamd double: the migration seeds it, the runner
- * reaches the handler, each observation is recorded, and the schedule re-arms under the
- * job's own lease.
+ * reaches the handler, each observation is recorded, and the runner queues the next run
+ * when it claims one.
  */
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generatedJobs } from '../../.duefold/generated/jobs.ts';
 import { JobRunner } from '../../apps/worker/src/runner.ts';
@@ -137,6 +138,30 @@ describe('the status observation job', () => {
     expect(pending[0]?.available_at.getTime()).toBeGreaterThan(Date.now() + 50 * 60_000);
   });
 
+  it('keeps its schedule when a run fails on its final attempt', async () => {
+    await migrationPool.query(
+      "UPDATE job_queue SET max_attempts=1 WHERE job_type='status.observe' AND state='pending'",
+    );
+    await observe({
+      storageProbe: {
+        privacy: () => Promise.reject(new Error('fixture probe failure')),
+        versioning: () => Promise.resolve('VERSIONING_ENABLED'),
+      },
+      scanner: await scanner({ signatureDate: new Date() }),
+    });
+    expect(await new JobRunner(workerPool, new Map()).runOne()).toBe(false);
+    const rows = (
+      await migrationPool.query<{ state: string; last_error_code: string | null }>(
+        `SELECT state,last_error_code FROM job_queue WHERE job_type='status.observe'
+          AND state IN ('pending','failed') ORDER BY state`,
+      )
+    ).rows;
+    expect(rows).toStrictEqual([
+      { state: 'failed', last_error_code: 'HANDLER_FAILED' },
+      { state: 'pending', last_error_code: null },
+    ]);
+  });
+
   it('answers each dependency on its own, so one failure hides nothing', async () => {
     await observe({
       storageProbe: await storage({ versioning: 'not-implemented' }),
@@ -232,5 +257,35 @@ describe('the status observation job', () => {
       expect(row.code).not.toContain('ECONNREFUSED');
       expect(row.code).not.toContain('unreachable-bucket');
     }
+  });
+
+  it('is restarted by migration 036 with export cleanup when their schedules have ended, ignoring an exhausted run', async () => {
+    const migration = readFileSync(
+      'modules/rooms-documents/migrations/036_job_exhaustion.sql',
+      'utf8',
+    );
+    const restart = migration.slice(
+      migration.indexOf(
+        'INSERT INTO job_queue (id,job_type,idempotency_key,payload,available_at,max_attempts)',
+      ),
+    );
+    await migrationPool.query(
+      `UPDATE job_queue SET state='running',attempts=max_attempts,lease_owner='expired-worker',
+         lease_token='expired-token',lease_expires_at=statement_timestamp()-interval '1 minute'
+       WHERE job_type IN ('status.observe','export.cleanup') AND state='pending'`,
+    );
+    await migrationPool.query(restart);
+    await migrationPool.query(restart);
+    const pending = (
+      await migrationPool.query<{ idempotency_key: string }>(
+        `SELECT idempotency_key FROM job_queue
+          WHERE job_type IN ('status.observe','export.cleanup') AND state='pending'
+          ORDER BY idempotency_key`,
+      )
+    ).rows;
+    expect(pending).toStrictEqual([
+      { idempotency_key: 'export-cleanup:restart-036' },
+      { idempotency_key: 'status-observe:restart-036' },
+    ]);
   });
 });

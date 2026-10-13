@@ -63,6 +63,11 @@ function one(bytes: Uint8Array): AsyncIterable<Uint8Array> {
     },
   };
 }
+// Without ZIP64 every size and offset is a 32-bit field; the archive must stop
+// before one would be written out of range.
+const ZIP32_MAX = 0xffffffff;
+const ZIP_LIMIT_EXCEEDED = 'EXPORT_ZIP_LIMIT_EXCEEDED';
+const DESCRIPTOR_LENGTH = 16;
 export async function* streamingZip(entries: readonly ZipEntry[]): AsyncGenerator<Uint8Array> {
   const central: Buffer[] = [];
   let offset = 0;
@@ -81,12 +86,13 @@ export async function* streamingZip(entries: readonly ZipEntry[]): AsyncGenerato
     let size = 0;
     for await (const bytes of await entry.open()) {
       size += bytes.byteLength;
-      if (size > 0xffffffff) throw new Error('EXPORT_ZIP_ENTRY_LIMIT_EXCEEDED');
+      if (offset + header.length + name.length + size + DESCRIPTOR_LENGTH > ZIP32_MAX)
+        throw new Error(ZIP_LIMIT_EXCEEDED);
       crc = crc32Update(crc, bytes);
       yield bytes;
     }
     crc = (crc ^ 0xffffffff) >>> 0;
-    const descriptor = Buffer.alloc(16);
+    const descriptor = Buffer.alloc(DESCRIPTOR_LENGTH);
     descriptor.writeUInt32LE(0x08074b50, 0);
     descriptor.writeUInt32LE(crc, 4);
     descriptor.writeUInt32LE(size, 8);
@@ -246,7 +252,7 @@ export async function generateExportJob(input: {
     [input.exportId, input.jobId, input.leaseOwner, input.leaseToken],
   );
   const document = payload.rows[0]?.read_export_job_payload;
-  if (document === null || document === undefined) throw new Error('EXPORT_PAYLOAD_FORBIDDEN');
+  if (document === null || document === undefined) return;
   const record = document as Readonly<Record<string, unknown>>;
   const preset = record['preset'];
   const includeOriginals = record['originalsIncluded'] === true;
@@ -261,16 +267,22 @@ export async function generateExportJob(input: {
   try {
     size = await input.storage.putStream({ key: objectKey, stream, contentType });
   } catch (error) {
+    if (error instanceof Error && error.message === ZIP_LIMIT_EXCEEDED) {
+      await input.pool.query('SELECT fail_export_job($1,$2,$3,$4)', [
+        input.exportId,
+        input.jobId,
+        input.leaseOwner,
+        input.leaseToken,
+      ]);
+      return;
+    }
     throw new Error('EXPORT_STORAGE_FAILED', { cause: error });
   }
   const marked = await input.pool.query<{ mark_export_job_ready: boolean }>(
     'SELECT mark_export_job_ready($1,$2,$3,$4,$5)',
     [input.exportId, input.jobId, input.leaseOwner, input.leaseToken, size],
   );
-  if (marked.rows[0]?.mark_export_job_ready !== true) {
-    await input.storage.delete(objectKey);
-    throw new Error('EXPORT_READY_FAILED');
-  }
+  if (marked.rows[0]?.mark_export_job_ready !== true) await input.storage.delete(objectKey);
 }
 export async function downloadExportOnce(input: {
   readonly pool: Pool;

@@ -34,16 +34,53 @@ export interface ProcessingVersion {
   readonly createdAt: string;
 }
 
-export async function loadProcessingState(
-  roomId: string,
-  signal?: AbortSignal,
-): Promise<readonly ProcessingVersion[]> {
+/** Echoed unmodified: `createdAt` is server text at a precision a Date cannot hold. */
+export interface ProcessingCursor {
+  readonly createdAt: string;
+  readonly versionId: string;
+}
+
+export interface ProcessingPage {
+  readonly versions: readonly ProcessingVersion[];
+  /** Null only when the server proved this is the last page. */
+  readonly nextCursor: ProcessingCursor | null;
+}
+
+function nextCursorRecord(payload: unknown): Readonly<Record<string, unknown>> | null {
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  const cursor = payload['nextCursor'];
+  if (cursor === undefined) return null;
+  if (!isRecord(cursor)) throw new ApiError('unavailable');
+  return cursor;
+}
+
+export async function loadProcessingState(input: {
+  readonly roomId: string;
+  readonly after?: ProcessingCursor | null;
+  readonly signal?: AbortSignal;
+}): Promise<ProcessingPage> {
+  const after = input.after ?? null;
   const payload = await json({
     method: 'GET',
-    path: `/api/documents/processing?roomId=${encodeURIComponent(roomId)}`,
-    ...(signal === undefined ? {} : { signal }),
+    path:
+      `/api/documents/processing?roomId=${encodeURIComponent(input.roomId)}` +
+      (after === null
+        ? ''
+        : `&afterCreatedAt=${encodeURIComponent(after.createdAt)}` +
+          `&afterVersionId=${encodeURIComponent(after.versionId)}`),
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
-  return requireArray(payload, 'versions') as readonly ProcessingVersion[];
+  const cursor = nextCursorRecord(payload);
+  return {
+    versions: requireArray(payload, 'versions') as readonly ProcessingVersion[],
+    nextCursor:
+      cursor === null
+        ? null
+        : {
+            createdAt: requireString(cursor, 'createdAt'),
+            versionId: requireString(cursor, 'versionId'),
+          },
+  };
 }
 
 export async function retryProcessing(versionId: string): Promise<void> {
@@ -90,16 +127,45 @@ export interface ExportPreflight {
   readonly originalsIncluded: boolean;
 }
 
-export async function loadExports(
-  roomId: string,
-  signal?: AbortSignal,
-): Promise<readonly ExportRecord[]> {
+/** Echoed unmodified: `createdAt` is server text at a precision a Date cannot hold. */
+export interface ExportCursor {
+  readonly createdAt: string;
+  readonly exportId: string;
+}
+
+export interface ExportPage {
+  readonly exports: readonly ExportRecord[];
+  /** Null only when the server proved this is the last page. */
+  readonly nextCursor: ExportCursor | null;
+}
+
+export async function loadExports(input: {
+  readonly roomId: string;
+  readonly after?: ExportCursor | null;
+  readonly signal?: AbortSignal;
+}): Promise<ExportPage> {
+  const after = input.after ?? null;
   const payload = await json({
     method: 'GET',
-    path: `/api/exports?roomId=${encodeURIComponent(roomId)}`,
-    ...(signal === undefined ? {} : { signal }),
+    path:
+      `/api/exports?roomId=${encodeURIComponent(input.roomId)}` +
+      (after === null
+        ? ''
+        : `&afterCreatedAt=${encodeURIComponent(after.createdAt)}` +
+          `&afterExportId=${encodeURIComponent(after.exportId)}`),
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
-  return requireArray(payload, 'exports') as readonly ExportRecord[];
+  const cursor = nextCursorRecord(payload);
+  return {
+    exports: requireArray(payload, 'exports') as readonly ExportRecord[],
+    nextCursor:
+      cursor === null
+        ? null
+        : {
+            createdAt: requireString(cursor, 'createdAt'),
+            exportId: requireString(cursor, 'exportId'),
+          },
+  };
 }
 
 export interface ExportRequestInput {

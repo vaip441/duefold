@@ -2,6 +2,7 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyRequest } from 'fastify';
 import type { WebRuntime } from '../../../../apps/web/src/runtime.ts';
 import type { MemberIdentity } from '../../../core-security/src/authorization.ts';
+import { CURSOR_CREATED_AT } from '../member-state-readers.ts';
 
 const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
 const EXPORT = Type.Object(
@@ -34,13 +35,27 @@ export const schema = {
     {
       roomId: ID,
       limit: Type.Optional(Type.String({ pattern: '^(?:[1-9]|[1-9][0-9]|100)$' })),
-      afterCreatedAt: Type.Optional(Type.String({ format: 'date-time' })),
+      afterCreatedAt: Type.Optional(CURSOR_CREATED_AT),
       afterExportId: Type.Optional(ID),
     },
-    { additionalProperties: false },
+    {
+      additionalProperties: false,
+      dependencies: { afterCreatedAt: ['afterExportId'], afterExportId: ['afterCreatedAt'] },
+    },
   ),
   response: {
-    200: Type.Object({ exports: Type.Array(EXPORT) }, { additionalProperties: false }),
+    200: Type.Object(
+      {
+        exports: Type.Array(EXPORT),
+        nextCursor: Type.Optional(
+          Type.Object(
+            { createdAt: CURSOR_CREATED_AT, exportId: ID },
+            { additionalProperties: false },
+          ),
+        ),
+      },
+      { additionalProperties: false },
+    ),
   },
 };
 interface Query {
@@ -59,12 +74,12 @@ interface Row {
   readonly expires_at: Date;
   readonly consumed_at: Date | null;
   readonly deleted_at: Date | null;
+  readonly cursor_created_at: string;
+  readonly continues: boolean;
 }
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return async (request: FastifyRequest) => {
     const query = request.query as Query;
-    if ((query.afterCreatedAt === undefined) !== (query.afterExportId === undefined))
-      throw new Error('EXPORT_CURSOR_INVALID');
     const result = await runtime.pool.query<Row>(
       'SELECT * FROM read_member_exports($1,$2,$3,$4,$5)',
       [
@@ -75,6 +90,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
         Number(query.limit ?? '50'),
       ],
     );
+    const last = result.rows.at(-1);
     return {
       exports: result.rows.map((row) => ({
         exportId: row.export_id,
@@ -87,6 +103,9 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
         consumedAt: row.consumed_at?.toISOString() ?? null,
         deletedAt: row.deleted_at?.toISOString() ?? null,
       })),
+      ...(last?.continues === true
+        ? { nextCursor: { createdAt: last.cursor_created_at, exportId: last.export_id } }
+        : {}),
     };
   };
 }

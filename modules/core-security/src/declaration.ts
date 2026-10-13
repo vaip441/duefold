@@ -124,6 +124,7 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '017_organization_administration', file: '017_organization_administration.sql' },
     { id: '024_deployment_status', file: '024_deployment_status.sql' },
     { id: '031_mail_identity', file: '031_mail_identity.sql' },
+    { id: '038_member_sign_in_hardening', file: '038_member_sign_in_hardening.sql' },
   ],
   jobs: [
     {
@@ -143,12 +144,14 @@ export const moduleDeclaration: ModuleDeclaration = {
       handler: 'jobs/otp-delivery.ts',
       handlerFactoryExport: 'createHandler',
       service: 'worker',
+      onExhausted: 'fail_exhausted_otp_delivery',
     },
     {
       id: 'ownership.preview.purge',
       handler: 'jobs/ownership-preview-purge.ts',
       handlerFactoryExport: 'createHandler',
       service: 'worker',
+      everySeconds: 60 * 60,
     },
   ],
   config: [
@@ -309,7 +312,15 @@ export const moduleDeclaration: ModuleDeclaration = {
       required: false,
       service: 'web',
       description:
-        'Trusted reverse proxy configuration: hop count (e.g. "1") or comma-separated CIDRs/IPs (e.g. "127.0.0.1,10.0.0.0/8"). Off by default.',
+        'Comma-separated IPs/CIDRs of the trusted reverse proxy (e.g. "127.0.0.1,10.0.0.0/8"). "false" states that clients connect directly. "true", hop counts, and a list with no address fail startup, and so does leaving both this and DUEFOLD_TRUSTED_EDGE_HOPS unset.',
+    },
+    {
+      key: 'DUEFOLD_TRUSTED_EDGE_HOPS',
+      kind: 'string',
+      required: false,
+      service: 'web',
+      description:
+        'Set to "1" only on a platform whose edge is the sole ingress and appends the client address to X-Forwarded-For (Railway); the right-most entry becomes the client address. Any other value, or combining it with any DUEFOLD_TRUSTED_PROXIES value including "false", fails startup.',
     },
   ],
   browserEntries: [],

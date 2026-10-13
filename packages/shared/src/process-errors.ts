@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { allowlistedTelemetry } from './redact.ts';
+import { allowlistedTelemetry, type StartupRefusalCode } from './redact.ts';
 
 export type ProcessService = 'web' | 'worker' | 'cli';
 export interface SafeProcessSink {
@@ -12,18 +12,29 @@ export interface ProcessFailureOptions {
   readonly stage?: () => 'config' | 'oidc' | 'database' | 'application' | 'listen';
 }
 
+/** A startup refusal whose code, unlike any other thrown value, reaches the failure record. */
+export class StartupRefusal extends Error {
+  public override readonly name = 'StartupRefusal';
+  public readonly code: StartupRefusalCode;
+  public constructor(code: StartupRefusalCode) {
+    super(code);
+    this.code = code;
+  }
+}
+
 /** Emits a fixed code only; the error object is deliberately not accepted. */
 export function emitProcessFailure(
   service: ProcessService,
   sink: SafeProcessSink = process.stderr,
   stage?: ProcessFailureOptions['stage'],
+  code: StartupRefusalCode | 'PROCESS_FAILED' = 'PROCESS_FAILED',
 ): void {
   sink.write(
     `${JSON.stringify(
       allowlistedTelemetry({
         event: 'process.failure',
         level: 'error',
-        code: 'PROCESS_FAILED',
+        code,
         service,
         ...(stage === undefined ? {} : { stage: stage() }),
       }),
@@ -43,12 +54,17 @@ const exitAfterClose = async (
 export function installProcessFailureHandlers(
   service: ProcessService,
   options: ProcessFailureOptions = {},
-): () => void {
+): (cause?: unknown) => void {
   let terminating = false;
-  const terminate = (): void => {
+  const terminate = (cause?: unknown): void => {
     if (terminating) return;
     terminating = true;
-    emitProcessFailure(service, options.sink, options.stage);
+    emitProcessFailure(
+      service,
+      options.sink,
+      options.stage,
+      cause instanceof StartupRefusal ? cause.code : 'PROCESS_FAILED',
+    );
     const timeout = options.closeTimeoutMilliseconds ?? 5_000;
     const close = options.close ?? (() => undefined);
     void exitAfterClose(close, timeout);

@@ -581,6 +581,13 @@ export async function startTestServer(
          VALUES ($1,'viewer',$2,$3,'pending',transaction_timestamp() + interval '7 days')`,
         [createOpaqueId(), email.toLowerCase(), email],
       );
+      // OTP issue requires a live room membership; the room grants nothing.
+      await migrationPool.query(
+        `WITH seeded AS (INSERT INTO room (id) VALUES ($1) RETURNING id)
+         INSERT INTO viewer_room_membership (id,viewer_id,room_id)
+         SELECT $2,v.id,seeded.id FROM viewer v CROSS JOIN seeded WHERE v.email_key=$3`,
+        [createOpaqueId(), createOpaqueId(), email.toLowerCase()],
+      );
     },
     async signInMember(input) {
       const memberId = createOpaqueId();

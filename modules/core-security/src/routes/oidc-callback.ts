@@ -6,6 +6,8 @@ import {
   claimFirstOwner,
   consumeOidcTransaction,
   finishOidc,
+  OIDC_BROWSER_COOKIE,
+  OIDC_BROWSER_COOKIE_OPTIONS,
   resolveOidcMember,
 } from '../auth/oidc.ts';
 import { authenticationCookies, issueSession } from '../sessions.ts';
@@ -64,6 +66,7 @@ export function signInRefusalCode(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
   const known = [
     'OIDC_TRANSACTION_INVALID',
+    'OIDC_BROWSER_BINDING_INVALID',
     'OIDC_REQUIRED_CLAIMS_MISSING',
     'OIDC_TOKEN_EXPIRED',
     'OIDC_AUTH_TIME_REQUIRED',
@@ -114,6 +117,8 @@ function callbackQuery(value: unknown): CallbackQuery {
 export function createHandler(runtime: WebRuntime) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<null> => {
     const query = callbackQuery(request.query);
+    const browserBinding = request.cookies[OIDC_BROWSER_COOKIE];
+    reply.clearCookie(OIDC_BROWSER_COOKIE, OIDC_BROWSER_COOKIE_OPTIONS);
     if (query.code === null || query.state === null) {
       // An identity-provider denial is a real sign-in journey and gets the
       // designed failure surface. A callback carrying neither an authorization
@@ -125,7 +130,8 @@ export function createHandler(runtime: WebRuntime) {
     const code = query.code;
     const state = query.state;
     try {
-      const transaction = await consumeOidcTransaction(runtime.authPool, state);
+      if (browserBinding === undefined) throw new Error('OIDC_BROWSER_BINDING_INVALID');
+      const transaction = await consumeOidcTransaction(runtime.authPool, state, browserBinding);
       const callbackUrl = new URL(runtime.oidcRedirectUri);
       /*
        * `iss` must be carried through. RFC 9207 lets a provider advertise

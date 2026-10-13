@@ -170,6 +170,169 @@ describe('Member state and branding routes', () => {
     expect(JSON.stringify(allowed)).not.toContain('exports/');
   });
 
+  it('pages processing state and exports to completion across rows a millisecond cannot tell apart', async () => {
+    const instants = [
+      '2026-01-01 00:00:00.000003+00',
+      '2026-01-01 00:00:00.000002+00',
+      '2026-01-01 00:00:00.000001+00',
+    ];
+    const versionIds: string[] = [];
+    for (const createdAt of instants) {
+      const pagedDocumentId = createOpaqueId();
+      const pagedVersionId = createOpaqueId();
+      versionIds.push(pagedVersionId);
+      await migrationPool.query(
+        "INSERT INTO document(id,room_id,display_title,description,created_by) VALUES($1,$2,'Paged document','',$3)",
+        [pagedDocumentId, roomId, contributorId],
+      );
+      await migrationPool.query(
+        "INSERT INTO document_version(id,document_id,original_filename,object_key,declared_media_type,size_bytes,state,created_at) VALUES($1,$2,'paged.pdf',$3,'application/pdf',10,'quarantine',$4)",
+        [
+          pagedVersionId,
+          pagedDocumentId,
+          `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
+          createdAt,
+        ],
+      );
+    }
+    const listProcessing = createProcessingStateHandler(runtime, contributor);
+    const seenVersions: string[] = [];
+    let processingQuery: Record<string, string> = { roomId, limit: '1' };
+    for (;;) {
+      const page = await listProcessing({ query: processingQuery } as never);
+      seenVersions.push(...page.versions.map((version) => version.versionId));
+      if (page.nextCursor === undefined) break;
+      processingQuery = {
+        roomId,
+        limit: '1',
+        afterCreatedAt: page.nextCursor.createdAt,
+        afterVersionId: page.nextCursor.versionId,
+      };
+    }
+    expect(seenVersions).toStrictEqual([versionId, ...versionIds]);
+
+    const exportIds: string[] = [];
+    for (const createdAt of instants) {
+      const exportId = createOpaqueId();
+      exportIds.push(exportId);
+      await migrationPool.query(
+        "INSERT INTO export_request(id,room_id,created_by,preset,object_key,content_type,expires_at,created_at) VALUES($1,$2,$3,'participant-access',$4,'application/json',$5::timestamptz+interval '1 hour',$5)",
+        [
+          exportId,
+          otherRoomId,
+          ownerId,
+          `exports/${createOpaqueId()}/${createOpaqueId()}`,
+          createdAt,
+        ],
+      );
+    }
+    const listExports = createExportListHandler(runtime, administrator);
+    const seenExports: string[] = [];
+    let exportQuery: Record<string, string> = { roomId: otherRoomId, limit: '1' };
+    for (;;) {
+      const page = await listExports({ query: exportQuery } as never);
+      seenExports.push(...page.exports.map((record) => record.exportId));
+      if (page.nextCursor === undefined) break;
+      exportQuery = {
+        roomId: otherRoomId,
+        limit: '1',
+        afterCreatedAt: page.nextCursor.createdAt,
+        afterExportId: page.nextCursor.exportId,
+      };
+    }
+    expect(seenExports).toStrictEqual(exportIds);
+  });
+
+  it('issues a processing cursor that pages the same under any session DateStyle and TimeZone', async () => {
+    const localizedPool = new Pool({
+      connectionString: process.env['DUEFOLD_TEST_DATABASE_URL'],
+      options: '-c DateStyle=SQL,DMY -c TimeZone=Asia/Kolkata',
+    });
+    try {
+      for (const createdAt of [
+        '2026-02-01 00:00:00.000005+00',
+        '2026-02-01 00:00:00.000004+00',
+      ]) {
+        const pagedDocumentId = createOpaqueId();
+        await migrationPool.query(
+          "INSERT INTO document(id,room_id,display_title,description,created_by) VALUES($1,$2,'Localized document','',$3)",
+          [pagedDocumentId, roomId, contributorId],
+        );
+        await migrationPool.query(
+          "INSERT INTO document_version(id,document_id,original_filename,object_key,declared_media_type,size_bytes,state,created_at) VALUES($1,$2,'paged.pdf',$3,'application/pdf',10,'quarantine',$4)",
+          [
+            createOpaqueId(),
+            pagedDocumentId,
+            `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
+            createdAt,
+          ],
+        );
+      }
+      const everything = await createProcessingStateHandler(
+        runtime,
+        contributor,
+      )({ query: { roomId, limit: '100' } } as never);
+      /* Each cursor is issued by one session and consumed by the other. The localized
+         session calls the reader directly because `pg` cannot parse its row timestamps. */
+      interface Cursor {
+        readonly createdAt: string;
+        readonly versionId: string;
+      }
+      const localizedPage = async (after: Cursor | undefined) => {
+        const { rows } = await localizedPool.query<{
+          version_id: string;
+          cursor_created_at: string;
+          continues: boolean;
+        }>(
+          'SELECT version_id,cursor_created_at,continues FROM read_member_processing_state($1,$2,$3,$4,1)',
+          [contributorId, roomId, after?.createdAt ?? null, after?.versionId ?? null],
+        );
+        const last = rows.at(-1);
+        return {
+          versionIds: rows.map((row) => row.version_id),
+          nextCursor:
+            last?.continues === true
+              ? { createdAt: last.cursor_created_at, versionId: last.version_id }
+              : undefined,
+        };
+      };
+      const defaultPage = async (after: Cursor | undefined) => {
+        const page = await createProcessingStateHandler(
+          runtime,
+          contributor,
+        )({
+          query: {
+            roomId,
+            limit: '1',
+            ...(after === undefined
+              ? {}
+              : { afterCreatedAt: after.createdAt, afterVersionId: after.versionId }),
+          },
+        } as never);
+        return {
+          versionIds: page.versions.map((version) => version.versionId),
+          nextCursor: page.nextCursor,
+        };
+      };
+      const seen: string[] = [];
+      const cursors: string[] = [];
+      let after: Cursor | undefined;
+      for (let index = 0; ; index += 1) {
+        const page = await (index % 2 === 0 ? localizedPage : defaultPage)(after);
+        seen.push(...page.versionIds);
+        if (page.nextCursor === undefined) break;
+        cursors.push(page.nextCursor.createdAt);
+        after = page.nextCursor;
+      }
+      expect(seen).toStrictEqual(everything.versions.map((version) => version.versionId));
+      expect(cursors).toContain('2026-02-01T00:00:00.000005Z');
+      for (const cursor of cursors)
+        expect(cursor).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
+    } finally {
+      await localizedPool.end();
+    }
+  });
+
   it('binds branding multipart checksums and exposes processing state only to the creating administrator', async () => {
     const checksum = 'A'.repeat(43) + '=';
     let presignedChecksum: string | undefined;

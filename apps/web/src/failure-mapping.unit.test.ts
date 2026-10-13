@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { InvalidEmailError } from '@duefold/shared/email';
 import { classifyFailure } from './failure-mapping.ts';
 
 /**
@@ -51,6 +52,16 @@ describe('failure classification', () => {
       body: { code: 'REQUEST_INVALID' },
     });
     expect(classifyFailure(pgError('23514', 'grant document room mismatch'))?.status).toBe(400);
+    /* A cursor timestamp PostgreSQL cannot cast, or one out of range. */
+    for (const sqlState of ['22007', '22008'])
+      expect(
+        classifyFailure(pgError(sqlState, 'invalid input syntax for type timestamp')),
+      ).toMatchObject({ status: 400, body: { code: 'REQUEST_INVALID' } });
+    for (const bound of ['bulk item bound exceeded', 'sibling rebalance bound exceeded'])
+      expect(classifyFailure(pgError('54000', bound))).toEqual({
+        status: 400,
+        body: { code: 'REQUEST_INVALID', message: 'The request could not be accepted.' },
+      });
     expect(classifyFailure(pgError('40001', 'stale room revision'))).toMatchObject({
       status: 409,
       body: { code: 'CONFLICT' },
@@ -75,10 +86,35 @@ describe('failure classification', () => {
     ).toBe(400);
   });
 
+  it('names an export too large to archive instead of a generic invalid request', () => {
+    expect(classifyFailure(pgError('54000', 'EXPORT_TOO_LARGE'))).toEqual({
+      status: 400,
+      body: { code: 'EXPORT_TOO_LARGE', message: 'The export is too large for one archive.' },
+    });
+  });
+
   it('answers an unavailable protected page as not found, whether absent or denied', () => {
     expect(classifyFailure(new Error('PROTECTED_PAGE_UNAVAILABLE'))).toEqual({
       status: 404,
       body: { code: 'NOT_FOUND', message: 'The requested resource was not found.' },
+    });
+  });
+
+  it('answers ordinary refusals with uniform copy instead of a fault', () => {
+    expect(classifyFailure(new InvalidEmailError())).toEqual({
+      status: 400,
+      body: { code: 'REQUEST_INVALID', message: 'The request could not be accepted.' },
+    });
+    expect(classifyFailure(new Error('ROOM_WORKSPACE_FORBIDDEN'))).toEqual({
+      status: 403,
+      body: { code: 'FORBIDDEN', message: 'This action is not available to you.' },
+    });
+    expect(classifyFailure(new Error('STRUCTURE_ENTRY_UNREACHABLE'))).toEqual({
+      status: 409,
+      body: {
+        code: 'CONFLICT',
+        message: 'The resource changed before this request completed. Reload and try again.',
+      },
     });
   });
 
@@ -91,5 +127,7 @@ describe('failure classification', () => {
     expect(classifyFailure(new Error('connection terminated unexpectedly'))).toBeNull();
     expect(classifyFailure(pgError('08006', 'connection failure'))).toBeNull();
     expect(classifyFailure('not an error at all')).toBeNull();
+    // A stored order key that does not parse is corrupt data, not a moved entry.
+    expect(classifyFailure(new Error('STRUCTURE_ORDER_KEY_INVALID'))).toBeNull();
   });
 });

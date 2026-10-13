@@ -6,6 +6,10 @@ import { readFileSync } from 'node:fs';
 
 const RELEASE_VERSION = /^([0-9]{1,6})\.([0-9]{1,6})\.([0-9]{1,6})$/u;
 
+export function isReleaseVersion(version: string): boolean {
+  return RELEASE_VERSION.test(version);
+}
+
 export function applicationVersion(): string {
   const parsed: unknown = JSON.parse(
     readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -14,7 +18,7 @@ export function applicationVersion(): string {
     typeof parsed === 'object' && parsed !== null && 'version' in parsed
       ? parsed.version
       : undefined;
-  if (typeof version !== 'string' || !RELEASE_VERSION.test(version))
+  if (typeof version !== 'string' || !isReleaseVersion(version))
     throw new Error('APPLICATION_VERSION_INVALID');
   return version;
 }

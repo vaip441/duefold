@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildTestWebApp, testWebRuntime } from '../../../test/support/web-runtime.ts';
-import { parseTrustedProxies } from './proxy.ts';
+import { parseTrustedProxies, resolveProxyTrust } from './proxy.ts';
 
 describe('Fastify proxy trust and X-Forwarded-For handling', () => {
   it('ignores spoofed X-Forwarded-For by default (trustProxy off)', async () => {
@@ -38,6 +38,32 @@ describe('Fastify proxy trust and X-Forwarded-For handling', () => {
     expect(() => parseTrustedProxies('1')).toThrow(
       'DUEFOLD_TRUSTED_PROXIES_HOP_COUNT_FORBIDDEN',
     );
+  });
+
+  it('uses the right-most X-Forwarded-For entry with one trusted edge hop', async () => {
+    const runtime = testWebRuntime();
+    const app = await buildTestWebApp({
+      runtime,
+      authenticate: () => Promise.resolve(null),
+      trustProxy: resolveProxyTrust(undefined, '1'),
+    });
+    app.get('/_test/client-ip', (request) => ({ ip: request.ip }));
+
+    const spoofed = await app.inject({
+      method: 'GET',
+      url: '/_test/client-ip',
+      headers: { 'x-forwarded-for': '198.51.100.7, 203.0.113.195' },
+      remoteAddress: '100.64.0.2',
+    });
+    expect(spoofed.json()).toEqual({ ip: '203.0.113.195' });
+
+    const direct = await app.inject({
+      method: 'GET',
+      url: '/_test/client-ip',
+      remoteAddress: '100.64.0.2',
+    });
+    expect(direct.json()).toEqual({ ip: '100.64.0.2' });
+    await app.close();
   });
 
   it('resolves client IP only when the immediate peer matches a trusted CIDR/IP', async () => {

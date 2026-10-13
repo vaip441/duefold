@@ -50,6 +50,8 @@ export interface InvitationTable {
 }
 export interface OidcTransactionTable {
   state_digest: string;
+  browser_binding_digest: string;
+  network_hmac: string;
   nonce: string;
   code_verifier: string;
   expires_at: Timestamp;

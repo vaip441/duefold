@@ -22,6 +22,7 @@ export interface WebRuntime {
   readonly authPool: Pool;
   readonly oidc: oidc.Configuration;
   readonly oidcRedirectUri: string;
+  /** Email comparison keys, parsed once at startup. */
   readonly ownerAllowlist: readonly string[];
   readonly organizationName: string;
   readonly afterAuthenticationPath: string;

@@ -249,6 +249,46 @@ describe('content-based source validation', () => {
       'SOURCE_TYPE_REJECTED',
     );
   });
+  it('validates hostile multi-megabyte text in linear time', () => {
+    for (const hostile of [
+      '<a '.repeat(1_500_000),
+      '<?xml '.repeat(750_000),
+      `<${' '.repeat(4_000_000)}`,
+      '\n'.repeat(200_000),
+      `prose\n<a ${'<a '.repeat(1_000_000)}>`,
+      `prose\n<a ${'-ona'.repeat(1_000_000)}>`,
+      `prose\n<a ${'x '.repeat(1_000_000)}>`,
+      `prose\n${`<a title=x${' '.repeat(5_000)}>`.repeat(500)}`,
+      `${'<?xml '.repeat(500_000)}?>`,
+    ]) {
+      const started = performance.now();
+      expect(validateSourceBytes(Buffer.from(hostile), 'text/plain').mediaType).toBe(
+        'text/plain',
+      );
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+  it('inspects tag bodies however far away their closing bracket is', () => {
+    const handler = (pad: string) => `prose\n<a onclick=x${pad}>`;
+    for (const padded of [
+      handler(' '.repeat(4086)),
+      handler(' '.repeat(4087)),
+      handler('😀'.repeat(2044)),
+      handler(' '.repeat(2_000_000)),
+      `prose\n<a${' '.repeat(2_000_000)}onclick=x>`,
+      `prose\n<span${' '.repeat(10_000)}/>`,
+      `<a${' '.repeat(10_000)}href=x>root`,
+      `<?xml${' '.repeat(4097)}?><root>`,
+      `<?xml?><root${' '.repeat(10_000)}a=b>`,
+    ])
+      expect(() => validateSourceBytes(Buffer.from(padded), 'text/plain')).toThrow(
+        'SOURCE_ACTIVE_CONTENT_REJECTED',
+      );
+    expect(
+      validateSourceBytes(Buffer.from(`prose\n<a title=x${' '.repeat(10_000)}>`), 'text/plain')
+        .mediaType,
+    ).toBe('text/plain');
+  });
   it('validates real ZIP structure and rejects archives, macros, and forged entries', () => {
     const xlsx = storedZip({
       '[Content_Types].xml': '<Types/>',

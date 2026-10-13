@@ -37,6 +37,9 @@ export interface ExportsPanelProps {
      inaccessible content as absent. */
   readonly denied: boolean;
   readonly failure: PresentedFailure | null;
+  readonly hasMore: boolean;
+  readonly loadingMore: boolean;
+  readonly onLoadMore: () => void;
   readonly preflight: ExportPreflight | null;
   readonly preflightLoading: boolean;
   readonly generatePending: boolean;
@@ -57,6 +60,9 @@ export function ExportsPanel({
   loading,
   denied,
   failure,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   preflight,
   preflightLoading,
   generatePending,
@@ -181,6 +187,19 @@ export function ExportsPanel({
           </tbody>
         </table>
       )}
+      {hasMore ? (
+        <div className="df-panel__actions">
+          <button
+            type="button"
+            className="df-button"
+            data-busy={loadingMore ? 'true' : 'false'}
+            disabled={loadingMore}
+            onClick={onLoadMore}
+          >
+            {loadingMore ? translate('exports.loadingMore') : translate('exports.more')}
+          </button>
+        </div>
+      ) : null}
 
       <div className="df-panel__block">
         <h3 className="df-panel__subheading">{translate('exports.create')}</h3>

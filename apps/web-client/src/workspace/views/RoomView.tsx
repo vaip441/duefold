@@ -131,6 +131,14 @@ const SETTINGS_TAB = {
   order: 60,
 } as const satisfies SectionTab;
 
+/* One shared empty list: a fresh `[]` per render would re-fire the effect that
+   publishes entries to the frame, whose state update re-renders this view forever. */
+const NO_ENTRIES: readonly WorkingEntry[] = [];
+
+export function roomEntries(workspace: Load<RoomWorkspace>): readonly WorkingEntry[] {
+  return workspace.kind === 'ready' ? workspace.value.entries : NO_ENTRIES;
+}
+
 /* Reached through the preparation path rather than the supporting strip. */
 const PATH_SECTIONS: readonly string[] = ['structure', 'upload', 'participants', 'processing'];
 /* Reader management and exports are Room Manager work; the server refuses anyone else,
@@ -323,7 +331,7 @@ export function RoomView({
     );
   };
 
-  const entries = workspace.kind === 'ready' ? workspace.value.entries : [];
+  const entries = roomEntries(workspace);
   const folders = entries.filter((entry) => entry.resourceKind === 'folder');
   /* Published to the frame so the shell's collection index lists this room's
      entries. Effect rather than a call in render, because the frame stores it. */
@@ -803,12 +811,22 @@ export function RoomView({
       {currentId === 'processing' ? (
         <ProcessingPanel
           versions={
-            processingSection.versions.kind === 'ready' ? processingSection.versions.value : []
+            processingSection.listing.kind === 'ready'
+              ? processingSection.listing.value.versions
+              : []
           }
-          loading={processingSection.versions.kind === 'loading'}
-          denied={processingSection.versions.kind === 'failed'}
+          loading={processingSection.listing.kind === 'loading'}
+          denied={processingSection.listing.kind === 'failed'}
           failure={processingSection.failure}
           busyVersionId={processingSection.busyVersionId}
+          hasMore={
+            processingSection.listing.kind === 'ready' &&
+            processingSection.listing.value.nextCursor !== null
+          }
+          loadingMore={processingSection.loadingMore}
+          onLoadMore={() => {
+            processingSection.loadMore(roomId);
+          }}
           onRetry={processingSection.retry}
           onDeleteSource={processingSection.deleteSource}
           onRefresh={() => {
@@ -835,10 +853,20 @@ export function RoomView({
 
       {currentId === 'exports' ? (
         <ExportsPanel
-          exports={exportsSection.exports.kind === 'ready' ? exportsSection.exports.value : []}
-          loading={exportsSection.exports.kind === 'loading'}
-          denied={exportsSection.exports.kind === 'failed'}
+          exports={
+            exportsSection.listing.kind === 'ready' ? exportsSection.listing.value.exports : []
+          }
+          loading={exportsSection.listing.kind === 'loading'}
+          denied={exportsSection.listing.kind === 'failed'}
           failure={exportsSection.failure}
+          hasMore={
+            exportsSection.listing.kind === 'ready' &&
+            exportsSection.listing.value.nextCursor !== null
+          }
+          loadingMore={exportsSection.loadingMore}
+          onLoadMore={() => {
+            exportsSection.loadMore(roomId);
+          }}
           preflight={exportsSection.preflight}
           preflightLoading={exportsSection.preflightPending}
           generatePending={exportsSection.generatePending}

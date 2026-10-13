@@ -69,41 +69,11 @@ export function createHandler(dependencies: OtpDeliveryDependencies) {
       return;
     }
     if (challenge.state === 'invalidated' || challenge.email_display === null) return;
-    try {
-      await dependencies.mailer.deliver({
-        emailDisplay: challenge.email_display,
-        code,
-        challengeId: id,
-        identity: await readMailIdentity(dependencies.pool),
-      });
-    } catch (error) {
-      if (job.attempts >= job.max_attempts) {
-        const invalidated = await dependencies.pool.query(
-          `WITH invalidated AS (
-             UPDATE otp_challenge o SET state = 'invalidated'
-              FROM job_queue j
-             WHERE o.id = $1 AND j.id = $2 AND j.state = 'running'
-               AND j.lease_owner = $3 AND j.lease_token = $4
-               AND j.lease_expires_at > transaction_timestamp()
-               AND o.state IN ('awaiting_delivery','pending')
-             RETURNING o.id
-           )
-           INSERT INTO audit_event
-             (id,event_type,actor_kind,subject_id,result,reason_code,correlation_id)
-           SELECT $5,'auth.otp','system',id,'failure','OTP_DELIVERY_FAILED',$6
-             FROM invalidated`,
-          [
-            id,
-            job.id,
-            context.leaseOwner,
-            job.lease_token,
-            createOpaqueId(),
-            createCorrelationId(),
-          ],
-        );
-        if (invalidated.rowCount !== 1) throw new Error('JOB_LEASE_LOST', { cause: error });
-      }
-      throw error;
-    }
+    await dependencies.mailer.deliver({
+      emailDisplay: challenge.email_display,
+      code,
+      challengeId: id,
+      identity: await readMailIdentity(dependencies.pool),
+    });
   };
 }

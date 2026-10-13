@@ -190,10 +190,12 @@ export {
   loadProcessingState,
   preflightExport,
   retryProcessing,
+  type ExportPage,
   type ExportPreflight,
   type ExportPreset,
   type ExportRecord,
   type ExportRequestInput,
+  type ProcessingPage,
   type ProcessingVersion,
   type UploadIntentResponse,
 } from './member-operations.ts';

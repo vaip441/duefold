@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyRequest } from 'fastify';
 import type { WebRuntime } from '../../../../apps/web/src/runtime.ts';
 import type { MemberIdentity } from '../../../core-security/src/authorization.ts';
-import { readProcessingState } from '../member-state-readers.ts';
+import { CURSOR_CREATED_AT, readProcessingState } from '../member-state-readers.ts';
 
 const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
 export const schema = {
@@ -10,10 +10,13 @@ export const schema = {
     {
       roomId: ID,
       limit: Type.Optional(Type.String({ pattern: '^(?:[1-9]|[1-9][0-9]|100)$' })),
-      afterCreatedAt: Type.Optional(Type.String({ format: 'date-time' })),
+      afterCreatedAt: Type.Optional(CURSOR_CREATED_AT),
       afterVersionId: Type.Optional(ID),
     },
-    { additionalProperties: false },
+    {
+      additionalProperties: false,
+      dependencies: { afterCreatedAt: ['afterVersionId'], afterVersionId: ['afterCreatedAt'] },
+    },
   ),
   response: {
     200: Type.Object(
@@ -34,6 +37,12 @@ export const schema = {
             { additionalProperties: false },
           ),
         ),
+        nextCursor: Type.Optional(
+          Type.Object(
+            { createdAt: CURSOR_CREATED_AT, versionId: ID },
+            { additionalProperties: false },
+          ),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -48,18 +57,14 @@ interface Query {
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return async (request: FastifyRequest) => {
     const query = request.query as Query;
-    if ((query.afterCreatedAt === undefined) !== (query.afterVersionId === undefined))
-      throw new Error('PROCESSING_CURSOR_INVALID');
-    return {
-      versions: await readProcessingState({
-        pool: runtime.pool,
-        identity,
-        roomId: query.roomId,
-        afterCreatedAt: query.afterCreatedAt ?? null,
-        afterVersionId: query.afterVersionId ?? null,
-        limit: Number(query.limit ?? '50'),
-      }),
-    };
+    return readProcessingState({
+      pool: runtime.pool,
+      identity,
+      roomId: query.roomId,
+      afterCreatedAt: query.afterCreatedAt ?? null,
+      afterVersionId: query.afterVersionId ?? null,
+      limit: Number(query.limit ?? '50'),
+    });
   };
 }
 export function handler(): never {

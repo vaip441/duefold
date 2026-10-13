@@ -18,7 +18,7 @@
  */
 
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request, type Route } from '@playwright/test';
 import { startTestServer, type TestServer } from '../support/browser-server.ts';
 import { settleTheme } from './theme.ts';
 
@@ -359,5 +359,252 @@ test.describe('viewer reading room', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
+  });
+});
+
+const LONGER = 'L'.repeat(32);
+const LONGER_ACTIVITY = 'A'.repeat(32);
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=',
+  'base64',
+);
+
+/** Serves a second, five-page document beside the seeded one, so history can move between them. */
+async function serveLongerDocument(page: Page): Promise<void> {
+  await page.route(`**/api/viewer/document?*documentId=${LONGER}`, (route) =>
+    route.fulfill({
+      json: {
+        document: {
+          documentId: LONGER,
+          displayTitle: 'Board pack',
+          publishedVersionId: 'V'.repeat(32),
+          pageCount: 5,
+          downloadPolicy: 'allow',
+        },
+      },
+    }),
+  );
+  for (const path of ['**/api/viewer/previews', '**/api/viewer/pages/cache'])
+    await page.route(path, (route) =>
+      (route.request().postDataJSON() as { documentId?: string }).documentId === LONGER
+        ? route.fulfill({
+            json: {
+              activityId: LONGER_ACTIVITY,
+              correlationId: 'C'.repeat(32),
+              cacheId: 'K'.repeat(32),
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          })
+        : route.fallback(),
+    );
+  await page.route(`**/api/viewer/pages/text?*documentId=${LONGER}*`, (route) =>
+    route.fulfill({ json: { versionId: 'V'.repeat(32), accessibleLabel: 'Page', items: [] } }),
+  );
+  await page.route(`**/api/viewer/pages/image?cacheId=${'K'.repeat(32)}*`, (route) =>
+    route.fulfill({ contentType: 'image/png', body: PIXEL }),
+  );
+}
+
+/** Moves through history the way Back or Forward does, without a click to reset state. */
+async function travelTo(page: Page, path: string): Promise<void> {
+  await page.evaluate((target) => {
+    window.history.pushState(null, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, path);
+}
+
+/** Waits until a held request has answered or failed, so a late answer has had its chance. */
+async function settled(page: Page, request: Request): Promise<void> {
+  await (await request.response())?.finished();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+}
+
+function interstitialTarget(target: string): Record<string, string> {
+  return {
+    normalizedDomain: `${target}.example`,
+    destination: `https://${target}.example/`,
+    warning: 'You are about to open an external site.',
+    rel: 'noopener noreferrer',
+  };
+}
+
+test.describe('viewer reading room under late answers', () => {
+  test("does not clamp a page with the previous document's page count", async ({ page }) => {
+    await serveLongerDocument(page);
+    const { roomId } = await signIn(page);
+    await openDocument(page);
+    const pages = page.getByRole('navigation', { name: 'Document pages' });
+    await expect(pages).toContainText('Page 1 of 2');
+    await travelTo(page, `/rooms/${roomId}/documents/${LONGER}?page=4`);
+    await expect(pages).toContainText('Page 4 of 5');
+    await expect(page).toHaveURL(new RegExp(`/documents/${LONGER}\\?page=4$`, 'u'));
+  });
+
+  test('keeps a cancelled link closed and never shows its destination for a later link', async ({
+    page,
+  }) => {
+    const link = (target: string, y: number): Record<string, unknown> => ({
+      text: `Visit ${target}`,
+      x: 0.1,
+      y,
+      width: 0.4,
+      height: 0.05,
+      link: {
+        interstitialPath: `/api/viewer/links/interstitial?target=${target}`,
+        normalizedDomain: `${target}.example`,
+      },
+    });
+    await page.route('**/api/viewer/pages/text?*', (route) =>
+      route.fulfill({
+        json: {
+          versionId: 'V'.repeat(32),
+          accessibleLabel: 'Page 1',
+          items: [link('first', 0.1), link('second', 0.5)],
+        },
+      }),
+    );
+    const held: Route[] = [];
+    await page.route(
+      (url) => url.pathname === '/api/viewer/links/interstitial',
+      (route) => {
+        const target = new URL(route.request().url()).searchParams.get('target') ?? '';
+        if (target === 'first') held.push(route);
+        else return route.fulfill({ json: interstitialTarget(target) });
+        return undefined;
+      },
+    );
+    const releaseFirst = async (): Promise<void> => {
+      const route = held.shift();
+      if (route === undefined) throw new Error('LINK_NOT_HELD');
+      await route.fulfill({ json: interstitialTarget('first') });
+      await settled(page, route.request());
+    };
+    await signIn(page);
+    await openDocument(page);
+    const dialog = page.getByRole('dialog', { name: 'You are leaving the document room' });
+    const first = page.getByRole('button', { name: /first\.example/u });
+
+    await first.click();
+    await expect(dialog).toContainText('Checking this link');
+    await dialog.getByRole('button', { name: 'Stay here' }).click();
+    await expect(dialog).toBeHidden();
+    await releaseFirst();
+    await expect(dialog).toBeHidden();
+
+    await first.click();
+    await dialog.getByRole('button', { name: 'Stay here' }).click();
+    await page.getByRole('button', { name: /second\.example/u }).click();
+    await expect(dialog.locator('.df-interstitial__domain')).toHaveText('second.example');
+    await releaseFirst();
+    await expect(dialog.locator('.df-interstitial__domain')).toHaveText('second.example');
+  });
+
+  test('leaves a download behind with the document it was started from', async ({ page }) => {
+    await serveLongerDocument(page);
+    let heldLease: Route | undefined;
+    await page.route('**/api/viewer/downloads', (route) => {
+      heldLease = route;
+    });
+    const saved: string[] = [];
+    page.on('download', (download) => {
+      saved.push(download.suggestedFilename());
+    });
+    const { roomId } = await signIn(page, { downloadPolicy: 'allow' });
+    await openDocument(page);
+    await page.getByRole('button', { name: 'Download original' }).click();
+    await expect(page.getByRole('button', { name: 'Cancel download' })).toBeVisible();
+    await expect.poll(() => heldLease).toBeDefined();
+
+    await travelTo(page, `/rooms/${roomId}/documents/${LONGER}`);
+    await expect(page.getByRole('navigation', { name: 'Document pages' })).toContainText(
+      'Page 1 of 5',
+    );
+    await heldLease?.continue();
+    if (heldLease !== undefined) await settled(page, heldLease.request());
+
+    await expect(page.getByRole('button', { name: 'Download original' })).toBeVisible();
+    await expect(page.getByText(/% downloaded/u)).toHaveCount(0);
+    expect(saved).toEqual([]);
+  });
+
+  test('settles a download cancelled while its lease is still pending', async ({ page }) => {
+    let heldLease: Route | undefined;
+    await page.route('**/api/viewer/downloads', (route) => {
+      heldLease = route;
+    });
+    await signIn(page, { downloadPolicy: 'allow' });
+    await openDocument(page);
+    await page.getByRole('button', { name: 'Download original' }).click();
+    await expect.poll(() => heldLease).toBeDefined();
+
+    await page.getByRole('button', { name: 'Cancel download' }).click();
+    await expect(page.getByRole('region', { name: 'Original file' })).toContainText(
+      'Download cancelled. Nothing was saved.',
+    );
+    await expect(page.getByText(/% downloaded/u)).toHaveCount(0);
+  });
+
+  test('stops heartbeats once Back leaves the document', async ({ page }) => {
+    await page.clock.install();
+    // Counted in the page as fetch is called, so an interval tick is observed synchronously.
+    await page.addInitScript(() => {
+      const original = window.fetch.bind(window);
+      const counted = window as Window & { heartbeats?: number };
+      counted.heartbeats = 0;
+      window.fetch = (input, init) => {
+        if (input === '/api/viewer/previews/heartbeat')
+          counted.heartbeats = (counted.heartbeats ?? 0) + 1;
+        return original(input, init);
+      };
+    });
+    // Real seconds pass while the page clock jumps minutes, so the server would refuse the beat.
+    await page.route('**/api/viewer/previews/heartbeat', (route) =>
+      route.fulfill({ json: { accepted: true } }),
+    );
+    const heartbeats = (): Promise<number | undefined> =>
+      page.evaluate(() => (window as Window & { heartbeats?: number }).heartbeats);
+    await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await page.clock.runFor(60_000);
+    expect(await heartbeats()).toBe(1);
+
+    await page.goBack();
+    await expect(page.getByRole('navigation', { name: 'Room contents' })).toBeVisible();
+    // Interaction keeps the two-minute inactivity close from standing in for a beat.
+    await page.keyboard.press('Shift');
+    await page.clock.runFor(60_000);
+    expect(await heartbeats()).toBe(1);
+  });
+
+  test("keeps reading when the previous document's heartbeat is refused late", async ({
+    page,
+  }) => {
+    await page.clock.install();
+    await serveLongerDocument(page);
+    const beats: string[] = [];
+    let heldBeat: Route | undefined;
+    await page.route('**/api/viewer/previews/heartbeat', (route) => {
+      const { activityId } = route.request().postDataJSON() as { activityId: string };
+      beats.push(activityId);
+      if (activityId === LONGER_ACTIVITY) return route.fulfill({ json: { accepted: true } });
+      heldBeat = route;
+      return undefined;
+    });
+    const { roomId } = await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await page.clock.runFor(60_000);
+    await expect.poll(() => heldBeat).toBeDefined();
+
+    await travelTo(page, `/rooms/${roomId}/documents/${LONGER}`);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 5');
+    // The first document's activity is closed by now, so its heartbeat is refused.
+    await heldBeat?.fulfill({ json: { accepted: false } });
+    await (await heldBeat?.request().response())?.finished();
+
+    await page.clock.runFor(60_000);
+    await expect.poll(() => beats).toContain(LONGER_ACTIVITY);
+    await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
   });
 });

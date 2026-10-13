@@ -14,9 +14,15 @@ import {
 import { protectedErrorResponses } from './error-envelope.ts';
 
 const ID = Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' });
+/* read_members issues `created_at::text`, which under the ISO DateStyle keeps the
+   microseconds a Date would drop. Shaped so a malformed value is a 400 here rather than a
+   failed timestamptz cast in the database. */
+const CURSOR_CREATED_AT = Type.String({
+  pattern: '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?[+-]\\d{2}(?::\\d{2})?$',
+});
 const CURSOR = Type.Object(
   {
-    createdAt: Type.String({ minLength: 20, maxLength: 64 }),
+    createdAt: CURSOR_CREATED_AT,
     subjectId: ID,
   },
   { additionalProperties: false },
@@ -77,7 +83,7 @@ export const schema = {
   querystring: Type.Object(
     {
       limit: Type.Optional(Type.String({ pattern: '^(?:[1-9]|[1-9][0-9]|100)$' })),
-      afterCreatedAt: Type.Optional(Type.String({ minLength: 20, maxLength: 64 })),
+      afterCreatedAt: Type.Optional(CURSOR_CREATED_AT),
       afterSubjectId: Type.Optional(ID),
     },
     { additionalProperties: false },

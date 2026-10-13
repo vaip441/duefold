@@ -283,6 +283,11 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '029_processed_version_draft', file: '029_processed_version_draft.sql' },
     { id: '030_watermark_cache_reuse', file: '030_watermark_cache_reuse.sql' },
     { id: '034_member_investor_preview', file: '034_member_investor_preview.sql' },
+    { id: '035_lifecycle_corrections', file: '035_lifecycle_corrections.sql' },
+    { id: '036_job_exhaustion', file: '036_job_exhaustion.sql' },
+    { id: '039_member_state_paging', file: '039_member_state_paging.sql' },
+    { id: '041_unused_preview_page_recorder', file: '041_unused_preview_page_recorder.sql' },
+    { id: '042_sign_in_retention', file: '042_sign_in_retention.sql' },
   ],
   jobs: [
     {
@@ -290,6 +295,7 @@ export const moduleDeclaration: ModuleDeclaration = {
       handler: 'jobs/source-validation.ts',
       handlerFactoryExport: 'createHandler',
       service: 'worker',
+      onExhausted: 'fail_exhausted_document_processing',
     },
     {
       id: 'upload.multipart.reap',
@@ -350,12 +356,21 @@ export const moduleDeclaration: ModuleDeclaration = {
       handler: 'jobs/export-cleanup.ts',
       handlerFactoryExport: 'createHandler',
       service: 'worker',
+      everySeconds: 5 * 60,
     },
     {
       id: 'status.observe',
       handler: 'jobs/status-observe.ts',
       handlerFactoryExport: 'createHandler',
       service: 'worker',
+      everySeconds: 60 * 60,
+    },
+    {
+      id: 'sign_in.retention.sweep',
+      handler: 'jobs/sign-in-retention.ts',
+      handlerFactoryExport: 'createHandler',
+      service: 'worker',
+      everySeconds: 24 * 60 * 60,
     },
   ],
   config: [

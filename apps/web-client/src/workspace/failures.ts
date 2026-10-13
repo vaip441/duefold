@@ -81,6 +81,13 @@ export function presentFailure(error: unknown): PresentedFailure {
         body: translate('error.invalid.body'),
         offerReload: false,
       };
+    case 'export-too-large':
+      return {
+        kind: 'plain',
+        title: null,
+        body: translate('error.exportTooLarge.body'),
+        offerReload: false,
+      };
     case 'offline':
       return {
         /* Named so a surface can offer retry-when-connected rather than a generic

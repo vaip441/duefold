@@ -121,6 +121,22 @@ contract, with no provider-specific code.
   terminating proxy. `true` and hop counts are rejected at startup: a hop count
   cannot prove the immediate peer is your proxy, and OTP rate limiting depends
   on a client address that a caller cannot forge.
+- On a platform with no stable proxy address whose edge is the only ingress and
+  appends the client address to `X-Forwarded-For` (Railway), set
+  `DUEFOLD_TRUSTED_EDGE_HOPS=1` instead; the right-most entry becomes the client
+  address. Only `1` is accepted, it cannot be combined with any
+  `DUEFOLD_TRUSTED_PROXIES` value, `false` included, and it must never be set
+  where clients can reach the container directly.
+- Startup fails when neither is set, or when `DUEFOLD_TRUSTED_PROXIES` lists no
+  address: behind a proxy every request would share its address, and the public
+  per-network limits on sign-in codes and OIDC sign-in would become one bucket
+  that any caller can exhaust. Set `DUEFOLD_TRUSTED_PROXIES=false` only when
+  clients connect directly.
+- Upgrading from 1.3.0 or earlier: 1.3.0 rejects the unknown
+  `DUEFOLD_TRUSTED_EDGE_HOPS` at startup and the new release refuses to start
+  without one of the two settings. `DUEFOLD_TRUSTED_PROXIES` is known to 1.3.0 and
+  can be set before upgrading; `DUEFOLD_TRUSTED_EDGE_HOPS` must reach the service
+  in the same change that deploys the new release, never a redeploy of 1.3.0.
 - Keep the origin unreachable except through that proxy. If the platform routes
   public traffic straight to the container and appends to a client-supplied
   `X-Forwarded-For`, the client address is spoofable and per-IP throttling

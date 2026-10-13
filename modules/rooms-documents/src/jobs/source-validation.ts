@@ -6,7 +6,7 @@ import type { ClamAvClient } from '../scanning/clamav.ts';
 import { processSource, type ProcessorPrograms } from '../processing/formats.ts';
 import type { SandboxIsolation } from '../processing/preflight.ts';
 import { assertFormatEnabled } from '../release-policy.ts';
-import { validateSourceBytes, type SourceMediaType } from '../source-validation.ts';
+import { validateSourceBytes } from '../source-validation.ts';
 import type { WorkerStorage } from '../storage/s3-compatible.ts';
 
 export interface SourceValidationDependencies {
@@ -347,4 +347,3 @@ export function createHandler(dependencies: SourceValidationDependencies) {
     }
   };
 }
-export const acceptedMediaType = (value: string): value is SourceMediaType => value.length > 0;

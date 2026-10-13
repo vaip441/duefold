@@ -269,6 +269,30 @@ describe('reading the deployment status', () => {
     expect(row?.mail_delivered_at?.getTime()).toBeLessThan(Date.now() - 2 * 3_600_000);
   });
 
+  it('reports a job whose exhaustion hook keeps failing as failed, not running', async () => {
+    await migrationPool.query('DELETE FROM job_queue');
+    const running = (type: string, attempts: number, lastErrorCode: string | null) =>
+      migrationPool.query(
+        `INSERT INTO job_queue(id,job_type,idempotency_key,payload,state,attempts,max_attempts,
+           lease_owner,lease_token,lease_expires_at,last_error_code)
+         VALUES($1,$2,$3,'{}'::jsonb,'running',$4,5,$5,$6,statement_timestamp()-interval '1 second',$7)`,
+        [
+          createOpaqueId(),
+          type,
+          `status-test:${createOpaqueId()}`,
+          attempts,
+          createOpaqueId(),
+          createOpaqueId(),
+          lastErrorCode,
+        ],
+      );
+    await running('document.source.validate', 2, 'HANDLER_FAILED');
+    await running('auth.otp.deliver', 5, 'EXHAUSTION_HOOK_FAILED');
+    expect(
+      (await databasePool.query('SELECT * FROM read_deployment_status($1)', [ownerId])).rows[0],
+    ).toMatchObject({ jobs_running: 1, jobs_failed_recently: 1, mail_failed_recently: 1 });
+  });
+
   it('lists every check in display order, unobserved ones as nulls', async () => {
     await migrationPool.query('DELETE FROM deployment_status_observation');
     await recordWorker(workerPool, 'scanner', 'fail', 'SIGNATURES_STALE', new Date(0));

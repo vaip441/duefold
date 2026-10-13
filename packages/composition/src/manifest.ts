@@ -121,7 +121,7 @@ export async function loadManifest(path: string): Promise<CompositionManifest> {
 /**
  * Validates declarations against the selected manifest. Rejects declarations
  * from omitted modules, unsatisfied dependencies, duplicate route/migration/job
- * ids, and duplicate configuration keys.
+ * ids, duplicate configuration keys, and malformed job schedules or hooks.
  */
 export function validateDeclarations(
   manifest: CompositionManifest,
@@ -152,6 +152,18 @@ export function validateDeclarations(
     }
     if (!isRequiredModule(declaration.id) && declaration.requires.length === 0) {
       // Optional modules may stand alone; nothing to assert.
+    }
+  }
+
+  for (const job of declarations.flatMap((entry) => entry.jobs)) {
+    if (
+      job.everySeconds !== undefined &&
+      (!Number.isInteger(job.everySeconds) || job.everySeconds <= 0)
+    ) {
+      fail(`job ${job.id}: everySeconds must be a positive integer`);
+    }
+    if (job.onExhausted !== undefined && !/^[a-z_][a-z0-9_]{0,62}$/u.test(job.onExhausted)) {
+      fail(`job ${job.id}: onExhausted must be a lowercase SQL function name`);
     }
   }
 

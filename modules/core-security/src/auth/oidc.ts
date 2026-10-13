@@ -1,17 +1,31 @@
 import { createHash } from 'node:crypto';
 import * as oidc from 'openid-client';
 import type { Pool } from 'pg';
-import { normalizeEmail } from '@duefold/shared/email';
-import { createOpaqueId } from '@duefold/shared/ids';
+import { InvalidEmailError, normalizeEmail } from '@duefold/shared/email';
+import { createOpaqueId, createOpaqueSecret } from '@duefold/shared/ids';
 import type { CorrelationId } from '@duefold/shared/ids';
+import { constantTimeDigestMatch, digestSecret } from '../sessions.ts';
 
 export const OIDC_TRANSACTION_SECONDS = 600;
 export const OIDC_FRESH_MAX_AGE_SECONDS = 15 * 60;
+/**
+ * Binds a transaction to the browser that began it, so a callback carrying
+ * someone else's valid state cannot sign this browser into their account (login
+ * CSRF). `lax` is required: the IdP returns with a cross-site top-level GET.
+ */
+export const OIDC_BROWSER_COOKIE = '__Host-duefold_oidc';
+export const OIDC_BROWSER_COOKIE_OPTIONS = {
+  secure: true,
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  path: '/',
+};
 
 export interface OidcTransaction {
   readonly state: string;
   readonly nonce: string;
   readonly codeVerifier: string;
+  readonly browserBinding: string;
   readonly authorizationUrl: URL;
 }
 export interface StoredOidcTransaction {
@@ -112,6 +126,7 @@ export async function beginOidc(
     state,
     nonce,
     codeVerifier,
+    browserBinding: createOpaqueSecret(),
     authorizationUrl: oidc.buildAuthorizationUrl(config, {
       redirect_uri: redirectUri,
       scope: 'openid email',
@@ -125,37 +140,73 @@ export async function beginOidc(
   };
 }
 
+/** Live (ten-minute) transactions one network may hold at once. */
+export const OIDC_BEGIN_PER_NETWORK_LIMIT = 20;
+
 export async function persistOidcTransaction(
   pool: Pool,
   transaction: OidcTransaction,
+  networkHmac: string,
   now = new Date(),
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO oidc_transaction (state_digest, nonce, code_verifier, expires_at, created_at)
-     VALUES ($1,$2,$3,$4,$5)`,
-    [
-      stateDigest(transaction.state),
-      transaction.nonce,
-      transaction.codeVerifier,
-      new Date(now.getTime() + OIDC_TRANSACTION_SECONDS * 1_000),
-      now,
-    ],
-  );
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+      `oidc-network:${networkHmac}`,
+    ]);
+    // Abandoned transactions are never consumed; begin is public, so each one
+    // clears the expired rows rather than letting them accumulate.
+    await db.query('DELETE FROM oidc_transaction WHERE expires_at <= transaction_timestamp()');
+    const live = await db.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM oidc_transaction WHERE network_hmac = $1',
+      [networkHmac],
+    );
+    if (Number(live.rows[0]?.count ?? '0') >= OIDC_BEGIN_PER_NETWORK_LIMIT)
+      throw new Error('OIDC_BEGIN_RATE_LIMITED');
+    await db.query(
+      `INSERT INTO oidc_transaction
+         (state_digest, browser_binding_digest, network_hmac, nonce, code_verifier, expires_at, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        stateDigest(transaction.state),
+        digestSecret(transaction.browserBinding),
+        networkHmac,
+        transaction.nonce,
+        transaction.codeVerifier,
+        new Date(now.getTime() + OIDC_TRANSACTION_SECONDS * 1_000),
+        now,
+      ],
+    );
+    await db.query('COMMIT');
+  } catch (error) {
+    await db.query('ROLLBACK');
+    throw error;
+  } finally {
+    db.release();
+  }
 }
 
 /** Claims state before token exchange. A failed callback cannot be replayed. */
 export async function consumeOidcTransaction(
   pool: Pool,
   state: string,
+  browserBinding: string,
 ): Promise<StoredOidcTransaction> {
-  const result = await pool.query<{ nonce: string; code_verifier: string }>(
+  const result = await pool.query<{
+    nonce: string;
+    code_verifier: string;
+    browser_binding_digest: string;
+  }>(
     `DELETE FROM oidc_transaction
        WHERE state_digest = $1 AND expires_at > transaction_timestamp()
-       RETURNING nonce, code_verifier`,
+       RETURNING nonce, code_verifier, browser_binding_digest`,
     [stateDigest(state)],
   );
   const row = result.rows[0];
   if (row === undefined) throw new Error('OIDC_TRANSACTION_INVALID');
+  if (!constantTimeDigestMatch(browserBinding, row.browser_binding_digest))
+    throw new Error('OIDC_BROWSER_BINDING_INVALID');
   return { state, nonce: row.nonce, codeVerifier: row.code_verifier };
 }
 
@@ -262,12 +313,29 @@ export async function finishOidc(input: {
   return verifiedOidcIdentityFromClaims(tokens.claims(), input.now ?? new Date());
 }
 
+/** Parses the comma-separated owner allowlist into comparison keys at startup, so
+ * a malformed entry fails the deployment instead of every bootstrap attempt. */
+export function parseOwnerAllowlist(raw: string): readonly string[] {
+  const entries = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
+  if (entries.length === 0)
+    throw new Error('invalid configuration: DUEFOLD_OWNER_EMAIL_ALLOWLIST');
+  try {
+    return entries.map((entry) => normalizeEmail(entry).comparisonKey);
+  } catch (error) {
+    if (!(error instanceof InvalidEmailError)) throw error;
+    throw new Error('invalid configuration: DUEFOLD_OWNER_EMAIL_ALLOWLIST', { cause: error });
+  }
+}
+
+/** `allowlist` holds comparison keys from `parseOwnerAllowlist`. */
 export function bootstrapEligible(
   identity: VerifiedOidcIdentity,
   allowlist: readonly string[],
 ): boolean {
-  const allowed = new Set(allowlist.map((email) => normalizeEmail(email).comparisonKey));
-  return allowed.has(identity.emailKey);
+  return allowlist.includes(identity.emailKey);
 }
 
 /**

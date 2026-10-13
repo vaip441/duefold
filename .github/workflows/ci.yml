@@ -138,6 +138,7 @@ jobs:
           DUEFOLD_OTP_DIGEST_KEY=sykt1mSWM7GYhL5bNBhYsNxMo7aRq-j9upohCeKz1CU
           DUEFOLD_NETWORK_HMAC_KEY=n4Oj47i-YXNLqo9npNdOFwKgkXW0HrpkyvyGyQRXlRM
           DUEFOLD_PII_HMAC_KEY=j5m6dMOYqfb1L_q_2zjM6caQLhJo5G8Zz7zXOMVpwqQ
+          DUEFOLD_TRUSTED_PROXIES=172.16.0.0/12
           COMPOSE_FILE=compose.yaml:compose.ci.yaml
           EOF
           # Exactly one mail credential may be present and it must match the

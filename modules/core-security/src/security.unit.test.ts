@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { FixedClock } from '@duefold/shared/clock';
-import { authorizeMember, canViewAudit, hasFreshOidc } from './authorization.ts';
+import { hasFreshOidc } from './authorization.ts';
 import {
+  clientNetwork,
   generateOtp,
   invitationExpiry,
   networkCorrelation,
   otpUsable,
   OTP_MAX_ATTEMPTS,
 } from './auth/otp.ts';
-import { bootstrapEligible } from './auth/oidc.ts';
+import { bootstrapEligible, parseOwnerAllowlist } from './auth/oidc.ts';
 import {
   DEFAULT_ABSOLUTE_HOURS,
   DEFAULT_IDLE_MINUTES,
@@ -62,6 +63,26 @@ describe('OTP policy', () => {
     expect(february.period).toBe('2026-02');
     expect(january.hmac).not.toBe(february.hmac);
   });
+  it('keys IPv6 clients by their /64 and IPv4-mapped clients as IPv4', () => {
+    expect(clientNetwork('2001:db8:aa:bb:1:2:3:4')).toBe('2001:db8:aa:bb::/64');
+    expect(clientNetwork('2001:0DB8:00AA:00BB:ffff::1')).toBe('2001:db8:aa:bb::/64');
+    expect(clientNetwork('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(clientNetwork('::1')).toBe('0:0:0:0::/64');
+    expect(clientNetwork('::ffff:192.0.2.7')).toBe('192.0.2.7');
+    expect(clientNetwork(' 192.0.2.7 ')).toBe('192.0.2.7');
+    expect(() => clientNetwork('not-an-address')).toThrow('invalid network address');
+    const key = 'k'.repeat(32);
+    const now = new Date('2026-01-15T00:00:00Z');
+    expect(networkCorrelation('2001:db8:aa:bb::1', now, key).hmac).toBe(
+      networkCorrelation('2001:db8:aa:bb:9:8:7:6', now, key).hmac,
+    );
+    expect(networkCorrelation('2001:db8:aa:bb::1', now, key).hmac).not.toBe(
+      networkCorrelation('2001:db8:aa:bc::1', now, key).hmac,
+    );
+    expect(networkCorrelation('::ffff:192.0.2.7', now, key).hmac).toBe(
+      networkCorrelation('192.0.2.7', now, key).hmac,
+    );
+  });
 });
 describe('sessions', () => {
   it('uses bounded 30 minute idle and 12 hour absolute defaults', () => {
@@ -75,34 +96,11 @@ describe('sessions', () => {
     expect(() => validateSessionPolicy({ idleMinutes: 61, absoluteHours: 12 })).toThrow();
   });
 });
-describe('role resolution', () => {
-  const now = new Date('2026-03-01T12:00:00Z');
-  it('grants global and room authority without custom roles', () => {
-    expect(authorizeMember({ globalRole: 'admin' }, 'room.manage', now)).toBe(true);
-    expect(
-      authorizeMember({ globalRole: 'member', roomRole: 'contributor' }, 'room.manage', now),
-    ).toBe(false);
-    expect(
-      authorizeMember({ globalRole: 'member', roomRole: 'manager' }, 'room.manage', now),
-    ).toBe(true);
-  });
-  it('requires fresh OIDC for ownership transfer', () => {
-    const fresh = new Date(now.getTime() - 14 * 60_000);
-    const stale = new Date(now.getTime() - 16 * 60_000);
-    expect(hasFreshOidc(fresh, now)).toBe(true);
-    expect(
-      authorizeMember(
-        { globalRole: 'owner', oidcAuthenticatedAt: stale },
-        'owner.transfer',
-        now,
-      ),
-    ).toBe(false);
-  });
-  it('scopes audit visibility', () => {
-    expect(
-      canViewAudit({ globalRole: 'member', roomRole: 'contributor' }, 'installation'),
-    ).toBe(false);
-    expect(canViewAudit({ globalRole: 'member', roomRole: 'manager' }, 'room')).toBe(true);
+describe('OIDC freshness', () => {
+  it('accepts authentication within the last fifteen minutes only', () => {
+    const now = new Date('2026-03-01T12:00:00Z');
+    expect(hasFreshOidc(new Date(now.getTime() - 14 * 60_000), now)).toBe(true);
+    expect(hasFreshOidc(new Date(now.getTime() - 16 * 60_000), now)).toBe(false);
   });
 });
 describe('owner bootstrap', () => {
@@ -115,7 +113,21 @@ describe('owner bootstrap', () => {
       authenticatedAt: new Date(),
       authenticationTimeAsserted: true,
     };
-    expect(bootstrapEligible(identity, ['OWNER+DEAL@example.com'])).toBe(true);
-    expect(bootstrapEligible(identity, ['owner@example.com'])).toBe(false);
+    expect(bootstrapEligible(identity, parseOwnerAllowlist('OWNER+DEAL@example.com'))).toBe(
+      true,
+    );
+    expect(bootstrapEligible(identity, parseOwnerAllowlist('owner@example.com'))).toBe(false);
+  });
+  it('parses the owner allowlist once, ignoring empty entries', () => {
+    expect(parseOwnerAllowlist(' Owner@Example.com, ,second@example.com,')).toEqual([
+      'owner@example.com',
+      'second@example.com',
+    ]);
+  });
+  it('fails startup on a malformed or empty owner allowlist', () => {
+    for (const raw of ['owner@example.com,jane@acme', ',', ' '])
+      expect(() => parseOwnerAllowlist(raw)).toThrow(
+        'invalid configuration: DUEFOLD_OWNER_EMAIL_ALLOWLIST',
+      );
   });
 });

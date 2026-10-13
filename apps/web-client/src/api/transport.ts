@@ -42,6 +42,9 @@ export type ApiFailure =
      ordinary refusal on grant and export calls as "sign in again", which is a
      false recovery instruction. Only the server's own code sets this. */
   | 'fresh-authentication-required'
+  /* The server's own code for an export selection too large for one archive, so the
+     member is told to split it rather than shown a generic invalid request. */
+  | 'export-too-large'
   | 'unavailable';
 
 export class ApiError extends Error {
@@ -67,6 +70,7 @@ function readCsrfToken(): string | null {
 export function failureForStatus(status: number, serverCode?: string): ApiFailure {
   if (status === 403 && serverCode === 'FRESH_AUTHENTICATION_REQUIRED')
     return 'fresh-authentication-required';
+  if (status === 400 && serverCode === 'EXPORT_TOO_LARGE') return 'export-too-large';
   if (status === 400) return 'invalid';
   if (status === 401) return 'unauthenticated';
   if (status === 403) return 'denied';

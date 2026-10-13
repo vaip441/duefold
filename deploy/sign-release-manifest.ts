@@ -7,11 +7,14 @@ import {
   type ReleaseManifest,
   type ReleaseManifestPayload,
 } from '../apps/cli/src/lifecycle.ts';
+import { isReleaseVersion } from '../modules/core-security/src/release.ts';
 
 export function createSignedManifest(
   payload: ReleaseManifestPayload,
   privateKeyPem: string,
 ): ReleaseManifest {
+  // The CLI orders manifests by X.Y.Z; a tag name such as v1.0.0 would never be offered.
+  if (!isReleaseVersion(payload.version)) throw new Error('RELEASE_VERSION_INVALID');
   const privateKey = createPrivateKey(privateKeyPem);
   const signature = sign(null, manifestPayload(payload), privateKey).toString('base64url');
   const manifest: ReleaseManifest = { ...payload, signature };
@@ -50,7 +53,7 @@ export async function runSigner(
     key === ''
   )
     throw new Error(
-      'usage: sign-release-manifest --version <tag> --web-digest <sha256:...> --worker-digest <sha256:...> [--key-file <path>] [--output <file>]',
+      'usage: sign-release-manifest --version <X.Y.Z> --web-digest <sha256:...> --worker-digest <sha256:...> [--key-file <path>] [--output <file>]',
     );
   const manifest = createSignedManifest(
     {

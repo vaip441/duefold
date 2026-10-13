@@ -322,14 +322,18 @@ export async function resolveInterstitial(
   };
 }
 
-export async function createDownloadLease(input: {
-  readonly roomId: string;
-  readonly documentId: string;
-}): Promise<DownloadLease> {
+export async function createDownloadLease(
+  input: {
+    readonly roomId: string;
+    readonly documentId: string;
+  },
+  signal: AbortSignal,
+): Promise<DownloadLease> {
   const payload = await json({
     method: 'POST',
     path: '/api/viewer/downloads',
     body: input,
+    signal,
   });
   if (!isRecord(payload)) throw new ApiError('unavailable');
   return {

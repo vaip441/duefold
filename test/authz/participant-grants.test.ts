@@ -1,19 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHandler as createRequiredMailHandler } from '../../modules/core-security/src/jobs/required-mail-delivery.ts';
 import type {
   OutboundMail,
   RequiredMailer,
 } from '../../modules/core-security/src/auth/mail.ts';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
-import { createOpaqueSecret } from '@duefold/shared/ids';
-import { digestSecret } from '../../modules/core-security/src/sessions.ts';
-import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
-import { migrate } from '../../modules/core-security/src/db/migrate.ts';
-import {
-  authorizeViewerPublishedRoom,
-  canViewerPreviewDocument,
-} from '../../modules/rooms-documents/src/viewer-authorization.ts';
 import { createDownloadLease } from '../../modules/rooms-documents/src/downloads.ts';
 import {
   createWatermarkedPage,
@@ -26,344 +17,48 @@ import {
   readViewerStructure,
   searchViewerStructure,
 } from '../../modules/rooms-documents/src/viewer-discovery.ts';
-import {
-  readEffectivePermissionPreview,
-  resolveDocumentDownloadPolicy,
-} from '../../modules/participants-access/src/grant-model.ts';
+import { readEffectivePermissionPreview } from '../../modules/participants-access/src/grant-model.ts';
 import { createHandler as createParticipantListHandler } from '../../modules/participants-access/src/routes/participant-list.ts';
 import { createHandler as createInviteHandler } from '../../modules/participants-access/src/routes/participant-invite.ts';
 import { createHandler as createGrantRouteHandler } from '../../modules/participants-access/src/routes/grant-change.ts';
 import { FixedClock } from '@duefold/shared/clock';
 import { testWebRuntime } from '../support/web-runtime.ts';
+import {
+  migrationPool,
+  runtimePool,
+  workerPool,
+  roomId,
+  viewerId,
+  folderId,
+  versionId,
+  counterpartyGrantId,
+  freshOidcAt,
+  viewerIdentity,
+  createViewerSession,
+  audit,
+  canViewerPreviewDocument,
+  authorizeViewerPublishedRoom,
+  roomRevision,
+  createCounterparty,
+  addViewer,
+  assign,
+  grant,
+  managerId,
+  contributorId,
+  otherRoomId,
+  directViewerId,
+  deniedViewerId,
+  secondCounterpartyId,
+  documentId,
+  unreadyDocumentId,
+  unreadyVersionId,
+  directGrantId,
+  closeParticipantGrantPools,
+  seedParticipantGrants,
+} from './support/participant-grants-fixture.ts';
 
-const bootstrapPool = new Pool({
-  host: '/var/run/postgresql',
-  database: 'duefold_test',
-});
-const migrationPool = new Pool({
-  connectionString: process.env['DUEFOLD_TEST_MIGRATION_DATABASE_URL'],
-});
-const runtimePool = new Pool({ connectionString: process.env['DUEFOLD_TEST_DATABASE_URL'] });
-const authPool = new Pool({ connectionString: process.env['DUEFOLD_TEST_AUTH_DATABASE_URL'] });
-const workerPool = new Pool({
-  connectionString: process.env['DUEFOLD_TEST_WORKER_DATABASE_URL'],
-});
-
-const ownerId = createOpaqueId(),
-  managerId = createOpaqueId(),
-  contributorId = createOpaqueId();
-const roomId = createOpaqueId(),
-  otherRoomId = createOpaqueId();
-const viewerId = createOpaqueId(),
-  directViewerId = createOpaqueId(),
-  deniedViewerId = createOpaqueId();
-const counterpartyId = createOpaqueId(),
-  secondCounterpartyId = createOpaqueId();
-const folderId = createOpaqueId(),
-  nestedFolderId = createOpaqueId(),
-  hiddenFolderId = createOpaqueId(),
-  documentId = createOpaqueId(),
-  unreadyDocumentId = createOpaqueId();
-const versionId = createOpaqueId(),
-  unreadyVersionId = createOpaqueId();
-const counterpartyGrantId = createOpaqueId(),
-  directGrantId = createOpaqueId();
-const viewerSessions = new Map<string, { readonly id: string; readonly proof: string }>();
-const freshOidcAt = new Date();
-
-function viewerIdentity(id: string) {
-  const session = viewerSessions.get(id);
-  if (session === undefined) throw new Error('VIEWER_SESSION_FIXTURE_ABSENT');
-  return { kind: 'viewer' as const, id, sessionId: session.id, sessionProof: session.proof };
-}
-async function createViewerSession(viewer: string): Promise<string> {
-  const sessionId = createOpaqueId();
-  const secret = createOpaqueSecret();
-  const proof = digestSecret(secret);
-  await authPool.query(
-    `INSERT INTO session(id,secret_digest,csrf_digest,principal_kind,viewer_id,family_id,
-       state,idle_expires_at,absolute_expires_at)
-     VALUES($1,$2,$3,'viewer',$4,$5,'active',statement_timestamp()+interval '1 hour',
-       statement_timestamp()+interval '2 hours')`,
-    [sessionId, proof, createOpaqueId().padEnd(64, 'c'), viewer, createOpaqueId()],
-  );
-  viewerSessions.set(viewer, { id: sessionId, proof });
-  return sessionId;
-}
-
-function audit(): readonly [string, string] {
-  return [createOpaqueId(), createCorrelationId()];
-}
-async function roomRevision(id = roomId): Promise<number> {
-  const row = (
-    await migrationPool.query<{ revision: number }>('SELECT revision FROM room WHERE id=$1', [
-      id,
-    ])
-  ).rows[0];
-  if (!row) throw new Error('ROOM_ABSENT');
-  return row.revision;
-}
-async function createCounterparty(id: string, room: string, name: string): Promise<void> {
-  await runtimePool.query('SELECT create_counterparty($1,$2,$3,$4,$5,$6,$7)', [
-    id,
-    room,
-    name,
-    managerId,
-    await roomRevision(room),
-    ...audit(),
-  ]);
-}
-async function addViewer(viewer: string, room = roomId): Promise<void> {
-  await runtimePool.query('SELECT add_viewer_to_room($1,$2,$3,$4,$5,$6,$7)', [
-    createOpaqueId(),
-    viewer,
-    room,
-    managerId,
-    await roomRevision(room),
-    ...audit(),
-  ]);
-  if (!viewerSessions.has(viewer)) await createViewerSession(viewer);
-}
-async function assign(counterparty: string, viewer: string, room = roomId): Promise<void> {
-  await runtimePool.query('SELECT assign_viewer_counterparty($1,$2,$3,$4,$5,$6,$7,$8)', [
-    createOpaqueId(),
-    counterparty,
-    viewer,
-    room,
-    managerId,
-    await roomRevision(room),
-    ...audit(),
-  ]);
-}
-interface GrantInput {
-  readonly id: string;
-  readonly granteeKind: 'viewer' | 'counterparty';
-  readonly viewerId?: string;
-  readonly counterpartyId?: string;
-  readonly targetKind: 'room' | 'folder' | 'document';
-  readonly folderId?: string;
-  readonly documentId?: string;
-  readonly expiresAt?: Date;
-}
-async function grant(input: GrantInput): Promise<{ resolvedExpiresAt: string | null }> {
-  const args = [
-    managerId,
-    roomId,
-    'grant',
-    input.id,
-    input.granteeKind,
-    input.viewerId ?? null,
-    input.counterpartyId ?? null,
-    input.targetKind,
-    input.folderId ?? null,
-    input.documentId ?? null,
-    input.expiresAt ?? null,
-  ];
-  const impact = (
-    await runtimePool.query<{
-      dry_run_grant_change: { confirmation: string; resolvedExpiresAt: string | null };
-    }>('SELECT dry_run_grant_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', args)
-  ).rows[0]?.dry_run_grant_change;
-  if (!impact) throw new Error('GRANT_IMPACT_ABSENT');
-  await runtimePool.query(
-    'SELECT apply_grant_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
-    [...args, await roomRevision(), freshOidcAt, impact.confirmation, ...audit()],
-  );
-  return impact;
-}
-
-beforeAll(async () => {
-  await bootstrapPool.query(
-    'DROP SCHEMA public CASCADE; CREATE SCHEMA public; ALTER SCHEMA public OWNER TO duefold_migration;',
-  );
-  await migrate(migrationPool, generatedMigrations);
-  const client = await migrationPool.connect();
-  try {
-    await client.query('BEGIN');
-    for (const [id, email, role] of [
-      [ownerId, 'grant-owner@example.com', 'owner'],
-      [managerId, 'grant-manager@example.com', 'member'],
-      [contributorId, 'grant-contributor@example.com', 'member'],
-    ] as const)
-      await client.query(
-        "INSERT INTO member(id,email_key,email_display,oidc_issuer,oidc_subject,global_role,state) VALUES($1,$2,$2,'https://issuer.example',$1,$3,'active')",
-        [id, email, role],
-      );
-    await client.query("INSERT INTO organization(id,name) VALUES($1,'Grant authz')", [
-      createOpaqueId(),
-    ]);
-    for (const [id, email] of [
-      [viewerId, 'αλέξανδρος@example.com'],
-      [directViewerId, '投資家@example.com'],
-      [deniedViewerId, 'denied@example.com'],
-    ] as const)
-      await client.query(
-        "INSERT INTO viewer(id,email_key,email_display,state,session_family_id) VALUES($1,$2,$2,'active',$3)",
-        [id, email, createOpaqueId()],
-      );
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-
-  await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
-    roomId,
-    'Published grants room',
-    '',
-    ownerId,
-    ...audit(),
-  ]);
-  await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
-    otherRoomId,
-    'Other room',
-    '',
-    ownerId,
-    ...audit(),
-  ]);
-  /* Migration 017 revoked direct room_assignment DML from the runtime credential,
-   * so this fixture uses the migration credential's schema authority. */
-  await migrationPool.query(
-    "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager'),($4,$2,$5,'contributor'),($6,$7,$3,'manager')",
-    [
-      createOpaqueId(),
-      roomId,
-      managerId,
-      createOpaqueId(),
-      contributorId,
-      createOpaqueId(),
-      otherRoomId,
-    ],
-  );
-  await createCounterparty(counterpartyId, roomId, '有限会社 投資家 — Δοκιμή');
-  await createCounterparty(secondCounterpartyId, roomId, 'Teine osapool');
-  await addViewer(viewerId);
-  await addViewer(directViewerId);
-  await addViewer(deniedViewerId);
-  await assign(counterpartyId, viewerId);
-
-  // Migration-owner fixtures model the already-reviewed publication pipeline;
-  // this suite tests the authorization boundary, not conversion mechanics.
-  await migrationPool.query(
-    "INSERT INTO folder(id,room_id,description,created_by) VALUES($1,$2,'',$3),($4,$2,'',$3),($5,$2,'',$3)",
-    [folderId, roomId, contributorId, nestedFolderId, hiddenFolderId],
-  );
-  await migrationPool.query(
-    "INSERT INTO document(id,room_id,display_title,description,created_by) VALUES($1,$2,'Investor model','',$3),($4,$2,'Unready quarterly model','',$3)",
-    [documentId, roomId, contributorId, unreadyDocumentId],
-  );
-  const jobId = createOpaqueId(),
-    token = createOpaqueId();
-  await migrationPool.query(
-    `INSERT INTO job_queue(id,job_type,idempotency_key,payload,state,attempts,lease_owner,lease_token,lease_expires_at)
-     VALUES($1,'document.source.validate',$2,jsonb_build_object('versionId',$3::text),'running',1,$4,$5,
-       transaction_timestamp()+interval '1 hour')`,
-    [jobId, createOpaqueId(), versionId, createOpaqueId(), token],
-  );
-  await migrationPool.query(
-    `INSERT INTO document_version(id,document_id,original_filename,object_key,declared_media_type,
-    detected_media_type,size_bytes,sha256,state,scan_signature_version)
-    VALUES($1,$2,'model.pdf',$3,'application/pdf','application/pdf',10,$4,'ready_for_review','1')`,
-    [
-      versionId,
-      documentId,
-      `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
-      'a'.repeat(64),
-    ],
-  );
-  await migrationPool.query(
-    `INSERT INTO document_version(id,document_id,original_filename,object_key,declared_media_type,
-    detected_media_type,size_bytes,sha256,state,scan_signature_version)
-    VALUES($1,$2,'unready.pdf',$3,'application/pdf','application/pdf',10,$4,'source_validated',NULL)`,
-    [
-      unreadyVersionId,
-      unreadyDocumentId,
-      `quarantine/${createOpaqueId()}/${createOpaqueId()}`,
-      'b'.repeat(64),
-    ],
-  );
-  await migrationPool.query(
-    `INSERT INTO document_derivative(id,version_id,page_number,object_key,media_type,size_bytes,sha256,width,height,accessible_label)
-     VALUES($1,$2,1,$3,'image/png',10,$4,100,100,'Unready page')`,
-    [
-      createOpaqueId(),
-      unreadyVersionId,
-      `derivatives/${createOpaqueId()}/${createOpaqueId()}`,
-      'd'.repeat(64),
-    ],
-  );
-  await migrationPool.query(
-    `INSERT INTO document_scan_evidence(version_id,job_id,lease_token,signature_version,signatures_published_at)
-    VALUES($1,$2,$3,'1',transaction_timestamp())`,
-    [versionId, jobId, token],
-  );
-  await migrationPool.query(
-    `INSERT INTO document_derivative(id,version_id,page_number,object_key,media_type,size_bytes,sha256,width,height,accessible_label)
-    VALUES($1,$2,1,$3,'image/png',10,$4,1,1,'Page 1')`,
-    [
-      createOpaqueId(),
-      versionId,
-      `derivatives/${createOpaqueId()}/${createOpaqueId()}`,
-      'b'.repeat(64),
-    ],
-  );
-  await migrationPool.query(
-    `INSERT INTO working_structure_entry(id,room_id,folder_id,document_id,parent_folder_id,display_name,order_key)
-     VALUES($1,$2,$1,NULL,NULL,'Data room',1000),
-       ($3,$2,$3,NULL,$1,'Finantsid 財務',2000),
-       ($4,$2,NULL,$5,$3,'Investor model',3000),
-       ($6,$2,$6,NULL,NULL,'Unpublished acquisition secret',4000)`,
-    [folderId, roomId, nestedFolderId, createOpaqueId(), documentId, hiddenFolderId],
-  );
-  await migrationPool.query(
-    `INSERT INTO published_structure_entry(room_id,entry_id,resource_kind,resource_id,parent_folder_id,display_name,description,order_key,source_revision,published_version_id)
-    VALUES($1,$2,'folder',$2,NULL,'Data room','',1000,1,NULL),
-      ($1,$3,'folder',$3,$2,'Finantsid 財務','',2000,1,NULL),
-      ($1,$4,'document',$5,$3,'Investor model','',3000,1,$6),
-      ($1,$8,'document',$9,$3,'Unready quarterly model','',3500,1,$10),
-      ($1,$7,'folder',$7,NULL,'Hidden acquisition sibling','',4000,1,NULL)`,
-    [
-      roomId,
-      folderId,
-      nestedFolderId,
-      createOpaqueId(),
-      documentId,
-      versionId,
-      hiddenFolderId,
-      createOpaqueId(),
-      unreadyDocumentId,
-      unreadyVersionId,
-    ],
-  );
-  await migrationPool.query(
-    "UPDATE room SET state='published',published_revision=1,published_at=transaction_timestamp() WHERE id=$1",
-    [roomId],
-  );
-
-  await grant({
-    id: counterpartyGrantId,
-    granteeKind: 'counterparty',
-    counterpartyId,
-    targetKind: 'room',
-  });
-  await grant({
-    id: directGrantId,
-    granteeKind: 'viewer',
-    viewerId: directViewerId,
-    targetKind: 'document',
-    documentId,
-  });
-});
-
-afterAll(async () => {
-  await authPool.end();
-  await runtimePool.end();
-  await workerPool.end();
-  await migrationPool.end();
-  await bootstrapPool.end();
-});
+beforeAll(seedParticipantGrants);
+afterAll(closeParticipantGrantPools);
 
 describe('Participant HTTP contracts', () => {
   const runtime = testWebRuntime({
@@ -784,11 +479,7 @@ describe('Participant and allow-only grant boundary', () => {
     const counterpartyIdentity = viewerIdentity(viewerId);
     const directIdentity = viewerIdentity(directViewerId);
     const deniedIdentity = viewerIdentity(deniedViewerId);
-    const allowed = await authorizeViewerPublishedRoom({
-      pool: runtimePool,
-      identity: counterpartyIdentity,
-      roomId,
-    });
+    const allowed = await authorizeViewerPublishedRoom(counterpartyIdentity);
     expect(allowed).toBe(true);
     expect(
       (
@@ -799,31 +490,10 @@ describe('Participant and allow-only grant boundary', () => {
         })
       ).map((row) => row.displayName),
     ).toContain('Investor model');
-    expect(
-      await canViewerPreviewDocument({
-        pool: runtimePool,
-        identity: counterpartyIdentity,
-        roomId,
-        documentId,
-      }),
-    ).toBe(true);
-    expect(
-      await canViewerPreviewDocument({
-        pool: runtimePool,
-        identity: directIdentity,
-        roomId,
-        documentId,
-      }),
-    ).toBe(true);
+    expect(await canViewerPreviewDocument(counterpartyIdentity)).toBe(true);
+    expect(await canViewerPreviewDocument(directIdentity)).toBe(true);
     // Same populated room and document: no effective grant denies discovery/preview.
-    expect(
-      await canViewerPreviewDocument({
-        pool: runtimePool,
-        identity: deniedIdentity,
-        roomId,
-        documentId,
-      }),
-    ).toBe(false);
+    expect(await canViewerPreviewDocument(deniedIdentity)).toBe(false);
     // Same populated room and published rows: only session-checked discovery is
     // exposed to the web role; a viewer without a grant receives no rows.
     expect(
@@ -833,20 +503,8 @@ describe('Participant and allow-only grant boundary', () => {
         roomId,
       }),
     ).toEqual([]);
-    expect(
-      await authorizeViewerPublishedRoom({
-        pool: runtimePool,
-        identity: directIdentity,
-        roomId,
-      }),
-    ).toBe(false);
-    expect(
-      await authorizeViewerPublishedRoom({
-        pool: runtimePool,
-        identity: deniedIdentity,
-        roomId,
-      }),
-    ).toBe(false);
+    expect(await authorizeViewerPublishedRoom(directIdentity)).toBe(false);
+    expect(await authorizeViewerPublishedRoom(deniedIdentity)).toBe(false);
   });
 
   it('explains source and marks document-level exceptions without exposing the preview to Contributors', async () => {
@@ -932,12 +590,8 @@ describe('Participant and allow-only grant boundary', () => {
     const identity = viewerIdentity(folderViewer);
     // The document sits two levels under folderId: this proves subtree, not only
     // an immediate-child special case.
-    expect(
-      await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-    ).toBe(true);
-    expect(await authorizeViewerPublishedRoom({ pool: runtimePool, identity, roomId })).toBe(
-      false,
-    );
+    expect(await canViewerPreviewDocument(identity)).toBe(true);
+    expect(await authorizeViewerPublishedRoom(identity)).toBe(false);
 
     const documentProjection = await readViewerStructure({
       pool: runtimePool,
@@ -1069,45 +723,40 @@ describe('Participant and allow-only grant boundary', () => {
       expiresAt,
     });
     const identity = viewerIdentity(expiringViewer);
-    const client = await runtimePool.connect();
+    // viewer_can_preview_document takes caller-supplied identity and is not
+    // granted to the web role; the presented-proof reader stays on runtimePool.
+    const authorizerClient = await migrationPool.connect();
+    const runtimeClient = await runtimePool.connect();
+    const canPreview = async (): Promise<boolean | undefined> =>
+      (
+        await authorizerClient.query<{ allowed: boolean }>(
+          'SELECT viewer_can_preview_document($1,$2,$3,$4) allowed',
+          [identity.id, identity.sessionId, roomId, documentId],
+        )
+      ).rows[0]?.allowed;
+    const presentedMetadataRows = async (): Promise<number | null> =>
+      (
+        await runtimeClient.query(
+          'SELECT 1 FROM read_presented_viewer_document_metadata($1,$2,$3)',
+          [identity.sessionProof, roomId, documentId],
+        )
+      ).rowCount;
     try {
-      await client.query('BEGIN');
-      await client.query("SET LOCAL TimeZone='Pacific/Kiritimati'");
-      const before = (
-        await client.query<{ allowed: boolean }>(
-          'SELECT viewer_can_preview_document($1,$2,$3,$4) allowed',
-          [identity.id, identity.sessionId, roomId, documentId],
-        )
-      ).rows[0]?.allowed;
-      expect(before).toBe(true);
-      expect(
-        (
-          await client.query(
-            'SELECT 1 FROM read_presented_viewer_document_metadata($1,$2,$3)',
-            [identity.sessionProof, roomId, documentId],
-          )
-        ).rowCount,
-      ).toBe(1);
-      await client.query('SELECT pg_sleep(0.8)');
+      for (const client of [authorizerClient, runtimeClient]) {
+        await client.query('BEGIN');
+        await client.query("SET LOCAL TimeZone='Pacific/Kiritimati'");
+      }
+      expect(await canPreview()).toBe(true);
+      expect(await presentedMetadataRows()).toBe(1);
+      await runtimeClient.query('SELECT pg_sleep(0.8)');
       // A later statement in the SAME transaction must not inherit BEGIN time.
-      const after = (
-        await client.query<{ allowed: boolean }>(
-          'SELECT viewer_can_preview_document($1,$2,$3,$4) allowed',
-          [identity.id, identity.sessionId, roomId, documentId],
-        )
-      ).rows[0]?.allowed;
-      expect(after).toBe(false);
-      expect(
-        (
-          await client.query(
-            'SELECT 1 FROM read_presented_viewer_document_metadata($1,$2,$3)',
-            [identity.sessionProof, roomId, documentId],
-          )
-        ).rowCount,
-      ).toBe(0);
-      await client.query('ROLLBACK');
+      expect(await canPreview()).toBe(false);
+      expect(await presentedMetadataRows()).toBe(0);
+      await authorizerClient.query('ROLLBACK');
+      await runtimeClient.query('ROLLBACK');
     } finally {
-      client.release();
+      authorizerClient.release();
+      runtimeClient.release();
     }
 
     const futureViewer = createOpaqueId();
@@ -1124,31 +773,31 @@ describe('Participant and allow-only grant boundary', () => {
       documentId,
       expiresAt: new Date(Date.now() + 86_400_000),
     });
-    const zoneClient = await runtimePool.connect();
+    const futureIdentity = viewerIdentity(futureViewer);
+    const zoneAuthorizerClient = await migrationPool.connect();
+    const zoneRuntimeClient = await runtimePool.connect();
     try {
-      await zoneClient.query("SET TimeZone='America/Anchorage'");
+      for (const client of [zoneAuthorizerClient, zoneRuntimeClient]) {
+        await client.query("SET TimeZone='America/Anchorage'");
+      }
       const accepted = (
-        await zoneClient.query<{ allowed: boolean }>(
+        await zoneAuthorizerClient.query<{ allowed: boolean }>(
           'SELECT viewer_can_preview_document($1,$2,$3,$4) allowed',
-          [
-            viewerIdentity(futureViewer).id,
-            viewerIdentity(futureViewer).sessionId,
-            roomId,
-            documentId,
-          ],
+          [futureIdentity.id, futureIdentity.sessionId, roomId, documentId],
         )
       ).rows[0]?.allowed;
       expect(accepted).toBe(true);
       expect(
         (
-          await zoneClient.query(
+          await zoneRuntimeClient.query(
             'SELECT 1 FROM read_presented_viewer_document_metadata($1,$2,$3)',
-            [viewerIdentity(futureViewer).sessionProof, roomId, documentId],
+            [futureIdentity.sessionProof, roomId, documentId],
           )
         ).rowCount,
       ).toBe(1);
     } finally {
-      zoneClient.release();
+      zoneAuthorizerClient.release();
+      zoneRuntimeClient.release();
     }
   });
 
@@ -1365,23 +1014,15 @@ describe('Participant and allow-only grant boundary', () => {
 
   it('requires explicit publication in addition to an effective grant', async () => {
     const identity = viewerIdentity(viewerId);
-    expect(
-      await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-    ).toBe(true);
+    expect(await canViewerPreviewDocument(identity)).toBe(true);
     await migrationPool.query("UPDATE room SET state='draft' WHERE id=$1", [roomId]);
     try {
-      expect(
-        await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-      ).toBe(false);
-      expect(await authorizeViewerPublishedRoom({ pool: runtimePool, identity, roomId })).toBe(
-        false,
-      );
+      expect(await canViewerPreviewDocument(identity)).toBe(false);
+      expect(await authorizeViewerPublishedRoom(identity)).toBe(false);
     } finally {
       await migrationPool.query("UPDATE room SET state='published' WHERE id=$1", [roomId]);
     }
-    expect(
-      await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-    ).toBe(true);
+    expect(await canViewerPreviewDocument(identity)).toBe(true);
   });
 
   it('shows the exact inherited room default before confirmation and audits the committed grant atomically', async () => {
@@ -1445,9 +1086,7 @@ describe('Participant and allow-only grant boundary', () => {
       documentId,
     });
     const identity = viewerIdentity(viewer);
-    expect(
-      await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-    ).toBe(true);
+    expect(await canViewerPreviewDocument(identity)).toBe(true);
 
     const expiry = new Date(Date.now() + 86_400_000);
     const expiryArgs = [
@@ -1536,9 +1175,7 @@ describe('Participant and allow-only grant boundary', () => {
       'SELECT apply_grant_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
       [...revokeArgs, await roomRevision(), freshOidcAt, revokeImpact.confirmation, ...audit()],
     );
-    expect(
-      await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-    ).toBe(false);
+    expect(await canViewerPreviewDocument(identity)).toBe(false);
     expect(
       (
         await migrationPool.query<{ n: number }>(
@@ -1585,19 +1222,18 @@ describe('Participant and allow-only grant boundary', () => {
   });
 
   it('resolves one uniform installation-room-document download policy independent of viewer', async () => {
-    const policy = (viewer: string) =>
-      resolveDocumentDownloadPolicy({
-        pool: runtimePool,
-        viewerId: viewer,
-        sessionId: viewerIdentity(viewer).sessionId,
-        roomId,
-        documentId,
-      });
+    const policy = async (viewer: string) =>
+      (
+        await migrationPool.query<{ policy: string }>(
+          'SELECT policy FROM read_viewer_document_download_policy($1,$2,$3,$4)',
+          [viewer, viewerIdentity(viewer).sessionId, roomId, documentId],
+        )
+      ).rows[0]?.policy;
     expect(await policy(viewerId)).toBe('deny');
     expect(await policy(directViewerId)).toBe('deny');
     // The same populated document remains undiscoverable through policy lookup to
     // a viewer with no grant.
-    await expect(policy(deniedViewerId)).rejects.toThrow('DOWNLOAD_POLICY_UNAVAILABLE');
+    expect(await policy(deniedViewerId)).toBeUndefined();
     // Contributor is denied on the same populated room/document; Manager then
     // performs the exact mutation successfully and emits its audit row.
     await expect(
@@ -1757,9 +1393,7 @@ describe('Participant and allow-only grant boundary', () => {
 
   it('requires publication and ready evidence in addition to an effective grant', async () => {
     const identity = viewerIdentity(viewerId);
-    expect(
-      await canViewerPreviewDocument({ pool: runtimePool, identity, roomId, documentId }),
-    ).toBe(true);
+    expect(await canViewerPreviewDocument(identity)).toBe(true);
     const published = (
       await migrationPool.query<{
         room_id: string;

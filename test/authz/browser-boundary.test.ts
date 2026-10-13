@@ -32,6 +32,10 @@ import { createOpaqueId } from '@duefold/shared/ids';
 import { FixedClock } from '@duefold/shared/clock';
 import { testWebRuntime } from '../support/web-runtime.ts';
 import { SIGN_IN_FAILED_PATH } from '../../modules/core-security/src/routes/oidc-callback.ts';
+import {
+  OIDC_BEGIN_PER_NETWORK_LIMIT,
+  OIDC_BROWSER_COOKIE,
+} from '../../modules/core-security/src/auth/oidc.ts';
 
 const bootstrapPool = new Pool({
   host: '/var/run/postgresql',
@@ -51,6 +55,21 @@ function app() {
     runtime: testWebRuntime({ pool: databasePool, authPool }),
     authenticate: createSessionAuthenticator(authPool, sessionPolicy),
   });
+}
+
+async function insertOidcTransaction(state: string, browserBinding: string): Promise<void> {
+  await authPool.query(
+    `INSERT INTO oidc_transaction
+       (state_digest, browser_binding_digest, network_hmac, nonce, code_verifier, expires_at)
+     VALUES ($1, $2, $3, $4, $5, transaction_timestamp() + interval '10 minutes')`,
+    [
+      createHash('sha256').update(state).digest('hex'),
+      createHash('sha256').update(browserBinding).digest('hex'),
+      'a'.repeat(64),
+      'n'.repeat(32),
+      'v'.repeat(43),
+    ],
+  );
 }
 
 /** Reads one cookie's directives from a `set-cookie` header collection. */
@@ -422,9 +441,13 @@ describe('OIDC callback failure is one neutral state', () => {
     const response = await instance.inject({
       method: 'GET',
       url: '/api/auth/oidc/callback?error=access_denied&error_description=User+refused+consent&state=abcdefghijklmnop',
+      cookies: { [OIDC_BROWSER_COOKIE]: 'browser-binding' },
     });
     expect(response.statusCode).toBe(302);
     expect(response.headers['location']).toBe('/sign-in?state=failed');
+    expect(setCookie(response.headers, OIDC_BROWSER_COOKIE)).toMatch(
+      /Expires=Thu, 01 Jan 1970/u,
+    );
     await instance.close();
   });
 
@@ -487,14 +510,11 @@ describe('OIDC callback failure is one neutral state', () => {
       }),
       authenticate: createSessionAuthenticator(authPool, sessionPolicy),
     });
-    await authPool.query(
-      `INSERT INTO oidc_transaction (state_digest, nonce, code_verifier, expires_at)
-         VALUES ($1, $2, $3, transaction_timestamp() + interval '10 minutes')`,
-      [createHash('sha256').update(state).digest('hex'), 'n'.repeat(32), 'v'.repeat(43)],
-    );
+    await insertOidcTransaction(state, 'browser-binding');
     const response = await instance.inject({
       method: 'GET',
       url: `/api/auth/oidc/callback?code=authorization-code&state=${state}&iss=${encodeURIComponent('https://accounts.google.example')}`,
+      cookies: { [OIDC_BROWSER_COOKIE]: 'browser-binding' },
     });
     // Neutral refusal either way; the point is WHY it was refused.
     expect(response.statusCode).toBe(302);
@@ -504,6 +524,91 @@ describe('OIDC callback failure is one neutral state', () => {
     // empty.
     expect(seen.some((url) => url.includes('/token'))).toBe(true);
     expect(customFetch).toHaveBeenCalledTimes(1);
+    await instance.close();
+  });
+
+  it('binds the transaction to the beginning browser with a host-only cookie', async () => {
+    const instance = await app();
+    const response = await instance.inject({ method: 'GET', url: '/api/auth/oidc/begin' });
+    expect(response.statusCode).toBe(302);
+    const cookie = setCookie(response.headers, OIDC_BROWSER_COOKIE);
+    expect(cookie).toMatch(/; Max-Age=600/u);
+    expect(cookie).toMatch(/; Path=\//u);
+    expect(cookie).toMatch(/; HttpOnly/u);
+    expect(cookie).toMatch(/; Secure/u);
+    expect(cookie).toMatch(/; SameSite=Lax/u);
+    const binding = cookie?.slice(OIDC_BROWSER_COOKIE.length + 1).split(';')[0] ?? '';
+    const stored = await authPool.query<{ browser_binding_digest: string }>(
+      'SELECT browser_binding_digest FROM oidc_transaction WHERE browser_binding_digest = $1',
+      [createHash('sha256').update(binding).digest('hex')],
+    );
+    expect(stored.rowCount).toBe(1);
+    await instance.close();
+  });
+
+  it('throttles sign-in begins per network to the neutral failure', async () => {
+    await migrationPool.query('DELETE FROM oidc_transaction');
+    const instance = await app();
+    const begin = (remoteAddress: string) =>
+      instance.inject({ method: 'GET', url: '/api/auth/oidc/begin', remoteAddress });
+    for (let index = 0; index < OIDC_BEGIN_PER_NETWORK_LIMIT; index += 1)
+      expect((await begin('198.51.100.7')).headers['location']).toMatch(/^https:\/\//u);
+    const throttled = await begin('198.51.100.7');
+    expect(throttled.statusCode).toBe(302);
+    expect(throttled.headers['location']).toBe(SIGN_IN_FAILED_PATH);
+    expect(setCookie(throttled.headers, OIDC_BROWSER_COOKIE)).toBeUndefined();
+    expect((await migrationPool.query('SELECT 1 FROM oidc_transaction')).rowCount).toBe(
+      OIDC_BEGIN_PER_NETWORK_LIMIT,
+    );
+    expect((await begin('203.0.113.9')).headers['location']).toMatch(/^https:\/\//u);
+    await instance.close();
+  });
+
+  it('refuses a valid state presented by a browser without its binding cookie', async () => {
+    // Login CSRF: an attacker begins sign-in, then sends a victim to the callback
+    // with the attacker's own code and state. The victim's browser lacks the
+    // binding cookie, so no exchange happens and no session is issued.
+    const exchange = vi.fn(() => Promise.reject(new Error('token endpoint reached')));
+    const provider = new oidc.Configuration(
+      {
+        issuer: 'https://issuer.example',
+        authorization_endpoint: 'https://issuer.example/authorize',
+        token_endpoint: 'https://issuer.example/token',
+        jwks_uri: 'https://issuer.example/jwks',
+      },
+      'client',
+    );
+    provider[oidc.customFetch] = exchange;
+    const instance = await buildTestWebApp({
+      runtime: testWebRuntime({ pool: databasePool, authPool, oidc: provider }),
+      authenticate: createSessionAuthenticator(authPool, sessionPolicy),
+    });
+    const sessionCount = async () =>
+      Number(
+        (await authPool.query<{ count: string }>('SELECT count(*)::text AS count FROM session'))
+          .rows[0]?.count,
+      );
+    const sessionsBefore = await sessionCount();
+    const cases = [
+      { state: 'm'.repeat(32), cookies: {} },
+      { state: 'w'.repeat(32), cookies: { [OIDC_BROWSER_COOKIE]: 'victim-binding' } },
+    ];
+    for (const { state, cookies } of cases) {
+      await insertOidcTransaction(state, 'attacker-binding');
+      const response = await instance.inject({
+        method: 'GET',
+        url: `/api/auth/oidc/callback?code=attacker-code&state=${state}`,
+        cookies,
+      });
+      expect(response.statusCode).toBe(302);
+      expect(response.headers['location']).toBe(SIGN_IN_FAILED_PATH);
+      expect(setCookie(response.headers, OIDC_BROWSER_COOKIE)).toMatch(
+        /Expires=Thu, 01 Jan 1970/u,
+      );
+      expect(setCookie(response.headers, SESSION_COOKIE)).toBeUndefined();
+    }
+    expect(exchange).not.toHaveBeenCalled();
+    expect(await sessionCount()).toBe(sessionsBefore);
     await instance.close();
   });
 

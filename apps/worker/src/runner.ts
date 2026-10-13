@@ -1,7 +1,10 @@
 import { randomInt } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { generatedJobs } from '../../../.duefold/generated/jobs.ts';
+import type { GeneratedJob } from '@duefold/composition/registry-types';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
+import type { SafeProcessSink } from '@duefold/shared/process-errors';
+import { allowlistedTelemetry } from '@duefold/shared/redact';
 import type { RequiredMailDeliveryDependencies } from '../../../modules/core-security/src/jobs/required-mail-delivery.ts';
 import type { MemberInvitationMailDependencies } from '../../../modules/core-security/src/jobs/member-invitation-mail.ts';
 import type { OtpDeliveryDependencies } from '../../../modules/core-security/src/jobs/otp-delivery.ts';
@@ -18,13 +21,26 @@ import type { RoomPurgeDependencies } from '../../../modules/rooms-documents/src
 import type { StatusObserveDependencies } from '../../../modules/rooms-documents/src/jobs/status-observe.ts';
 import type { ExportGenerationDependencies } from '../../../modules/rooms-documents/src/jobs/export-generation.ts';
 import type { ExportCleanupDependencies } from '../../../modules/rooms-documents/src/jobs/export-cleanup.ts';
-import type { Pool } from 'pg';
+import { DatabaseError, escapeIdentifier, type Pool, type PoolClient } from 'pg';
 
 export const JOB_LEASE_SECONDS = 120;
 const JOB_HEARTBEAT_SECONDS = 40;
+const EXHAUSTION_HOOK_RETRY_SECONDS = 300;
+const declaredJobs: readonly GeneratedJob[] = generatedJobs;
+const recurrenceSeconds = new Map(
+  declaredJobs.flatMap((job) =>
+    job.everySeconds === undefined ? [] : [[job.id, job.everySeconds] as const],
+  ),
+);
+const exhaustionHooks = new Map(
+  declaredJobs.flatMap((job) =>
+    job.onExhausted === undefined ? [] : [[job.id, job.onExhausted] as const],
+  ),
+);
 interface JobRunnerOptions {
   readonly leaseSeconds?: number;
   readonly heartbeatMilliseconds?: number;
+  readonly sink?: SafeProcessSink;
 }
 export interface LeasedJob {
   readonly id: string;
@@ -85,6 +101,7 @@ export class JobRunner {
   readonly #handlers = new Map<string, JobHandler>();
   readonly #leaseSeconds: number;
   readonly #heartbeatMilliseconds: number;
+  readonly #sink: SafeProcessSink;
   public readonly pool: Pool;
   public constructor(
     pool: Pool,
@@ -95,6 +112,7 @@ export class JobRunner {
     this.#leaseSeconds = options.leaseSeconds ?? JOB_LEASE_SECONDS;
     this.#heartbeatMilliseconds =
       options.heartbeatMilliseconds ?? JOB_HEARTBEAT_SECONDS * 1_000;
+    this.#sink = options.sink ?? process.stderr;
     if (handlersOrDependencies !== undefined && Symbol.iterator in handlersOrDependencies) {
       for (const [id, handler] of handlersOrDependencies) this.#handlers.set(id, handler);
     } else {
@@ -116,27 +134,14 @@ export class JobRunner {
     let job: LeasedJob | undefined;
     try {
       await client.query('BEGIN');
-      await client.query(
-        `WITH exhausted AS (
-           SELECT id FROM job_queue
-           WHERE state = 'running' AND lease_expires_at <= transaction_timestamp()
-             AND attempts >= max_attempts
-           ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1
-         ), terminalized AS (
-           UPDATE job_queue j SET state = 'failed',lease_owner = NULL,lease_token = NULL,
-             lease_expires_at = NULL,last_error_code = 'ATTEMPTS_EXHAUSTED',updated_at = transaction_timestamp()
-           FROM exhausted e WHERE j.id = e.id RETURNING j.job_type,j.payload
-         ), invalidated AS (
-           UPDATE otp_challenge o SET state = 'invalidated'
-           FROM terminalized t WHERE t.job_type = 'auth.otp.deliver'
-             AND o.id = t.payload->>'challengeId' AND o.state IN ('awaiting_delivery','pending')
-           RETURNING o.id
-         )
-         INSERT INTO audit_event
-           (id,event_type,actor_kind,subject_id,result,reason_code,correlation_id)
-         SELECT $1,'auth.otp','system',id,'failure','OTP_DELIVERY_FAILED',$2 FROM invalidated`,
-        [createOpaqueId(), createCorrelationId()],
+      const exhausted = await client.query<Pick<LeasedJob, 'id' | 'job_type'>>(
+        `SELECT id,job_type FROM job_queue
+         WHERE state = 'running' AND lease_expires_at <= transaction_timestamp()
+           AND attempts >= max_attempts AND available_at <= transaction_timestamp()
+         ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
       );
+      const exhaustedJob = exhausted.rows[0];
+      if (exhaustedJob !== undefined) await finishExhaustion(client, exhaustedJob, this.#sink);
       const result = await client.query<Omit<LeasedJob, 'lease_token'>>(
         `SELECT id,job_type,payload,attempts,max_attempts FROM job_queue
          WHERE attempts < max_attempts AND (
@@ -157,6 +162,18 @@ export class JobRunner {
         [selected.id, this.#owner, leaseToken, this.#leaseSeconds],
       );
       if (claimed.rowCount !== 1) throw new Error('JOB_CLAIM_FAILED');
+      const everySeconds = recurrenceSeconds.get(selected.job_type);
+      /* Queued with the claim, so a run that fails or exhausts its attempts keeps the
+         schedule; keyed by this job, so its retries cannot queue a second successor.
+         translate() reproduces the keys earlier releases derived for the same reason. */
+      if (everySeconds !== undefined)
+        await client.query(
+          `INSERT INTO job_queue (id,job_type,idempotency_key,payload,available_at,max_attempts)
+           VALUES ($1,$2,translate($2,'._','--')||':'||$3,'{}'::jsonb,
+             transaction_timestamp() + ($4 * interval '1 second'),10)
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [createOpaqueId(), selected.job_type, selected.id, everySeconds],
+        );
       job = { ...selected, attempts: selected.attempts + 1, lease_token: leaseToken };
       await client.query('COMMIT');
     } catch (error) {
@@ -236,24 +253,77 @@ export class JobRunner {
       }
     }
   }
+  /** A failed last attempt only gives up its lease: the exhaustion sweep in `runOne` then
+   * fails the job and runs its hook, the same way it does for a run that crashed. */
   private async fail(job: LeasedJob, code: string): Promise<void> {
     const exhausted = job.attempts >= job.max_attempts;
     const baseSeconds = Math.min(3_600, 2 ** Math.min(job.attempts, 10));
-    const delaySeconds = Math.min(3_600, baseSeconds + randomInt(0, baseSeconds + 1));
+    const delaySeconds = exhausted
+      ? 0
+      : Math.min(3_600, baseSeconds + randomInt(0, baseSeconds + 1));
     const result = await this.pool.query(
-      `UPDATE job_queue SET state = $4,available_at = transaction_timestamp() + ($5 * interval '1 second'),
-         lease_owner = NULL,lease_token = NULL,lease_expires_at = NULL,last_error_code = $6,
-         updated_at = transaction_timestamp() WHERE id = $1 AND state = 'running'
-         AND lease_owner = $2 AND lease_token = $3 AND lease_expires_at > transaction_timestamp()`,
-      [
-        job.id,
-        this.#owner,
-        job.lease_token,
-        exhausted ? 'failed' : 'pending',
-        delaySeconds,
-        code,
-      ],
+      `UPDATE job_queue SET state = CASE WHEN $4 THEN 'running' ELSE 'pending' END,
+         available_at = transaction_timestamp() + ($5 * interval '1 second'),
+         lease_owner = CASE WHEN $4 THEN lease_owner END,
+         lease_token = CASE WHEN $4 THEN lease_token END,
+         lease_expires_at = CASE WHEN $4 THEN transaction_timestamp() END,
+         last_error_code = $6,updated_at = transaction_timestamp()
+       WHERE id = $1 AND state = 'running' AND lease_owner = $2 AND lease_token = $3
+         AND lease_expires_at > transaction_timestamp()`,
+      [job.id, this.#owner, job.lease_token, exhausted, delaySeconds, code],
     );
     if (result.rowCount !== 1) throw new Error('JOB_LEASE_LOST');
   }
+}
+/**
+ * Fails a job that has spent its last attempt and runs its declared exhaustion hook in the
+ * same transaction, keeping the last recorded error code. When the hook raises, failing the
+ * job is undone as well: it stays exhausted with an expired lease, marked
+ * EXHAUSTION_HOOK_FAILED so installation status reports it, and is retried later while the
+ * rest of the queue keeps moving.
+ */
+async function finishExhaustion(
+  client: PoolClient,
+  job: Pick<LeasedJob, 'id' | 'job_type'>,
+  sink: SafeProcessSink,
+): Promise<void> {
+  const hook = exhaustionHooks.get(job.job_type);
+  await client.query('SAVEPOINT exhaustion');
+  await client.query(
+    `UPDATE job_queue SET state = 'failed',lease_owner = NULL,lease_token = NULL,
+       lease_expires_at = NULL,updated_at = transaction_timestamp(),
+       last_error_code = COALESCE(NULLIF(last_error_code,'EXHAUSTION_HOOK_FAILED'),'ATTEMPTS_EXHAUSTED')
+     WHERE id = $1`,
+    [job.id],
+  );
+  try {
+    if (hook !== undefined)
+      await client.query(`SELECT public.${escapeIdentifier(hook)}($1,$2,$3,$4)`, [
+        job.id,
+        createOpaqueId(),
+        createCorrelationId(),
+        createOpaqueId(),
+      ]);
+  } catch (error) {
+    if (!(error instanceof DatabaseError)) throw error;
+    await client.query('ROLLBACK TO SAVEPOINT exhaustion');
+    await client.query(
+      `UPDATE job_queue SET lease_expires_at = transaction_timestamp(),
+         available_at = transaction_timestamp() + ($2 * interval '1 second'),
+         last_error_code = 'EXHAUSTION_HOOK_FAILED',updated_at = transaction_timestamp()
+       WHERE id = $1`,
+      [job.id, EXHAUSTION_HOOK_RETRY_SECONDS],
+    );
+    sink.write(
+      `${JSON.stringify(
+        allowlistedTelemetry({
+          event: 'job.exhaustion.failed',
+          level: 'error',
+          code: 'EXHAUSTED_WORK_FAILED',
+          service: 'worker',
+        }),
+      )}\n`,
+    );
+  }
+  await client.query('RELEASE SAVEPOINT exhaustion');
 }

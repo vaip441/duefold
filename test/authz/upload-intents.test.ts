@@ -406,3 +406,130 @@ describe('manual processing retry authorization matrix', () => {
       ).resolves.toBeDefined();
   });
 });
+
+describe('repeated processing failure', () => {
+  async function leaseValidation(versionId: string): Promise<{ id: string; token: string }> {
+    const owner = 'retry-test-owner';
+    const token = createOpaqueId();
+    const job = (
+      await migrationPool.query<{ id: string }>(
+        `UPDATE job_queue SET state='running',attempts=attempts+1,lease_owner=$2,lease_token=$3,
+           lease_expires_at=transaction_timestamp()+interval '2 minutes'
+         WHERE job_type='document.source.validate' AND payload->>'versionId'=$1 AND state='pending'
+         RETURNING id`,
+        [versionId, owner, token],
+      )
+    ).rows[0];
+    if (job === undefined) throw new Error('VALIDATION_JOB_ABSENT');
+    return { id: job.id, token };
+  }
+  async function failTransiently(versionId: string): Promise<void> {
+    const job = await leaseValidation(versionId);
+    await migrationPool.query(
+      "SELECT fail_document_processing($1,$2,'retry-test-owner',$3,'processing_failed','transient','SCANNER_UNAVAILABLE',7,$4,$5,$6)",
+      [versionId, job.id, job.token, createOpaqueId(), createCorrelationId(), createOpaqueId()],
+    );
+  }
+
+  async function failedVersion(): Promise<string> {
+    const documentId = createOpaqueId();
+    const versionId = createOpaqueId();
+    const room = await migrationPool.query<{ revision: number; state: string }>(
+      'SELECT revision,state FROM room WHERE id = $1',
+      [roomId],
+    );
+    if (room.rows[0]?.state !== 'draft')
+      await migrationPool.query('SELECT change_room_state($1,$2,$3,$4,$5,$6)', [
+        roomId,
+        'draft',
+        ownerId,
+        room.rows[0]?.revision,
+        createOpaqueId(),
+        createCorrelationId(),
+      ]);
+    await migrationPool.query(
+      "INSERT INTO document (id,room_id,display_title,created_by) VALUES ($1,$2,'Fails twice',$3)",
+      [documentId, roomId, ownerId],
+    );
+    await migrationPool.query(
+      `INSERT INTO document_version (id,document_id,original_filename,object_key,declared_media_type,size_bytes)
+       VALUES ($1,$2,'twice.txt',$3,'text/plain',1)`,
+      [versionId, documentId, `quarantine/${createOpaqueId()}/${createOpaqueId()}`],
+    );
+    await migrationPool.query(
+      "INSERT INTO job_queue (id,job_type,idempotency_key,payload) VALUES ($1,'document.source.validate',$2,jsonb_build_object('versionId',$3::text))",
+      [createOpaqueId(), `validate:${versionId}`, versionId],
+    );
+    await failTransiently(versionId);
+    return versionId;
+  }
+  async function retryAndFailAgain(versionId: string): Promise<void> {
+    await requestManualProcessingRetry({
+      pool: runtimePool,
+      identity: identity(ownerId, 'owner'),
+      versionId,
+    });
+    await failTransiently(versionId);
+    const version = (
+      await migrationPool.query<{ state: string; retained_until: Date }>(
+        'SELECT state,retained_until FROM document_version WHERE id = $1',
+        [versionId],
+      )
+    ).rows[0];
+    expect(version?.state).toBe('processing_failed');
+    const sweeps = await migrationPool.query<{
+      state: string;
+      available_at: Date;
+      attempts: number;
+    }>(
+      "SELECT state,available_at,attempts FROM job_queue WHERE job_type = 'document.retention.sweep' AND payload->>'versionId' = $1",
+      [versionId],
+    );
+    expect(sweeps.rows).toEqual([
+      { state: 'pending', available_at: version?.retained_until, attempts: 0 },
+    ]);
+  }
+
+  it('fails again after a manual retry and keeps one re-armed retention sweep', async () => {
+    await retryAndFailAgain(await failedVersion());
+  });
+
+  it('replaces a finished retention sweep when a manual retry fails again', async () => {
+    const versionId = await failedVersion();
+    await migrationPool.query(
+      `UPDATE job_queue SET state='running',attempts=1,lease_owner='sweep-owner',lease_token=$2,
+         lease_expires_at=transaction_timestamp()+interval '2 minutes'
+       WHERE idempotency_key = 'retention:' || $1`,
+      [versionId, createOpaqueId()],
+    );
+    await migrationPool.query(
+      `UPDATE job_queue SET state='succeeded',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL
+       WHERE idempotency_key = 'retention:' || $1`,
+      [versionId],
+    );
+    await retryAndFailAgain(versionId);
+  });
+
+  it('records lease-held and exhausted failures through one helper no app role can call', async () => {
+    const helper = 'record_document_processing_failure(text,timestamptz,text,text,text,text)';
+    const callers = await migrationPool.query<{ proname: string }>(
+      `SELECT proname FROM pg_proc WHERE proname IN
+         ('fail_document_processing','fail_exhausted_document_processing')
+         AND prosrc LIKE '%record_document_processing_failure(%'`,
+    );
+    expect(callers.rows.map(({ proname }) => proname).toSorted()).toEqual([
+      'fail_document_processing',
+      'fail_exhausted_document_processing',
+    ]);
+    for (const role of ['duefold_runtime', 'duefold_authenticator', 'duefold_worker'])
+      expect(
+        (
+          await migrationPool.query<{ v: boolean }>(
+            "SELECT has_function_privilege($1,$2,'EXECUTE') v",
+            [role, helper],
+          )
+        ).rows[0]?.v,
+        role,
+      ).toBe(false);
+  });
+});

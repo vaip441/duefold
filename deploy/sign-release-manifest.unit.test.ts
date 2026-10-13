@@ -7,7 +7,7 @@ import { createSignedManifest, runSigner } from './sign-release-manifest.ts';
 import { verifyReleaseManifest } from '../apps/cli/src/lifecycle.ts';
 
 const payload = {
-  version: 'v1.0.0',
+  version: '1.0.0',
   webImageDigest: `sha256:${'a'.repeat(64)}`,
   workerImageDigest: `sha256:${'b'.repeat(64)}`,
   securityAdvisory: false,
@@ -26,8 +26,16 @@ describe('release manifest signer', () => {
     ).toMatchObject(payload);
   });
 
+  it('rejects a version the CLI cannot order, such as the tag name', () => {
+    const keys = generateKeyPairSync('ed25519');
+    const privateKey = keys.privateKey.export({ format: 'pem', type: 'pkcs8' });
+    expect(() => createSignedManifest({ ...payload, version: 'v1.0.0' }, privateKey)).toThrow(
+      'RELEASE_VERSION_INVALID',
+    );
+  });
+
   it('requires signing key and both digests, and rejects unknown options', async () => {
-    await expect(runSigner(['--version', 'v1.0.0'], {})).rejects.toThrow('usage:');
+    await expect(runSigner(['--version', '1.0.0'], {})).rejects.toThrow('usage:');
     await expect(runSigner(['--unknown'], {})).rejects.toThrow();
   });
 

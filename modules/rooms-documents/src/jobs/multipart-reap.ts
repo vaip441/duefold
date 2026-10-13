@@ -19,10 +19,11 @@ export function createHandler(dependencies: MultipartReapDependencies) {
     const selected = await dependencies.pool.query<{
       object_key: string;
       upload_id: string;
+      state: 'open' | 'completing' | 'failed';
     }>(
-      `SELECT u.object_key,u.upload_id FROM upload_intent u JOIN job_queue j ON j.id = $2
-       WHERE u.id = $1 AND u.state IN ('open','completing')
-         AND u.expires_at <= transaction_timestamp() AND j.state = 'running'
+      `SELECT u.object_key,u.upload_id,u.state FROM upload_intent u JOIN job_queue j ON j.id = $2
+       WHERE u.id = $1 AND (u.state = 'failed' OR (u.state IN ('open','completing')
+         AND u.expires_at <= transaction_timestamp())) AND j.state = 'running'
          AND j.lease_owner = $3 AND j.lease_token = $4
          AND j.lease_expires_at > transaction_timestamp()`,
       [id, job.id, context.leaseOwner, job.lease_token],
@@ -36,6 +37,14 @@ export function createHandler(dependencies: MultipartReapDependencies) {
       key: intent.object_key,
       uploadId: intent.upload_id,
     });
+    if (intent.state === 'failed') {
+      // Finalization's own cleanup is best effort, and storage may have completed the
+      // object while reporting failure. A failed intent is terminal and no version holds
+      // its key, so both leftovers are cleared; this one-shot job is not queued again.
+      await dependencies.storage.deleteObject(intent.object_key);
+      await context.assertLease();
+      return;
+    }
     const expired = await dependencies.pool.query(
       `WITH changed AS (
          UPDATE upload_intent u SET state = 'expired'

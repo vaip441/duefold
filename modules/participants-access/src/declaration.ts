@@ -136,6 +136,8 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '013_participant_routes', file: '013_participant_routes.sql' },
     { id: '023_room_settings', file: '023_room_settings.sql' },
     { id: '026_installation_settings', file: '026_installation_settings.sql' },
+    { id: '037_investor_access_corrections', file: '037_investor_access_corrections.sql' },
+    { id: '040_viewer_authorizer_grants', file: '040_viewer_authorizer_grants.sql' },
   ],
   jobs: [],
   config: [],

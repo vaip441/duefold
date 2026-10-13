@@ -51,6 +51,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
       identity,
       input: body(request.body),
       now: runtime.clock.now(),
+      log: request.log,
     });
     reply.code(201);
     return finalized;
