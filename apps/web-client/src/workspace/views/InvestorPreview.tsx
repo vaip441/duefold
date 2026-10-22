@@ -21,18 +21,16 @@ import {
   type PreviewRoom,
 } from '../../api/client.ts';
 import { AppShell } from '../../components/AppShell.tsx';
-import { DocumentPager } from '../../components/DocumentPager.tsx';
-import { FindBar } from '../../components/FindBar.tsx';
+import { DocumentPages } from '../../components/DocumentPages.tsx';
 import { Notice } from '../../components/Notice.tsx';
-import { PageReader } from '../../components/PageReader.tsx';
 import { RoomContents } from '../../components/RoomContents.tsx';
 import { ThemeSelect, type ThemeChoice } from '../../components/ThemeSelect.tsx';
 import { translate } from '../../i18n/translate.ts';
 import type { MemberLocation, Navigate } from '../../navigation.ts';
 import { memberPreviewPageSource } from '../../viewer/page-source.ts';
-import { entryDepth } from '../../viewer/structure-depth.ts';
+import { collectionEntries, depthFirst, entryDepth } from '../../viewer/structure-depth.ts';
 import { useDocumentReader } from '../../viewer/useDocumentReader.ts';
-import { failureMessage } from '../failure-message.ts';
+import { presentFailure } from '../failures.ts';
 import type { Load } from '../state.ts';
 
 type PreviewLocation = Extract<MemberLocation, { kind: 'preview' }>;
@@ -49,7 +47,7 @@ export interface InvestorPreviewProps {
 function previewFailure(error: unknown): string {
   return error instanceof ApiError && error.failure === 'denied'
     ? translate('preview.denied')
-    : failureMessage(error);
+    : presentFailure(error).body;
 }
 
 export function InvestorPreview({
@@ -116,7 +114,7 @@ export function InvestorPreview({
     };
   }, [roomId, documentId, receiveDocument]);
 
-  const entries = room.kind === 'ready' ? room.value.entries : [];
+  const entries = room.kind === 'ready' ? depthFirst(room.value.entries) : [];
   const depthOf = entryDepth(entries);
 
   const openDocumentById = (id: string): void => {
@@ -134,12 +132,7 @@ export function InvestorPreview({
     <AppShell
       title={title}
       pageTitle="preview.title"
-      entries={entries.map((entry) => ({
-        id: entry.entryId,
-        title: entry.displayName,
-        depth: depthOf(entry),
-        kind: entry.resourceKind === 'folder' ? ('group' as const) : ('item' as const),
-      }))}
+      entries={collectionEntries(entries, depthOf)}
       currentEntryId={
         documentId === null
           ? null
@@ -216,30 +209,18 @@ export function InvestorPreview({
         </div>
       ) : (
         <>
-          <FindBar {...reader.findBar} />
-          <DocumentPager
+          <DocumentPages
+            reader={reader}
+            roomId={roomId}
+            documentId={documentId}
             pageNumber={page}
             pageCount={openDocument.pageCount}
-            zoom={reader.zoom}
-            onPage={reader.goToPage}
-            onZoom={reader.setZoom}
+            source={memberPreviewPageSource}
+            onLinkActivate={() => undefined}
+            onUnauthorized={() => {
+              setDenied(true);
+            }}
           />
-          <div className="df-page-zoom" data-zoom={reader.zoom}>
-            <PageReader
-              roomId={roomId}
-              documentId={documentId}
-              pageNumber={page}
-              totalPages={openDocument.pageCount}
-              source={memberPreviewPageSource}
-              matches={reader.matches}
-              currentMatch={reader.currentMatch}
-              onTextLayer={reader.onTextLayer}
-              onLinkActivate={() => undefined}
-              onUnauthorized={() => {
-                setDenied(true);
-              }}
-            />
-          </div>
           {/* Where the reader offers the download, the preview states the policy only. */}
           <section className="df-download" aria-labelledby={downloadHeadingId}>
             <h2 className="df-section__heading" id={downloadHeadingId}>

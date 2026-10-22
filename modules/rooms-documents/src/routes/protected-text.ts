@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return createTextHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('protected text route runtime not initialized');
-}

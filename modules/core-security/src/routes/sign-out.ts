@@ -2,7 +2,11 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { WebRuntime } from '../../../../apps/web/src/runtime.ts';
 import type { PrincipalIdentity } from '../authorization.ts';
-import { CLEARED_AUTHENTICATION_COOKIES, revokePrincipalSessions } from '../sessions.ts';
+import {
+  CLEARED_AUTHENTICATION_COOKIES,
+  revokePrincipalSessions,
+  revokeSession,
+} from '../sessions.ts';
 
 export const schema = {
   body: Type.Object({}, { additionalProperties: false }),
@@ -21,13 +25,10 @@ export function createHandler(
 ) {
   return async (_request: FastifyRequest, reply: FastifyReply): Promise<null> => {
     if (allDevices) await revokePrincipalSessions(runtime.authPool, session.principal);
-    else await runtime.revokeSession(session.sessionId, session.principal);
+    else await revokeSession(runtime.authPool, session.sessionId, session.principal);
     for (const cookie of CLEARED_AUTHENTICATION_COOKIES)
       reply.clearCookie(cookie.name, cookie.options);
     reply.code(204);
     return null;
   };
-}
-export function handler(): never {
-  throw new Error('sign-out route runtime not initialized');
 }

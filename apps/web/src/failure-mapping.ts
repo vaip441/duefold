@@ -21,6 +21,7 @@
  * denial cannot be used to discover whether a room, folder, or document exists.
  */
 import { InvalidEmailError } from '@duefold/shared/email';
+import { InvalidSupportContactError } from '@duefold/shared/support-contact';
 
 export interface ClassifiedFailure {
   readonly status: number;
@@ -35,9 +36,11 @@ interface UniformRefusal {
 }
 
 const REQUEST_INVALID: UniformRefusal = { status: 400, code: 'REQUEST_INVALID' };
+const FORBIDDEN: UniformRefusal = { status: 403, code: 'FORBIDDEN' };
+const CONFLICT: UniformRefusal = { status: 409, code: 'CONFLICT' };
 
 const SQLSTATE_STATUS = new Map<string, UniformRefusal>([
-  ['42501', { status: 403, code: 'FORBIDDEN' }],
+  ['42501', FORBIDDEN],
   ['22023', REQUEST_INVALID],
   ['22007', REQUEST_INVALID],
   ['22008', REQUEST_INVALID],
@@ -45,7 +48,7 @@ const SQLSTATE_STATUS = new Map<string, UniformRefusal>([
   /* Bulk-item and sibling-rebalance bounds. EXPORT_TOO_LARGE shares this SQLSTATE but is
      matched by message first, because only that refusal tells the member what to change. */
   ['54000', REQUEST_INVALID],
-  ['40001', { status: 409, code: 'CONFLICT' }],
+  ['40001', CONFLICT],
   /*
    * A UNIQUENESS REFUSAL IS A CONFLICT, NOT A FAULT.
    *
@@ -58,8 +61,8 @@ const SQLSTATE_STATUS = new Map<string, UniformRefusal>([
    * not the state that exists, look again". The database's own wording never reaches the
    * client, so a duplicate cannot be used to probe which addresses are already known.
    */
-  ['23505', { status: 409, code: 'CONFLICT' }],
-  ['55000', { status: 409, code: 'CONFLICT' }],
+  ['23505', CONFLICT],
+  ['55000', CONFLICT],
 ]);
 
 const UNIFORM_MESSAGE: Readonly<Record<UniformStatus, string>> = {
@@ -95,14 +98,54 @@ const PROTECTED_PAGE_UNAVAILABLE = 'PROTECTED_PAGE_UNAVAILABLE';
 const EXPORT_TOO_LARGE = 'EXPORT_TOO_LARGE';
 
 /*
- * Application refusals raised when a reader function returns no row. An empty
- * revision read means the room is not the caller's to work in; a structure entry
- * missing from the caller's own working view was moved, removed, or never there,
- * and the uniform conflict copy tells the client to reload without saying which.
+ * Named application refusals: reader functions that return no row, and input
+ * validators the route schema cannot express. An empty revision read means the
+ * room is not the caller's to work in; a structure entry missing from the
+ * caller's own working view was moved, removed, or never there, and the uniform
+ * conflict copy tells the client to reload without saying which. Inverted neighbour
+ * order keys can only come from a sibling moved between the server's reads, so they
+ * are that same conflict.
+ *
+ * A download lease that expired, was used up, or lost its policy is the ordinary
+ * denial, which the reading room presents as an expired download. Stored upload
+ * bytes that contradict their declaration are the uploader's invalid request.
+ * A retry, failed-source deletion, or export claim the caller may not make is
+ * denied alike whether its target is absent, not theirs, or no longer eligible.
  */
 const APPLICATION_REFUSAL_STATUS = new Map<string, UniformRefusal>([
-  ['ROOM_WORKSPACE_FORBIDDEN', { status: 403, code: 'FORBIDDEN' }],
-  ['STRUCTURE_ENTRY_UNREACHABLE', { status: 409, code: 'CONFLICT' }],
+  ['ROOM_WORKSPACE_FORBIDDEN', FORBIDDEN],
+  ['STRUCTURE_ENTRY_UNREACHABLE', CONFLICT],
+  ['ORDER_BOUNDS_INVALID', CONFLICT],
+  ['DOWNLOAD_UNAVAILABLE', FORBIDDEN],
+  ['UPLOAD_FORBIDDEN', FORBIDDEN],
+  ['UPLOAD_IDENTITY_MISMATCH', FORBIDDEN],
+  ['BRANDING_UPLOAD_FORBIDDEN', FORBIDDEN],
+  ['MANUAL_RETRY_FORBIDDEN', FORBIDDEN],
+  ['FAILED_SOURCE_DELETE_FORBIDDEN', FORBIDDEN],
+  ['EXPORT_DOWNLOAD_FORBIDDEN', FORBIDDEN],
+  ['UPLOAD_INTENT_INVALID', CONFLICT],
+  ['UPLOAD_INTENT_EXPIRED', CONFLICT],
+  ['RANGE_INVALID', REQUEST_INVALID],
+  ['SOURCE_TYPE_REJECTED', REQUEST_INVALID],
+  ['SOURCE_NAME_REJECTED', REQUEST_INVALID],
+  ['DISPLAY_TITLE_REJECTED', REQUEST_INVALID],
+  ['FORMAT_DISABLED_BY_RELEASE', REQUEST_INVALID],
+  ['PART_PLAN_REJECTED', REQUEST_INVALID],
+  ['PART_CHECKSUM_REJECTED', REQUEST_INVALID],
+  ['UPLOAD_PARTS_MISMATCH', REQUEST_INVALID],
+  ['UPLOAD_STORAGE_METADATA_MISMATCH', REQUEST_INVALID],
+  ['BRANDING_UPLOAD_PARTS_MISMATCH', REQUEST_INVALID],
+  ['BRANDING_UPLOAD_METADATA_MISMATCH', REQUEST_INVALID],
+  ['STRUCTURE_NAME_REJECTED', REQUEST_INVALID],
+  ['STRUCTURE_DESCRIPTION_REJECTED', REQUEST_INVALID],
+  ['BRAND_ORGANIZATION_INVALID', REQUEST_INVALID],
+  ['BRAND_SENDER_INVALID', REQUEST_INVALID],
+  ['BRAND_INTRODUCTION_INVALID', REQUEST_INVALID],
+  ['BRAND_SUPPORT_INVALID', REQUEST_INVALID],
+  ['BRAND_ACCENT_CONTRAST_FAILED', REQUEST_INVALID],
+  ['EXTERNAL_LINK_UNSAFE', REQUEST_INVALID],
+  ['EXPORT_SELECTION_INVALID', REQUEST_INVALID],
+  ['GRANT_ID_REQUIRED', REQUEST_INVALID],
 ]);
 
 function messageOf(error: unknown): string {
@@ -131,7 +174,8 @@ export function classifyFailure(error: unknown): ClassifiedFailure | null {
       status: 400,
       body: { code: EXPORT_TOO_LARGE, message: 'The export is too large for one archive.' },
     };
-  if (error instanceof InvalidEmailError) return uniform(REQUEST_INVALID);
+  if (error instanceof InvalidEmailError || error instanceof InvalidSupportContactError)
+    return uniform(REQUEST_INVALID);
   const refusal = APPLICATION_REFUSAL_STATUS.get(messageOf(error));
   if (refusal !== undefined) return uniform(refusal);
   const sqlState =
@@ -150,8 +194,14 @@ export function classifyFailure(error: unknown): ClassifiedFailure | null {
       };
     return uniform(mapped);
   }
+  // Fastify's own 4xx request errors (e.g. 413 for an over-limit body) are invalid requests.
   const fastifyError = error as { validation?: unknown; statusCode?: unknown };
-  if (fastifyError.validation !== undefined || fastifyError.statusCode === 400)
+  if (
+    fastifyError.validation !== undefined ||
+    (typeof fastifyError.statusCode === 'number' &&
+      fastifyError.statusCode >= 400 &&
+      fastifyError.statusCode < 500)
+  )
     return uniform(REQUEST_INVALID);
   return null;
 }

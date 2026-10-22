@@ -52,10 +52,10 @@ docker compose run --rm migrate <command>
 | `db migrate`                                          | Applies pending database migrations. `docker compose up` runs it too.                              |
 | `support-bundle`                                      | Prints redacted diagnostics: migration state, job queue, and recovery status.                      |
 | `preflight sandbox`                                   | Reports the seven sandbox isolation features. Run it in `web` or `worker`, never `migrate`.         |
-| `recover-owner <email>`                               | After a confirmation prompt, makes that invited member the Owner and disables every current Owner. |
+| `recover-owner <email>`                               | After a confirmation prompt, makes that invited member the Owner, revokes their room assignments, and disables every current Owner. |
 | `backup-status`                                       | Shows the recorded backup and restore-drill status.                                                |
 | `backup-status acknowledge <retention> <expectation>` | Records the backup retention and recovery expectation you verified with your provider.             |
-| `restore drill`                                       | Checks a restored database and records the result.                                                 |
+| `restore drill`                                       | Checks a restored database, prints every check, and records the result. Exits non-zero unless all pass. |
 | `updates check-file <manifest>`                       | Verifies a release manifest against the running release and records the answer for Status. See [Upgrade](#upgrade). |
 
 ### Status
@@ -85,8 +85,11 @@ The command exits non-zero if the signature, payload, or public key does not ver
 
 When upgrading from 1.3.0 or earlier, first make sure `.env` sets `DUEFOLD_TRUSTED_PROXIES` as in [step 6](#start): the new web service refuses to start without it. 1.3.0 already reads that variable, so setting it before the upgrade is safe.
 
+Stop the worker before migrating. A worker from the previous release must not run against the new schema: a 1.4.0 worker would mark a room index and audit export ready without its audit trail.
+
 ```sh
 docker compose pull
+docker compose stop worker
 docker compose run --rm migrate db migrate
 docker compose up -d
 ```

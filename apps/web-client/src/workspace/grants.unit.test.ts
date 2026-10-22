@@ -15,12 +15,10 @@ import {
   expiryInstant,
   grantableTargets,
   granteeRequest,
-  hasExpiredGrant,
-  isBroadChange,
   validateGrantDraft,
   type GrantDraft,
 } from './grants.ts';
-import type { Participant, ParticipantGrant, WorkingEntry } from '../api/client.ts';
+import type { ParticipantGrant, WorkingEntry } from '../api/client.ts';
 
 function grant(overrides: Partial<ParticipantGrant> = {}): ParticipantGrant {
   return {
@@ -33,18 +31,6 @@ function grant(overrides: Partial<ParticipantGrant> = {}): ParticipantGrant {
     effective: true,
     revision: 1,
     ...overrides,
-  };
-}
-
-function participant(grants: readonly ParticipantGrant[]): Participant {
-  return {
-    viewerId: 'v'.repeat(32),
-    email: 'reader@example.com',
-    membershipState: 'active',
-    membershipRevision: 1,
-    counterpartyId: null,
-    counterpartyName: null,
-    grants,
   };
 }
 
@@ -113,14 +99,6 @@ describe('describeGrant', () => {
     );
     expect(new Set(labels).size).toBe(3);
     expect(labels[0]).toContain('whole room');
-  });
-});
-
-describe('hasExpiredGrant', () => {
-  it('reports an expired grant among effective ones, and none when all are effective', () => {
-    expect(hasExpiredGrant(participant([grant(), grant({ effective: false })]))).toBe(true);
-    expect(hasExpiredGrant(participant([grant(), grant()]))).toBe(false);
-    expect(hasExpiredGrant(participant([]))).toBe(false);
   });
 });
 
@@ -198,23 +176,6 @@ describe('expiryInstant', () => {
   it('rejects a malformed value rather than inventing an instant', () => {
     for (const value of ['', '2026-6-1', 'tomorrow', '2026-06-01T00:00:00Z'])
       expect(expiryInstant(value)).toBeNull();
-  });
-});
-
-describe('isBroadChange', () => {
-  it('treats a room grant and any counterparty grant as broad, a document grant as narrow', () => {
-    const draft: GrantDraft = {
-      changeAction: 'grant',
-      targetKind: 'room',
-      folderId: null,
-      documentId: null,
-      expiresOn: '',
-    };
-    expect(isBroadChange(draft, false)).toBe(true);
-    expect(isBroadChange({ ...draft, targetKind: 'document' }, true)).toBe(true);
-    expect(isBroadChange({ ...draft, targetKind: 'document' }, false)).toBe(false);
-    // A revoke is resolved server-side and is not classified broad here.
-    expect(isBroadChange({ ...draft, changeAction: 'revoke' }, false)).toBe(false);
   });
 });
 
@@ -307,22 +268,21 @@ describe('grantableTargets', () => {
   ];
 
   /*
-   * A staged removal is a pending change, so `grant_target_impact` counts nothing for it while
-   * the published copy is still reachable: a review would report no affected items and the
-   * grant would still expose content. Both grant surfaces have to agree on this.
+   * A staged removal leaves the room at the next publication, which revokes every grant naming
+   * it. Both grant surfaces have to agree on this.
    */
   it('never offers an entry staged for removal', () => {
-    expect(grantableTargets(entries, 'folder').map((e) => e.entryId)).toStrictEqual([
-      'keep-folder',
-    ]);
-    expect(grantableTargets(entries, 'document').map((e) => e.entryId)).toStrictEqual([
-      'keep-doc',
-    ]);
+    expect(grantableTargets(entries, 'folder').map(({ entry }) => entry.entryId)).toStrictEqual(
+      ['keep-folder'],
+    );
+    expect(
+      grantableTargets(entries, 'document').map(({ entry }) => entry.entryId),
+    ).toStrictEqual(['keep-doc']);
   });
 
   it('keeps folders and documents apart', () => {
-    expect(grantableTargets(entries, 'folder').every((e) => e.resourceKind === 'folder')).toBe(
-      true,
-    );
+    expect(
+      grantableTargets(entries, 'folder').every(({ entry }) => entry.resourceKind === 'folder'),
+    ).toBe(true);
   });
 });

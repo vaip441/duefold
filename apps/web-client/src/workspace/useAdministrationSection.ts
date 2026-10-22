@@ -28,10 +28,11 @@ export interface AdministrationSection {
   readonly refresh: (signal?: AbortSignal) => void;
   readonly beginLoading: () => void;
   readonly loadMore: () => void;
+  /** Resolves true once the invitation is sent. */
   readonly invite: (input: {
     readonly email: string;
     readonly intendedRole: AssignableGlobalRole;
-  }) => void;
+  }) => Promise<boolean>;
   readonly revokeInvitation: (invitationId: string) => void;
   readonly changeRole: (input: {
     readonly memberId: string;

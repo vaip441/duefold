@@ -122,6 +122,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     };
   };
 }
-export function handler(): never {
-  throw new Error('participant list route runtime not initialized');
-}

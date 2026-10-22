@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return createBeginHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('preview begin route runtime not initialized');
-}

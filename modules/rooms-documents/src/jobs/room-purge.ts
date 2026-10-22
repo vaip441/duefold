@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { JobContext, LeasedJob } from '../../../../apps/worker/src/runner.ts';
-import type { WorkerStorage } from '../storage/s3-compatible.ts';
+import { DELETE_OBJECTS_BATCH_KEYS, type WorkerStorage } from '../storage/s3-compatible.ts';
 
 export interface RoomPurgeDependencies {
   readonly pool: Pool;
@@ -71,9 +71,12 @@ export function createHandler(dependencies: RoomPurgeDependencies) {
       'SELECT viewer_id FROM read_room_purge_viewers($1,$2,$3,$4)',
       [id, job.id, context.leaseOwner, job.lease_token],
     );
-    for (const object of objects.rows) {
+    const keys = objects.rows.map((object) => object.object_key);
+    for (let start = 0; start < keys.length; start += DELETE_OBJECTS_BATCH_KEYS) {
       await context.assertLease();
-      await dependencies.storage.deleteObject(object.object_key);
+      await dependencies.storage.deleteObjects(
+        keys.slice(start, start + DELETE_OBJECTS_BATCH_KEYS),
+      );
     }
     const pseudonyms = viewers.rows.map(({ viewer_id: viewerId }) => ({
       viewerId,

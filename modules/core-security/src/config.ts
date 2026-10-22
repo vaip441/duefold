@@ -1,4 +1,5 @@
 import type { GeneratedConfigField } from '@duefold/composition/registry-types';
+import { SESSION_BOUNDS } from './sessions.ts';
 
 export type RuntimeConfig = Readonly<Record<string, string | number | boolean>>;
 const MIN_SECRET_BYTES = 32;
@@ -10,21 +11,20 @@ function secretHasMinimumEntropy(value: string): boolean {
   }
 }
 function validateCrossField(config: RuntimeConfig): RuntimeConfig {
-  const idle = config['DUEFOLD_SESSION_IDLE_MINUTES'];
-  const absolute = config['DUEFOLD_SESSION_ABSOLUTE_HOURS'];
-  if (
-    idle !== undefined &&
-    (typeof idle !== 'number' || !Number.isInteger(idle) || idle < 5 || idle > 60)
-  )
-    throw new Error('invalid bounded configuration: DUEFOLD_SESSION_IDLE_MINUTES');
-  if (
-    absolute !== undefined &&
-    (typeof absolute !== 'number' ||
-      !Number.isInteger(absolute) ||
-      absolute < 1 ||
-      absolute > 24)
-  )
-    throw new Error('invalid bounded configuration: DUEFOLD_SESSION_ABSOLUTE_HOURS');
+  for (const [key, bounds] of [
+    ['DUEFOLD_SESSION_IDLE_MINUTES', SESSION_BOUNDS.idleMinutes],
+    ['DUEFOLD_SESSION_ABSOLUTE_HOURS', SESSION_BOUNDS.absoluteHours],
+  ] as const) {
+    const value = config[key];
+    if (
+      value !== undefined &&
+      (typeof value !== 'number' ||
+        !Number.isInteger(value) ||
+        value < bounds.min ||
+        value > bounds.max)
+    )
+      throw new Error(`invalid bounded configuration: ${key}`);
+  }
   const otp = config['DUEFOLD_OTP_DIGEST_KEY'];
   const network = config['DUEFOLD_NETWORK_HMAC_KEY'];
   const pii = config['DUEFOLD_PII_HMAC_KEY'];

@@ -81,7 +81,3 @@ export function createHandler(runtime: WebRuntime): () => Promise<PublicBranding
     };
   };
 }
-
-export function handler(): never {
-  throw new Error('branding route runtime not initialized');
-}

@@ -188,10 +188,15 @@ test.describe('download exceptions', () => {
     await addDocument(server.migrationPool, seeded.roomId, seeded.memberId, 'Teaser');
     await page.getByRole('button', { name: /Open room Series C/u }).click();
     await page.getByRole('button', { name: /Manage Teaser/u }).click();
-    await page.getByLabel('Downloads for Teaser').selectOption('allow');
+    const downloads = page.getByLabel('Downloads for Teaser');
+    await downloads.focus();
+    await downloads.selectOption('allow');
     const dialog = page.getByRole('dialog', { name: 'Change downloads for Teaser' });
     await dialog.getByRole('button', { name: 'Change downloads' }).click();
     await expect(dialog).toBeHidden();
+    /* The committed change re-reads settings in place, so the control stays mounted and
+       keyboard focus comes back to it rather than to the page. */
+    await expect(downloads).toBeFocused();
     await expect(page.getByRole('row', { name: /Teaser/u })).toContainText(
       'Downloads allowed here',
     );

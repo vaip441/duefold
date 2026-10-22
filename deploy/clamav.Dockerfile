@@ -28,6 +28,29 @@ FROM ${CLAMAV_IMAGE}
 # first update it exists to prevent.
 ENV CLAMAV_NO_FRESHCLAMD=true
 
+# clamd's defaults stop at 100M: a larger upload is refused as "INSTREAM size limit
+# exceeded", and content past a limit is skipped and reported clean. These bounds
+# cover every input Duefold accepts: the stream exceeds MAX_SOURCE_BYTES (250 MiB),
+# a file may be as large as the 1 GiB a workbook may expand to under
+# MAX_OFFICE_UNCOMPRESSED_BYTES, a scan may cover the stream plus that expansion, and
+# PCRE signatures still run on the largest file. AlertExceedsMax then reports
+# anything clamd still cannot scan completely as Heuristics.Limits.Exceeded, which
+# Duefold rejects; only MaxScanTime, which depends on host load, is retried.
+# MaxScanTime is pinned because the scanner client's INSTREAM timeout
+# (modules/rooms-documents/src/scanning/clamav.ts) allows it plus the stream transfer.
+# MaxFiles stays at 10000: each embedded PDF stream counts, and at about 7 ms per
+# stream (measured 2026-10-22) a PDF past it could not finish within MaxScanTime
+# anyway, so it is refused at once as not completely scannable instead of retried.
+RUN printf '%s\n' \
+    'StreamMaxLength 256M' \
+    'MaxFileSize 1024M' \
+    'MaxScanSize 1280M' \
+    'PCREMaxFileSize 1024M' \
+    'MaxScanTime 120000' \
+    'MaxFiles 10000' \
+    'AlertExceedsMax yes' \
+    >> /etc/clamav/clamd.conf
+
 COPY deploy/clamav-entrypoint.sh /usr/local/bin/duefold-clamav-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/duefold-clamav-entrypoint.sh
 

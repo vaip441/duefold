@@ -282,6 +282,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     }
   };
 }
-export function handler(): never {
-  throw new Error('member action route runtime not initialized');
-}

@@ -29,12 +29,7 @@ interface Row {
 
 export function createHandler(runtime: WebRuntime) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = request.params as { readonly kind?: string };
-    const kind = params.kind;
-    if (kind !== 'logo' && kind !== 'square-mark') {
-      reply.code(400);
-      return { code: 'INVALID_ASSET_KIND' };
-    }
+    const { kind } = request.params as { readonly kind: 'logo' | 'square-mark' };
     const row = (
       await runtime.pool.query<Row>('SELECT * FROM read_public_branding_asset($1)', [kind])
     ).rows[0];
@@ -50,8 +45,4 @@ export function createHandler(runtime: WebRuntime) {
       .header('X-Content-Type-Options', 'nosniff')
       .send(Buffer.from(bytes));
   };
-}
-
-export function handler(): never {
-  throw new Error('branding route runtime not initialized');
 }

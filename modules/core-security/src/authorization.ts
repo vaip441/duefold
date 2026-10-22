@@ -15,6 +15,10 @@ export interface ViewerIdentity {
    * derives viewer/session identity from this proof instead of trusting IDs. */
   readonly sessionProof?: string;
 }
+export function sessionProof(identity: ViewerIdentity): string {
+  if (identity.sessionProof === undefined) throw new Error('VIEWER_SESSION_PROOF_REQUIRED');
+  return identity.sessionProof;
+}
 export type PrincipalIdentity = MemberIdentity | ViewerIdentity;
 export function hasFreshOidc(authenticatedAt: Date | undefined, now: Date): boolean {
   return (

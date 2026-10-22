@@ -73,6 +73,3 @@ export function createCloseHandler(runtime: WebRuntime, identity: ViewerIdentity
     };
   };
 }
-export function handler(): never {
-  throw new Error('preview evidence route runtime not initialized');
-}

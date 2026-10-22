@@ -26,7 +26,6 @@ const unusedDeliveryStorage: DeliveryStorage = {
   getObjectBytes: () => Promise.reject(new Error('unused delivery storage')),
   streamObjectRange: () => Promise.reject(new Error('unused delivery storage')),
   putWatermark: () => Promise.reject(new Error('unused delivery storage')),
-  putExport: () => Promise.reject(new Error('unused delivery storage')),
   deleteObject: () => Promise.reject(new Error('unused delivery storage')),
 };
 
@@ -86,7 +85,6 @@ export function testWebRuntime(overrides: Partial<WebRuntime> = {}): WebRuntime 
     deliveryStorage: unusedDeliveryStorage,
     watermarkProgram: sandboxProgram(process.execPath),
     classifyClient: () => ({ browser: 'other', os: 'other', device: 'other' }),
-    revokeSession: () => Promise.resolve(),
     ...overrides,
   };
 }

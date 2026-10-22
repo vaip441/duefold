@@ -1,5 +1,7 @@
+import { errorCodes } from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { InvalidEmailError } from '@duefold/shared/email';
+import { InvalidSupportContactError } from '@duefold/shared/support-contact';
 import { classifyFailure } from './failure-mapping.ts';
 
 /**
@@ -116,6 +118,91 @@ describe('failure classification', () => {
         message: 'The resource changed before this request completed. Reload and try again.',
       },
     });
+    expect(classifyFailure(new Error('ORDER_BOUNDS_INVALID'))).toMatchObject({
+      status: 409,
+      body: { code: 'CONFLICT' },
+    });
+  });
+
+  it('answers download and upload refusals uniformly instead of as faults', () => {
+    // The reading room shows its expired-download copy for this denial.
+    expect(classifyFailure(new Error('DOWNLOAD_UNAVAILABLE'))).toEqual({
+      status: 403,
+      body: { code: 'FORBIDDEN', message: 'This action is not available to you.' },
+    });
+    for (const code of [
+      'UPLOAD_FORBIDDEN',
+      'UPLOAD_IDENTITY_MISMATCH',
+      'BRANDING_UPLOAD_FORBIDDEN',
+    ])
+      expect(classifyFailure(new Error(code)), code).toMatchObject({
+        status: 403,
+        body: { code: 'FORBIDDEN' },
+      });
+    for (const code of ['UPLOAD_INTENT_INVALID', 'UPLOAD_INTENT_EXPIRED'])
+      expect(classifyFailure(new Error(code)), code).toMatchObject({
+        status: 409,
+        body: { code: 'CONFLICT' },
+      });
+    for (const code of [
+      'RANGE_INVALID',
+      'SOURCE_TYPE_REJECTED',
+      'SOURCE_NAME_REJECTED',
+      'DISPLAY_TITLE_REJECTED',
+      'FORMAT_DISABLED_BY_RELEASE',
+      'PART_PLAN_REJECTED',
+      'PART_CHECKSUM_REJECTED',
+      'UPLOAD_PARTS_MISMATCH',
+      'UPLOAD_STORAGE_METADATA_MISMATCH',
+      'BRANDING_UPLOAD_PARTS_MISMATCH',
+      'BRANDING_UPLOAD_METADATA_MISMATCH',
+    ])
+      expect(classifyFailure(new Error(code)), code).toEqual({
+        status: 400,
+        body: { code: 'REQUEST_INVALID', message: 'The request could not be accepted.' },
+      });
+  });
+
+  it('answers route-reachable validation and eligibility refusals instead of faults', () => {
+    for (const code of [
+      'MANUAL_RETRY_FORBIDDEN',
+      'FAILED_SOURCE_DELETE_FORBIDDEN',
+      'EXPORT_DOWNLOAD_FORBIDDEN',
+    ])
+      expect(classifyFailure(new Error(code)), code).toEqual({
+        status: 403,
+        body: { code: 'FORBIDDEN', message: 'This action is not available to you.' },
+      });
+    for (const error of [
+      ...[
+        'STRUCTURE_NAME_REJECTED',
+        'STRUCTURE_DESCRIPTION_REJECTED',
+        'BRAND_ORGANIZATION_INVALID',
+        'BRAND_SENDER_INVALID',
+        'BRAND_INTRODUCTION_INVALID',
+        'BRAND_SUPPORT_INVALID',
+        'BRAND_ACCENT_CONTRAST_FAILED',
+        'EXTERNAL_LINK_UNSAFE',
+        'EXPORT_SELECTION_INVALID',
+        'GRANT_ID_REQUIRED',
+      ].map((code) => new Error(code)),
+      new InvalidSupportContactError(),
+    ])
+      expect(classifyFailure(error), error.message).toEqual({
+        status: 400,
+        body: { code: 'REQUEST_INVALID', message: 'The request could not be accepted.' },
+      });
+  });
+
+  it('answers every Fastify request error as an invalid request', () => {
+    for (const error of [
+      new errorCodes.FST_ERR_CTP_BODY_TOO_LARGE(),
+      new errorCodes.FST_ERR_CTP_INVALID_MEDIA_TYPE(),
+    ])
+      expect(classifyFailure(error), error.code).toEqual({
+        status: 400,
+        body: { code: 'REQUEST_INVALID', message: 'The request could not be accepted.' },
+      });
   });
 
   it('returns null for a genuine fault so it stays a 500', () => {
@@ -129,5 +216,10 @@ describe('failure classification', () => {
     expect(classifyFailure('not an error at all')).toBeNull();
     // A stored order key that does not parse is corrupt data, not a moved entry.
     expect(classifyFailure(new Error('STRUCTURE_ORDER_KEY_INVALID'))).toBeNull();
+    for (const code of ['STORAGE_KEY_MISMATCH', 'DOWNLOAD_STREAM_LENGTH_MISMATCH'])
+      expect(classifyFailure(new Error(code)), code).toBeNull();
+    expect(
+      classifyFailure(Object.assign(new Error('upstream'), { statusCode: 503 })),
+    ).toBeNull();
   });
 });

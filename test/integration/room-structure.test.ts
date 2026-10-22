@@ -3,6 +3,13 @@ import { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
 import { migrate } from '../../modules/core-security/src/db/migrate.ts';
+import { createHandler as createStructureMutateHandler } from '../../modules/rooms-documents/src/routes/structure-mutate.ts';
+import {
+  dryRunBulkPublish,
+  restoreTrash,
+} from '../../modules/rooms-documents/src/room-operations.ts';
+import { readWorkingStructure } from '../../modules/rooms-documents/src/workspace-reads.ts';
+import { testWebRuntime } from '../support/web-runtime.ts';
 
 const bootstrapPool = new Pool({
   host: '/var/run/postgresql',
@@ -61,6 +68,59 @@ async function createFolder(
     ...audit(),
   ]);
   return id;
+}
+const contributor = {
+  kind: 'member' as const,
+  id: contributorId,
+  globalRole: 'member' as const,
+  roomRoles: { [roomId]: 'contributor' as const },
+};
+async function mutateStructure(body: Record<string, unknown>): Promise<void> {
+  await createStructureMutateHandler(testWebRuntime({ pool: runtimePool }), contributor)(
+    { body } as never,
+    { code: () => undefined } as never,
+  );
+}
+async function liveChildren(parent: string): Promise<{ entryId: string; revision: number }[]> {
+  return (await readWorkingStructure({ pool: runtimePool, identity: contributor, roomId }))
+    .filter((entry) => entry.parentFolderId === parent && !entry.stagedRemoved)
+    .sort((left, right) => left.position - right.position);
+}
+async function entryRow(entryId: string): Promise<{ revision: number; order_key: string }> {
+  const row = (
+    await runtimePool.query<{ revision: number; order_key: string }>(
+      'SELECT revision,order_key FROM read_structure_entry_revision($1,$2)',
+      [entryId, contributorId],
+    )
+  ).rows[0];
+  if (row === undefined) throw new Error('entry absent');
+  return row;
+}
+// Rows written before 049 may hold a name the room-title rule now refuses.
+async function storeUnderOlderRule(entryId: string, name: string): Promise<void> {
+  await migrationPool.query(
+    'ALTER TABLE working_structure_entry DISABLE TRIGGER working_entry_name_rule',
+  );
+  try {
+    await migrationPool.query(
+      'UPDATE working_structure_entry SET display_name=$2 WHERE id=$1',
+      [entryId, name],
+    );
+  } finally {
+    await migrationPool.query(
+      'ALTER TABLE working_structure_entry ENABLE TRIGGER working_entry_name_rule',
+    );
+  }
+}
+async function rebalanceCount(): Promise<number> {
+  const row = (
+    await migrationPool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM audit_event WHERE reason_code='ORDER_REBALANCED' AND room_id=$1",
+      [roomId],
+    )
+  ).rows[0];
+  if (row === undefined) throw new Error('count absent');
+  return row.n;
 }
 
 beforeAll(async () => {
@@ -686,5 +746,196 @@ describe('room structure database boundary', () => {
         ...audit(),
       ]),
     ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('keeps reordering after moves to the top exhaust the key space below the first entry', async () => {
+    const parent = await createFolder(null, 'Reorder parent', 80000);
+    let expected = [
+      await createFolder(parent, 'Reorder A', 1024),
+      await createFolder(parent, 'Reorder B', 2048),
+      await createFolder(parent, 'Reorder C', 3072),
+    ];
+    const rebalancesBefore = await rebalanceCount();
+
+    // Each move to the top halves the first key, so the eleventh move finds no space left.
+    for (let move = 1; move <= 12; move += 1) {
+      const last = (await liveChildren(parent)).at(-1);
+      if (last === undefined) throw new Error('siblings absent');
+      await mutateStructure({
+        action: 'reorder',
+        roomId,
+        entryId: last.entryId,
+        targetPosition: 1,
+        expectedEntryRevision: last.revision,
+        expectedWorkingRevision: (await room()).working_revision,
+      });
+      expected = [last.entryId, ...expected.filter((id) => id !== last.entryId)];
+      expect(
+        (await liveChildren(parent)).map((entry) => entry.entryId),
+        `move ${String(move)}`,
+      ).toEqual(expected);
+    }
+    expect(await rebalanceCount()).toBe(rebalancesBefore + 1);
+  });
+
+  it('places entries the renumbering skips into a used-up folder with their unchanged revision', async () => {
+    const source = await createFolder(null, 'Move source', 81000);
+    const arriving = await createFolder(source, 'Arriving', 1024);
+    const destination = await createFolder(null, 'Used-up destination', 82000);
+    const resident = [
+      await createFolder(destination, 'Resident first', 1),
+      await createFolder(destination, 'Resident second', 2),
+    ];
+    const pending = await createFolder(null, 'Used-up pending parent', 83000);
+    const pendingFirst = await createFolder(pending, 'Pending first', 1);
+    await createFolder(pending, 'Pending second', 2);
+    const removed = await createFolder(pending, 'Pending removed', 3);
+    await mutateStructure({
+      action: 'stage-removal',
+      roomId,
+      entryId: removed,
+      expectedEntryRevision: (await entryRow(removed)).revision,
+      expectedWorkingRevision: (await room()).working_revision,
+    });
+    const rebalancesBefore = await rebalanceCount();
+
+    await mutateStructure({
+      action: 'move',
+      roomId,
+      entryId: arriving,
+      destinationFolderId: destination,
+      targetPosition: 1,
+      expectedEntryRevision: (await entryRow(arriving)).revision,
+      expectedWorkingRevision: (await room()).working_revision,
+    });
+    expect((await liveChildren(destination)).map((entry) => entry.entryId)).toEqual([
+      arriving,
+      ...resident,
+    ]);
+    expect(await rebalanceCount()).toBe(rebalancesBefore + 1);
+
+    await mutateStructure({
+      action: 'reorder',
+      roomId,
+      entryId: removed,
+      targetPosition: 1,
+      expectedEntryRevision: (await entryRow(removed)).revision,
+      expectedWorkingRevision: (await room()).working_revision,
+    });
+    expect(Number((await entryRow(removed)).order_key)).toBeLessThan(
+      Number((await entryRow(pendingFirst)).order_key),
+    );
+    expect(await rebalanceCount()).toBe(rebalancesBefore + 2);
+  });
+
+  it('refuses a sibling name a tab or line break would disguise, as room titles do', async () => {
+    const parent = await createFolder(null, 'Name rule', 70000);
+    const legal = await createFolder(parent, 'Legal', 1024);
+    for (const name of ['Legal\n', 'Legal\t', 'Legal\u2028', '\u00a0\u3000'])
+      await expect(createFolder(parent, name, 2048)).rejects.toMatchObject({ code: '23514' });
+
+    // A name stored under the older rule still moves.
+    await storeUnderOlderRule(legal, 'Legal\t');
+    await runtimePool.query(
+      'SELECT mutate_structure_entry($1,$2,$3,4096,false,$4,$5,$6,$7,$8)',
+      [
+        legal,
+        parent,
+        'Legal\t',
+        contributorId,
+        (await entryRow(legal)).revision,
+        (await room()).working_revision,
+        ...audit(),
+      ],
+    );
+    expect(Number((await entryRow(legal)).order_key)).toBe(4096);
+  });
+
+  it('keeps a document title stored under the older rule through a description edit and restore', async () => {
+    const documentId = createOpaqueId();
+    await runtimePool.query(
+      'INSERT INTO document(id,room_id,display_title,created_by) VALUES($1,$2,$3,$4)',
+      [documentId, roomId, 'Older\trule', contributorId],
+    );
+    await runtimePool.query('SELECT create_document_entry($1,$2,NULL,$3,$4,$5,$6,$7,$8)', [
+      documentId,
+      documentId,
+      'Older rule',
+      91000,
+      contributorId,
+      (await room()).working_revision,
+      ...audit(),
+    ]);
+    await storeUnderOlderRule(documentId, 'Older\trule');
+    const metadata = async (title: string): Promise<void> => {
+      const document = (
+        await migrationPool.query<{ revision: number }>(
+          'SELECT revision FROM document WHERE id=$1',
+          [documentId],
+        )
+      ).rows[0];
+      if (document === undefined) throw new Error('document absent');
+      await mutateStructure({
+        action: 'document-metadata',
+        roomId,
+        documentId,
+        title,
+        description: 'Description only',
+        expectedDocumentRevision: document.revision,
+        expectedWorkingRevision: (await room()).working_revision,
+      });
+    };
+
+    await metadata('Older\trule');
+    expect(
+      (
+        await migrationPool.query<{ description: string }>(
+          'SELECT description FROM document WHERE id=$1',
+          [documentId],
+        )
+      ).rows[0]?.description,
+    ).toBe('Description only');
+    await expect(metadata('Older\nrule')).rejects.toMatchObject({ code: '23514' });
+
+    await mutateStructure({
+      action: 'stage-removal',
+      roomId,
+      entryId: documentId,
+      expectedEntryRevision: (await entryRow(documentId)).revision,
+      expectedWorkingRevision: (await room()).working_revision,
+    });
+    const trash = (
+      await migrationPool.query<{ id: string }>(
+        'SELECT id FROM room_trash WHERE root_entry_id=$1',
+        [documentId],
+      )
+    ).rows[0];
+    if (trash === undefined) throw new Error('draft-only removal not trashed');
+    await restoreTrash({
+      pool: runtimePool,
+      identity: {
+        kind: 'member',
+        id: managerId,
+        globalRole: 'member',
+        roomRoles: { [roomId]: 'manager' },
+      },
+      trashId: trash.id,
+      destinationFolderId: null,
+      displayName: 'Older\trule',
+      orderKey: 92000,
+      expectedEntryRevision: (await entryRow(documentId)).revision,
+      expectedWorkingRevision: (await room()).working_revision,
+    });
+    expect(Number((await entryRow(documentId)).order_key)).toBe(92000);
+  });
+
+  it('denies a publication preview of a room the member cannot work in', async () => {
+    await expect(
+      dryRunBulkPublish({
+        pool: runtimePool,
+        identity: { kind: 'member', id: outsiderId, globalRole: 'member', roomRoles: {} },
+        roomId,
+      }),
+    ).rejects.toThrow('ROOM_WORKSPACE_FORBIDDEN');
   });
 });

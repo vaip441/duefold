@@ -15,11 +15,6 @@ export interface SupportContact {
   readonly value: string;
 }
 
-export interface SupportContactSlot {
-  /** Resolves `null` for unconfigured, unavailable, or failed — indistinguishably. */
-  load(signal: AbortSignal): Promise<SupportContact | null>;
-}
-
 export interface EffectiveBrand {
   readonly organizationName: string;
   readonly accentColor: string;
@@ -113,7 +108,6 @@ export interface RoomSectionContribution extends SectionTab {
 }
 
 export interface BrowserContribution {
-  readonly supportContact?: SupportContactSlot;
   readonly branding?: BrandingSlot;
   readonly viewerIntroduction?: ViewerIntroductionSlot;
   readonly sections?: readonly SectionContribution[];

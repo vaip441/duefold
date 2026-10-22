@@ -18,7 +18,7 @@
 import { useId, useState } from 'react';
 import type { ExportPreflight, ExportPreset, ExportRecord } from '../api/client.ts';
 import { translate, translateCount } from '../i18n/translate.ts';
-import { formatSize, presentExport } from '../workspace/state.ts';
+import { exportSelectionProblem, formatSize, presentExport } from '../workspace/state.ts';
 import { formatDate } from '../workspace/grants.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
 import { Notice } from './Notice.tsx';
@@ -78,6 +78,7 @@ export function ExportsPanel({
   const fieldId = useId();
   const [preset, setPreset] = useState<ExportPreset>('room-index-audit');
   const [includeOriginals, setIncludeOriginals] = useState(false);
+  const selectionProblem = exportSelectionProblem(preset, selectedDocumentIds.length);
   const now = new Date();
 
   return (
@@ -250,20 +251,22 @@ export function ExportsPanel({
         ) : null}
 
         {preflight === null || preflightLoading ? (
-          <button
-            type="button"
-            className="df-button"
-            data-busy={preflightLoading ? 'true' : 'false'}
-            disabled={
-              preflightLoading ||
-              (preset === 'selected-documents' && selectedDocumentIds.length === 0)
-            }
-            onClick={() => {
-              onPreflight({ preset, includeOriginals });
-            }}
-          >
-            {translate('exports.preflight')}
-          </button>
+          <>
+            {selectionProblem === 'too-many' ? (
+              <Notice tone="caution">{translate('exports.selection.tooMany')}</Notice>
+            ) : null}
+            <button
+              type="button"
+              className="df-button"
+              data-busy={preflightLoading ? 'true' : 'false'}
+              disabled={preflightLoading || selectionProblem !== null}
+              onClick={() => {
+                onPreflight({ preset, includeOriginals });
+              }}
+            >
+              {translate('exports.preflight')}
+            </button>
+          </>
         ) : (
           <div className="df-impact">
             <h4 className="df-panel__subheading">{translate('exports.preflight.title')}</h4>

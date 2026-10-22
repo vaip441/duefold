@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { CoarseClient } from '../../core-security/src/auth/otp.ts';
 import { networkCorrelation } from '../../core-security/src/auth/otp.ts';
-import type { ViewerIdentity } from '../../core-security/src/authorization.ts';
+import { sessionProof, type ViewerIdentity } from '../../core-security/src/authorization.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { DeliveryStorage } from './storage/s3-compatible.ts';
 import { invokeSandboxed, type SandboxProgram } from './processing/sandbox.ts';
@@ -15,11 +15,13 @@ const WATERMARK_LIMITS = {
   maximumInputBytes: 262_144_000,
   maximumTemporaryBytes: 524_288_000,
 } as const;
+/* Each composition is a node process plus ImageMagick held to one thread and 256 MiB
+ * (imagemagick-policy.xml). Two keep the reference web's 2 vCPU busy while leaving most
+ * of its 2 GiB to requests; further page requests wait for a slot. */
+const WATERMARK_CONCURRENCY = 2;
+let composingWatermarks = 0;
+const waitingWatermarks: (() => void)[] = [];
 
-function sessionProof(identity: ViewerIdentity): string {
-  if (identity.sessionProof === undefined) throw new Error('VIEWER_SESSION_PROOF_REQUIRED');
-  return identity.sessionProof;
-}
 function rowRequired<T>(row: T | undefined, code: string): T {
   if (row === undefined) throw new Error(code);
   return row;
@@ -132,26 +134,38 @@ export async function composeWatermarkPage(input: {
   readonly roomName: string;
   readonly isolation?: SandboxIsolation;
 }): Promise<Uint8Array> {
-  const envelope = Buffer.from(
-    JSON.stringify({
-      watermark: {
-        email: input.viewerEmail,
-        accessDateUtc: input.accessDateUtc,
-        roomName: input.roomName,
-      },
-      imageBase64: Buffer.from(input.source).toString('base64'),
-    }),
-    'utf8',
-  );
-  return invokeSandboxed({
-    program: input.program,
-    arguments: ['watermark-page', '--stdin-envelope'],
-    input: envelope,
-    limits: WATERMARK_LIMITS,
-    ...(input.isolation === undefined || input.isolation.mode === 'namespaced'
-      ? {}
-      : { mode: input.isolation.mode, identities: input.isolation.identities }),
-  });
+  if (composingWatermarks < WATERMARK_CONCURRENCY) composingWatermarks += 1;
+  else
+    await new Promise<void>((resolve) => {
+      waitingWatermarks.push(resolve);
+    });
+  try {
+    const envelope = Buffer.from(
+      JSON.stringify({
+        watermark: {
+          email: input.viewerEmail,
+          accessDateUtc: input.accessDateUtc,
+          roomName: input.roomName,
+        },
+        imageBase64: Buffer.from(input.source).toString('base64'),
+      }),
+      'utf8',
+    );
+    return await invokeSandboxed({
+      program: input.program,
+      arguments: ['watermark-page', '--stdin-envelope'],
+      input: envelope,
+      limits: WATERMARK_LIMITS,
+      ...(input.isolation === undefined || input.isolation.mode === 'namespaced'
+        ? {}
+        : { mode: input.isolation.mode, identities: input.isolation.identities }),
+    });
+  } finally {
+    // A finished composition hands its slot straight to the next waiter.
+    const next = waitingWatermarks.shift();
+    if (next === undefined) composingWatermarks -= 1;
+    else next();
+  }
 }
 
 export async function createWatermarkedPage(input: {

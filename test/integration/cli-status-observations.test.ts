@@ -1,6 +1,6 @@
 /**
- * `updates check-file` run through `runCli` as an operator runs it, recording into the real
- * database as the migration role.
+ * `updates check-file` and `restore drill` run through `runCli` as an operator runs them,
+ * recording into the real database as the migration role.
  */
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -111,5 +111,28 @@ describe('updates check-file', () => {
       evidence_version: null,
     });
     expect(process.exitCode).toBe(1);
+  });
+});
+
+describe('restore drill', () => {
+  it('prints every check, records a failure, and fails the command while checks are undetermined', async () => {
+    await runCli(['restore', 'drill'], {
+      DUEFOLD_MIGRATION_DATABASE_URL: migrationDatabaseUrl,
+    });
+    const printed = JSON.parse(output.join('\n')) as {
+      readonly status: string;
+      readonly checks: Readonly<Record<string, { readonly status: string }>>;
+    };
+    expect(printed.status).toBe('undetermined');
+    expect(printed.checks['migrationChecksums']?.status).toBe('passed');
+    expect(printed.checks['preview']?.status).toBe('undetermined');
+    expect(process.exitCode).toBe(1);
+    expect(
+      (
+        await migrationPool.query<{ restore_drill_status: string }>(
+          'SELECT restore_drill_status FROM operational_recovery_status WHERE singleton',
+        )
+      ).rows[0]?.restore_drill_status,
+    ).toBe('failed');
   });
 });

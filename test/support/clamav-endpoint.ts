@@ -9,7 +9,7 @@ export interface ClamAvTestEndpoint {
 }
 export async function startClamAvTestEndpoint(options: {
   readonly signatureDate: Date;
-  readonly response?: 'clean' | 'malware' | 'error' | 'malformed';
+  readonly response?: 'clean' | 'malware' | 'error' | 'malformed' | 'limit' | 'scan-time';
   readonly stall?: boolean;
   readonly disconnectDuring?: 'version' | 'instream';
 }): Promise<ClamAvTestEndpoint> {
@@ -44,16 +44,17 @@ export async function startClamAvTestEndpoint(options: {
         socket.destroy();
         return;
       }
-      const response = options.response ?? 'clean';
-      socket.end(
-        response === 'clean'
-          ? 'stream: OK\0'
-          : response === 'malware'
-            ? 'stream: Test-Signature FOUND\0'
-            : response === 'error'
-              ? 'stream: scan ERROR\0'
-              : 'not clamav\0',
-      );
+      // `limit` and `scan-time` are verbatim clamav-debian:1.5 replies with AlertExceedsMax
+      // to a source over MaxFileSize, and to a scan that ran past MaxScanTime.
+      const replies = {
+        clean: 'stream: OK\0',
+        malware: 'stream: Test-Signature FOUND\0',
+        error: 'stream: scan ERROR\0',
+        malformed: 'not clamav\0',
+        limit: 'stream: Heuristics.Limits.Exceeded.MaxFileSize FOUND\0',
+        'scan-time': 'stream: Heuristics.Limits.Exceeded.MaxScanTime FOUND\0',
+      };
+      socket.end(replies[options.response ?? 'clean']);
     });
   });
   server.listen(0, '127.0.0.1');

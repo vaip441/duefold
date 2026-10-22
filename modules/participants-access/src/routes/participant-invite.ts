@@ -38,6 +38,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return { ...invited, expiresAt: invited.expiresAt.toISOString() };
   };
 }
-export function handler(): never {
-  throw new Error('participant invite route runtime not initialized');
-}

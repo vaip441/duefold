@@ -157,6 +157,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return { cancelled: true as const };
   };
 }
-export function handler(): never {
-  throw new Error('lifecycle route runtime not initialized');
-}

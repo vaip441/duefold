@@ -2,7 +2,6 @@ import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import type { Pool, PoolClient } from 'pg';
 import type { Clock } from '@duefold/shared/clock';
-import { addSeconds } from '@duefold/shared/clock';
 import { normalizeEmail } from '@duefold/shared/email';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 
@@ -10,19 +9,13 @@ export const OTP_DIGITS = 8;
 export const OTP_LIFETIME_SECONDS = 600;
 export const OTP_RESEND_COOLDOWN_SECONDS = 60;
 export const OTP_MAX_ATTEMPTS = 5;
-export const INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 export const OTP_DELIVERY_JOB = 'auth.otp.deliver';
 
-export interface OtpLimits {
-  readonly perEmailPerHour: number;
-  readonly perNetworkPerHour: number;
-  readonly installationPerHour: number;
-}
-export const DEFAULT_OTP_LIMITS: OtpLimits = {
+const OTP_LIMITS = {
   perEmailPerHour: 5,
   perNetworkPerHour: 20,
   installationPerHour: 500,
-};
+} as const;
 export interface CoarseClient {
   readonly browser: 'chromium' | 'firefox' | 'safari' | 'other';
   readonly os: 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other';
@@ -86,9 +79,6 @@ export function networkCorrelation(
     .digest('hex');
   return { period, hmac };
 }
-export function invitationExpiry(clock: Clock): Date {
-  return addSeconds(clock.now(), INVITATION_LIFETIME_SECONDS);
-}
 export function otpUsable(
   challenge: {
     readonly state: string;
@@ -128,7 +118,6 @@ export async function createOtpChallenge(input: {
   readonly networkKey: string;
   readonly client: CoarseClient;
   readonly clock: Clock;
-  readonly limits?: OtpLimits;
 }): Promise<OtpChallengeResult> {
   const normalized = normalizeEmail(input.email);
   const db = await input.pool.connect();
@@ -137,12 +126,6 @@ export async function createOtpChallenge(input: {
   try {
     await db.query('BEGIN');
     await db.query('SELECT pg_advisory_xact_lock($1)', [1_443_707_501]);
-    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
-      `otp:${normalized.comparisonKey}`,
-    ]);
-    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
-      `network:${network.period}:${network.hmac}`,
-    ]);
     const prior = await db.query<{ created_at: Date }>(
       "SELECT created_at FROM otp_challenge WHERE email_key = $1 AND state IN ('awaiting_delivery','pending') FOR UPDATE",
       [normalized.comparisonKey],
@@ -153,14 +136,13 @@ export async function createOtpChallenge(input: {
       now.getTime() - latest.getTime() < OTP_RESEND_COOLDOWN_SECONDS * 1_000
     )
       throw new Error('OTP_RESEND_COOLDOWN');
-    const limits = input.limits ?? DEFAULT_OTP_LIMITS;
     const emailCount = await countRecent(db, 'email_key', normalized.comparisonKey);
     const networkCount = await countRecent(db, 'network_hmac', network.hmac);
     const installationCount = await countRecent(db, null, null);
     if (
-      emailCount >= limits.perEmailPerHour ||
-      networkCount >= limits.perNetworkPerHour ||
-      installationCount >= limits.installationPerHour
+      emailCount >= OTP_LIMITS.perEmailPerHour ||
+      networkCount >= OTP_LIMITS.perNetworkPerHour ||
+      installationCount >= OTP_LIMITS.installationPerHour
     )
       throw new Error('OTP_RATE_LIMITED');
     await db.query(
@@ -261,21 +243,30 @@ export async function consumeOtp(input: {
       eligibleFamilyId === null ||
       eligibleFamilyId === undefined
     ) {
-      if (usable) {
-        const attempts = challenge.failed_attempts + 1;
-        await db.query(
-          "UPDATE otp_challenge SET failed_attempts = $2::smallint, state = CASE WHEN $2::smallint >= 5 THEN 'locked' ELSE state END WHERE id = $1",
-          [input.challengeId, attempts],
-        );
-        await db.query(
-          `INSERT INTO audit_event (id,event_type,actor_kind,subject_id,result,reason_code,correlation_id)
-           VALUES ($1,'auth.otp','system',$2,'denied','OTP_INVALID',$3)`,
-          [createOpaqueId(), input.challengeId, createCorrelationId()],
-        );
-        await db.query('COMMIT');
-      } else {
+      /* Every existing challenge records its first OTP_MAX_ATTEMPTS attempts alike, so
+         timing cannot tell an invited address from one whose challenge delivery
+         invalidated (§8.2), and this public route's writes stay bounded per challenge.
+         Only 'pending' may lock: any other transition would raise, itself an oracle. */
+      const recorded =
+        challenge !== undefined &&
+        (
+          await db.query(
+            `UPDATE otp_challenge SET failed_attempts = failed_attempts + 1,
+               state = CASE WHEN state = 'pending' AND failed_attempts + 1 >= $2 THEN 'locked' ELSE state END
+             WHERE id = $1 AND failed_attempts < $2`,
+            [input.challengeId, OTP_MAX_ATTEMPTS],
+          )
+        ).rowCount === 1;
+      if (!recorded) {
         await db.query('ROLLBACK');
+        return null;
       }
+      await db.query(
+        `INSERT INTO audit_event (id,event_type,actor_kind,subject_id,result,reason_code,correlation_id)
+         VALUES ($1,'auth.otp','system',$2,'denied','OTP_INVALID',$3)`,
+        [createOpaqueId(), input.challengeId, createCorrelationId()],
+      );
+      await db.query('COMMIT');
       return null;
     }
     await db.query("UPDATE otp_challenge SET state = 'consumed' WHERE id = $1", [

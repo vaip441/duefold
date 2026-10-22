@@ -117,16 +117,3 @@ export async function signOut(
   if (response.ok || response.status === 401) return;
   throw new ApiError(failureForStatus(response.status, await serverErrorCode(response)));
 }
-
-/*
- * ---------------------------------------------------------------------------
- * Member workspace
- *
- * Every shape below is what the server chose to disclose. The client adds no
- * derived authority: `canPublish` is echoed from the server's decision and used
- * only to avoid offering a control the server would reject, never as a
- * permission. `changeKinds` is computed server-side from the same expression the
- * publication preview uses, so the workspace cannot show a pending marker the
- * publish preview disagrees with.
- * ---------------------------------------------------------------------------
- */

@@ -38,7 +38,6 @@ const DIST_ASSETS = resolve(REPO_ROOT, 'apps/web-client/dist/assets');
  * copy behind even with the panel gone.
  */
 const MODULE_MARKERS = [
-  '/api/branding/support-contact',
   '/api/branding/configuration',
   '/api/branding/assets',
   /* The contributed section's tab label, from the module's own catalogue. */
@@ -117,7 +116,7 @@ test.describe('build-time composition', () => {
         expect(full.bundle, `bundle must not disclose module ${forbidden}`).not.toContain(
           forbidden,
         );
-      expect(full.registry).toContain('branding-notifications.support-contact');
+      expect(full.registry).toContain('"branding-notifications.branding"');
       expect(full.registry).toContain('branding-notifications.branding-section');
       expect(full.routes).toContain('branding.support-contact');
       expect(full.routes).toContain('branding.configuration');

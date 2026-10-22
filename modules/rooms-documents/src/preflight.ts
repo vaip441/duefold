@@ -4,19 +4,20 @@ import {
   MAX_DIRECTORY_TOTAL_BYTES,
   MAX_SOURCE_BYTES,
 } from './resource-policy.ts';
+import type { SourceMediaType } from './source-validation.ts';
 
-const SUPPORTED_EXTENSIONS = new Set([
-  'pdf',
-  'png',
-  'jpg',
-  'jpeg',
-  'webp',
-  'txt',
-  'csv',
-  'xlsx',
-  'ods',
-]);
-const SAFE_SEGMENT = /^[\p{L}\p{N}][\p{L}\p{N} ._()-]{0,199}$/u;
+/* Shared by the browser preflight and the server intent, so the two cannot disagree on
+   which extension declares which type. Bytes still decide the type (§11.1). */
+const MEDIA_TYPE_EXTENSIONS: Readonly<Record<SourceMediaType, readonly string[]>> = {
+  'application/pdf': ['pdf'],
+  'image/png': ['png'],
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/webp': ['webp'],
+  'text/plain': ['txt'],
+  'text/csv': ['csv'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['xlsx'],
+  'application/vnd.oasis.opendocument.spreadsheet': ['ods'],
+};
 const SCRIPT_PATTERNS = [
   { name: 'Latin', pattern: /\p{Script_Extensions=Latin}/u },
   { name: 'Cyrillic', pattern: /\p{Script_Extensions=Cyrillic}/u },
@@ -57,6 +58,31 @@ export interface NormalizedDirectoryEntry {
   readonly path: string;
   readonly segments: readonly string[];
   readonly size: number;
+  readonly mediaType: SourceMediaType;
+}
+
+export function mediaTypeForFilename(filename: string): SourceMediaType | null {
+  const separator = filename.lastIndexOf('.');
+  const extension = separator < 0 ? '' : filename.slice(separator + 1).toLowerCase();
+  return (
+    (Object.keys(MEDIA_TYPE_EXTENSIONS) as SourceMediaType[]).find((mediaType) =>
+      MEDIA_TYPE_EXTENSIONS[mediaType].includes(extension),
+    ) ?? null
+  );
+}
+
+/* Mirrors the server's name rule (uploads.ts safeName). */
+function unsafeSegment(segment: string): boolean {
+  return (
+    segment === '' ||
+    segment === '.' ||
+    segment === '..' ||
+    segment.length > 200 ||
+    Array.from(segment).some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code < 32 || code === 127 || character === '\\';
+    })
+  );
 }
 
 function rejectMixedScriptSegment(segment: string): void {
@@ -85,37 +111,30 @@ function confusableCollisionKey(path: string): string {
 function normalizeEntry(entry: DirectoryUploadEntry): NormalizedDirectoryEntry {
   if (!Number.isSafeInteger(entry.size) || entry.size < 1 || entry.size > MAX_SOURCE_BYTES)
     throw new Error('PREFLIGHT_FILE_SIZE_REJECTED');
-  if (
-    entry.path.startsWith('/') ||
-    entry.path.startsWith('\\') ||
-    /^[A-Za-z]:/u.test(entry.path)
-  )
+  if (entry.path.startsWith('/') || /^[A-Za-z]:/u.test(entry.path))
     throw new Error('PREFLIGHT_ABSOLUTE_PATH_REJECTED');
-  const canonical = entry.path.replaceAll('\\', '/').normalize('NFC');
+  const canonical = entry.path.normalize('NFC');
   const segments = canonical.split('/');
   if (
     segments.length < 1 ||
     segments.length > MAX_DIRECTORY_LEVELS + 1 ||
-    segments.some(
-      (segment) =>
-        segment === '' || segment === '.' || segment === '..' || !SAFE_SEGMENT.test(segment),
-    )
+    segments.some(unsafeSegment)
   )
     throw new Error('PREFLIGHT_PATH_REJECTED');
   const filename = segments.at(-1);
   if (filename === undefined) throw new Error('PREFLIGHT_PATH_REJECTED');
   const extensionOffset = filename.lastIndexOf('.');
   const basename = extensionOffset < 0 ? filename : filename.slice(0, extensionOffset);
-  const extension =
-    extensionOffset < 0 ? '' : filename.slice(extensionOffset + 1).toLowerCase();
-  if (!SUPPORTED_EXTENSIONS.has(extension)) throw new Error('PREFLIGHT_TYPE_REJECTED');
+  const mediaType = mediaTypeForFilename(filename);
+  if (mediaType === null) throw new Error('PREFLIGHT_TYPE_REJECTED');
   for (const segment of segments.slice(0, -1)) rejectMixedScriptSegment(segment);
   rejectMixedScriptSegment(basename);
-  return { path: segments.join('/'), segments, size: entry.size };
+  return { path: segments.join('/'), segments, size: entry.size, mediaType };
 }
 
-/** Advisory browser preflight. Identical size/type/depth limits are enforced by
- * server intent/finalization and worker validation; callers cannot bypass them. */
+/** Advisory browser preflight. Per-file size and type are enforced again by server
+ * intent/finalization and worker validation, and folder depth by the working structure;
+ * the directory file-count and aggregate-size limits are enforced only here. */
 export function preflightDirectoryUpload(
   entries: readonly DirectoryUploadEntry[],
 ): readonly NormalizedDirectoryEntry[] {

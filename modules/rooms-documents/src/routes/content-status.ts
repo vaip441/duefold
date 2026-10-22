@@ -41,7 +41,3 @@ export const schema = {
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return () => readContentStatus({ pool: runtime.pool, identity });
 }
-
-export function handler(): never {
-  throw new Error('content status route runtime not initialized');
-}

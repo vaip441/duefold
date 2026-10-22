@@ -86,7 +86,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return removeViewerFromCounterparty({ pool, identity, ...body });
   };
 }
-
-export function handler(): never {
-  throw new Error('counterparty route runtime not initialized');
-}

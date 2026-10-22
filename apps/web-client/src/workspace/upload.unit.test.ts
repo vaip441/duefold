@@ -8,8 +8,14 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import type { WorkingEntry } from '../api/client.ts';
 import { planParts } from '../components/UploadPanel.tsx';
-import { checksumPartPlan, transferParts } from './upload.ts';
+import {
+  checksumPartPlan,
+  repeatedTitles,
+  resolveUploadFolders,
+  transferParts,
+} from './upload.ts';
 
 const MIB = 1024 * 1024;
 
@@ -174,3 +180,101 @@ function fakeXhr(uploaded: number[]): typeof XMLHttpRequest {
     }
   } as unknown as typeof XMLHttpRequest;
 }
+
+describe('directory upload destinations', () => {
+  const entry = (
+    resourceKind: 'folder' | 'document',
+    resourceId: string,
+    displayName: string,
+    parentFolderId: string | null,
+    stagedRemoved = false,
+  ): WorkingEntry =>
+    ({
+      resourceId,
+      displayName,
+      parentFolderId,
+      resourceKind,
+      stagedRemoved,
+    }) as WorkingEntry;
+  const createFolder =
+    (created: unknown[]) =>
+    (input: {
+      readonly parentFolderId: string | null;
+      readonly displayName: string;
+      readonly expectedWorkingRevision: number;
+    }) => {
+      created.push(input);
+      return Promise.resolve({
+        workingRevision: input.expectedWorkingRevision + 1,
+        folderId: `new-${input.displayName}`,
+      });
+    };
+
+  it('recreates the tree parents first, reusing folders of the same canonical name', async () => {
+    const created: unknown[] = [];
+    const destinations = await resolveUploadFolders({
+      relativePaths: [
+        'Deal/Legal/NDA.pdf',
+        'Deal/HR/NDA.pdf',
+        'deal/legal/SPA.pdf',
+        'Deck.pdf',
+      ],
+      entries: [
+        entry('folder', 'existing-deal', 'DEAL', null),
+        entry('folder', 'old-hr', 'HR', 'existing-deal', true),
+      ],
+      workingRevision: 7,
+      createFolder: createFolder(created),
+    });
+
+    expect(created).toEqual([
+      { parentFolderId: 'existing-deal', displayName: 'Legal', expectedWorkingRevision: 7 },
+      { parentFolderId: 'existing-deal', displayName: 'HR', expectedWorkingRevision: 8 },
+    ]);
+    expect(destinations).toEqual(
+      new Map([
+        ['Deal/Legal/NDA.pdf', 'new-Legal'],
+        ['Deal/HR/NDA.pdf', 'new-HR'],
+        ['deal/legal/SPA.pdf', 'new-Legal'],
+        ['Deck.pdf', null],
+      ]),
+    );
+  });
+
+  it('refuses a folder whose name a document already holds there, before creating it', async () => {
+    const created: unknown[] = [];
+    await expect(
+      resolveUploadFolders({
+        relativePaths: ['Financials/Q1.pdf'],
+        entries: [
+          entry('document', 'old-financials', 'Financials', null, true),
+          entry('document', 'financials', 'financials ', null),
+        ],
+        workingRevision: 3,
+        createFolder: createFolder(created),
+      }),
+    ).rejects.toThrow('UPLOAD_FOLDER_NAME_TAKEN');
+    expect(created).toEqual([]);
+  });
+
+  it('flags files given one title in one folder, but not the same title elsewhere', () => {
+    expect(
+      repeatedTitles([
+        { id: 'a', relativePath: 'Deal/Legal/NDA.pdf', title: 'NDA' },
+        { id: 'b', relativePath: 'Deal/legal/nda-final.pdf', title: 'nda ' },
+        { id: 'c', relativePath: 'Deal/HR/NDA.pdf', title: 'NDA' },
+        { id: 'd', relativePath: 'NDA.pdf', title: 'NDA' },
+      ]),
+    ).toEqual(new Set(['a', 'b']));
+  });
+
+  it('flags a file titled like a folder the same directory adds beside it', () => {
+    expect(
+      repeatedTitles([
+        { id: 'a', relativePath: 'Deal/Legal.pdf', title: 'Legal' },
+        { id: 'b', relativePath: 'Deal/Legal/NDA.pdf', title: 'NDA' },
+        { id: 'c', relativePath: 'Legal.pdf', title: 'Legal' },
+      ]),
+    ).toEqual(new Set(['a']));
+  });
+});

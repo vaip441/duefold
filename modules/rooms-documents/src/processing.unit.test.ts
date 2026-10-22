@@ -20,8 +20,10 @@ import {
 } from './processing/formats.ts';
 import {
   imageMagickArguments,
+  MAX_TEXT_PAGES,
   muPdfArguments,
   textMagickArguments,
+  textPages,
 } from './processing/tool-adapter.ts';
 import {
   boundedTmpfsMountForTesting,
@@ -581,6 +583,23 @@ describe('ClamAV INSTREAM', () => {
     }
   });
 
+  it('rejects input clamd could not scan completely, and retries a scan timeout, without calling either malware', async () => {
+    for (const [response, error] of [
+      ['limit', 'SOURCE_SCAN_LIMIT_EXCEEDED'],
+      ['scan-time', 'SCANNER_TIMEOUT'],
+    ] as const) {
+      const endpoint = await startClamAvTestEndpoint({ signatureDate: new Date(), response });
+      try {
+        await expect(
+          createClamAvClient({ socket: endpoint, timeoutMilliseconds: 500 }).scan(
+            Buffer.from('x'),
+          ),
+        ).rejects.toThrow(error);
+      } finally {
+        await endpoint.close();
+      }
+    }
+  });
   it('fails closed on malware, errors, malformed replies, outage, and timeout', async () => {
     for (const response of ['malware', 'error', 'malformed'] as const) {
       const endpoint = await startClamAvTestEndpoint({ signatureDate: new Date(), response });
@@ -655,21 +674,45 @@ describe('real tool adapters', () => {
       '-strip',
       'page-0001.png',
     ]);
-    expect(textMagickArguments()).toEqual([
-      '-background',
-      'white',
+    expect(textMagickArguments('page-0001.png')).toEqual([
+      '-size',
+      '1200x1464',
+      'xc:white',
       '-fill',
       'black',
       '-font',
       '/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf',
       '-pointsize',
       '16',
-      '-size',
-      '1200x',
-      'caption:@-',
+      '-gravity',
+      'northwest',
+      '-annotate',
+      '+12+12',
+      '@-',
       '-strip',
       'page-0001.png',
     ]);
+  });
+  it('paginates any text into pages that fit the fixed canvas', () => {
+    const fitsCanvas = (pages: readonly string[]): boolean =>
+      pages.every((page) => {
+        const rows = page.split('\n');
+        return rows.length <= 60 && rows.every((row) => Array.from(row).length <= 100);
+      });
+    const csv = Array.from({ length: 5_000 }, (_, row) => `${String(row)},"Acme, Inc.",100\n`);
+    const csvPages = textPages(Buffer.from(csv.join('')));
+    expect(csvPages).toHaveLength(84);
+    expect(fitsCanvas(csvPages)).toBe(true);
+    const linePages = textPages(Buffer.from('x'.repeat(40_000)));
+    expect(linePages).toHaveLength(7);
+    expect(fitsCanvas(linePages)).toBe(true);
+    expect(linePages.join('').replaceAll('\n', '')).toBe('x'.repeat(40_000));
+    expect(textPages(Buffer.from('\n'.repeat(MAX_TEXT_PAGES * 60)))).toHaveLength(
+      MAX_TEXT_PAGES,
+    );
+    expect(() => textPages(Buffer.from('\n'.repeat(MAX_TEXT_PAGES * 60 + 1)))).toThrow(
+      'PROCESSOR_TEXT_PAGES_EXCEEDED',
+    );
   });
 });
 
@@ -748,17 +791,39 @@ describe('format processing contracts', () => {
     expect(structuredHttpsLinkForTesting('http://example.com')).toBeUndefined();
     expect(structuredHttpsLinkForTesting('https://user:pass@example.com')).toBeUndefined();
   });
-  it('makes formula-like CSV cells inert through explicit deterministic arguments', () => {
-    expect(processorArgumentsForTesting('text/csv')).toEqual(
-      expect.arrayContaining([
-        '--non-html',
-        '--formula-cells=inert-text',
-        '--max-rows',
-        '100000',
-        '--max-columns',
-        '1000',
-      ]),
-    );
+  function renderTextWith(tool: string): ReturnType<typeof processSource> {
+    const adapter = new URL('./processing/tool-adapter.ts', import.meta.url).pathname;
+    const failing = sandboxProgram(process.execPath, [adapter, tool, 'text']);
+    return processSource({
+      mediaType: 'text/plain',
+      bytes: Buffer.from('hello'),
+      programs: { pdf: failing, office: failing, image: failing, text: failing },
+      limits,
+    });
+  }
+  it.each([
+    ['a renderer exit as a deterministic rejection', '/bin/false', 'PROCESSOR_RENDER_FAILED'],
+    [
+      'a missing renderer as a retryable failure',
+      '/nonexistent/magick',
+      'SANDBOX_CHILD_FAILED',
+    ],
+  ])('reports %s', async (_, tool, code) => {
+    await expect(renderTextWith(tool)).rejects.toThrow(code);
+  });
+  it('reports a renderer killed by a signal as a retryable failure', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'duefold-killed-tool-'));
+    try {
+      // The sandbox root holds only the tool, node, and their libraries, so a
+      // /bin/sh script would fail to exec there instead of being killed.
+      const tool = join(directory, 'magick');
+      await writeFile(tool, `#!${process.execPath}\nprocess.kill(process.pid, 'SIGKILL');\n`, {
+        mode: 0o755,
+      });
+      await expect(renderTextWith(tool)).rejects.toThrow('SANDBOX_CHILD_FAILED');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 

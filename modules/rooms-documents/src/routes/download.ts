@@ -73,6 +73,3 @@ export function createRangeHandler(runtime: WebRuntime, identity: ViewerIdentity
       .send(Readable.from(result.stream));
   };
 }
-export function handler(): never {
-  throw new Error('download route runtime not initialized');
-}

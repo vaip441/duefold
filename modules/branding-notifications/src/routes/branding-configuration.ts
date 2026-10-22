@@ -115,6 +115,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return read(runtime, identity);
   };
 }
-export function handler(): never {
-  throw new Error('branding configuration route runtime not initialized');
-}

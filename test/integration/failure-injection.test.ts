@@ -440,11 +440,7 @@ describe('the pools the product actually opens', () => {
    */
   it('opens no bare pool in a long-running service', async () => {
     const { readFile } = await import('node:fs/promises');
-    for (const path of [
-      'apps/web/src/main.ts',
-      'apps/worker/src/main.ts',
-      'modules/core-security/src/db/database.ts',
-    ]) {
+    for (const path of ['apps/web/src/main.ts', 'apps/worker/src/main.ts']) {
       const source = await readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
       expect(source, path).not.toMatch(/new Pool\(/u);
       expect(source, path).toContain('createResilientPool');

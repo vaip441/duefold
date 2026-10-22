@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  createFolder,
   createUploadIntent,
   finalizeUpload,
   loadRoomWorkspace,
@@ -36,7 +37,7 @@ import { ProcessingPanel } from '../../components/ProcessingPanel.tsx';
 import { RoomPreparationNav } from '../../components/RoomPreparationNav.tsx';
 import { RoomSettingsPanel } from '../../components/RoomSettingsPanel.tsx';
 import { SectionNav } from '../../components/SectionNav.tsx';
-import { StructureControls } from '../../components/StructureControls.tsx';
+import { StructureControls, type BulkProgress } from '../../components/StructureControls.tsx';
 import { StructureTable } from '../../components/StructureTable.tsx';
 import { TrashView } from '../../components/TrashView.tsx';
 import {
@@ -58,8 +59,8 @@ import type { Load } from '../state.ts';
 import { useParticipantsSection } from '../useParticipantsSection.ts';
 import { useExportsSection, useProcessingSection } from '../useRoomSections.ts';
 import { useRoomSettings } from '../useRoomSettings.ts';
-import { checksumPartPlan, transferParts } from '../upload.ts';
-import { failureMessage } from '../failure-message.ts';
+import { checksumPartPlan, resolveUploadFolders, transferParts } from '../upload.ts';
+import { depthFirst } from '../../viewer/structure-depth.ts';
 import { AccessSection } from './AccessSection.tsx';
 
 export interface RoomViewProps {
@@ -139,6 +140,25 @@ export function roomEntries(workspace: Load<RoomWorkspace>): readonly WorkingEnt
   return workspace.kind === 'ready' ? workspace.value.entries : NO_ENTRIES;
 }
 
+/**
+ * The selected entries bulk removal must stage itself. Staging a folder already withholds
+ * everything inside it from publication, and the server refuses to stage an entry whose
+ * folder is staged, so an entry under a selected or staged folder is left to that folder.
+ */
+export function removalTargets(
+  entries: readonly WorkingEntry[],
+  selection: readonly string[],
+): readonly WorkingEntry[] {
+  const selected = new Set(selection);
+  const covered = new Set<string>();
+  return depthFirst(entries).filter((entry) => {
+    const underCovered = entry.parentFolderId !== null && covered.has(entry.parentFolderId);
+    const chosen = selected.has(entry.entryId);
+    if (underCovered || chosen || entry.stagedRemoved) covered.add(entry.resourceId);
+    return chosen && !entry.stagedRemoved && !underCovered;
+  });
+}
+
 /* Reached through the preparation path rather than the supporting strip. */
 const PATH_SECTIONS: readonly string[] = ['structure', 'upload', 'participants', 'processing'];
 /* Reader management and exports are Room Manager work; the server refuses anyone else,
@@ -160,16 +180,13 @@ export function RoomView({
 }: RoomViewProps): React.ReactElement {
   const [workspace, setWorkspace] = useState<Load<RoomWorkspace>>({ kind: 'loading' });
   const [actionFailure, setActionFailure] = useState<string | null>(null);
-  const [busyEntryId, setBusyEntryId] = useState<string | null>(null);
+  const [writePending, setWritePending] = useState(false);
   const [busyTrashId, setBusyTrashId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<readonly SearchHit[] | null>(null);
   const [searchPending, setSearchPending] = useState(false);
   const [selection, setSelection] = useState<readonly string[]>([]);
-  const [bulkProgress, setBulkProgress] = useState<{
-    readonly done: number;
-    readonly total: number;
-  } | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [uploadPending, setUploadPending] = useState(false);
   const [uploadStates, setUploadStates] = useState<ReadonlyMap<string, UploadItemState>>(
     new Map(),
@@ -177,6 +194,13 @@ export function RoomView({
   const [uploadFailure, setUploadFailure] = useState<PresentedFailure | null>(null);
   const [uploadDoneCount, setUploadDoneCount] = useState(0);
   const uploadAbort = useRef<AbortController | null>(null);
+  /* Leaving the room ends its upload; the server reaps the abandoned intent. */
+  useEffect(
+    () => () => {
+      uploadAbort.current?.abort();
+    },
+    [roomId],
+  );
 
   /*
    * Section state lives in its own hook. This view composes sections; it does not
@@ -215,27 +239,49 @@ export function RoomView({
      refuses anyone else independently. */
   const settings = useRoomSettings(room?.canPublish === true ? roomId : null, onRoomsChanged);
 
-  const refreshWorkspace = useCallback(
-    (signal?: AbortSignal): void => {
-      loadRoomWorkspace(roomId, signal).then(
+  /* A newer read aborts the older one, so an earlier read can never land after a later one
+     and put back a structure the member has already changed. A superseded read settles with
+     the read that replaced it, so a caller waits for the structure actually shown. This view
+     is reused across rooms, so a read asked for by a room already left is not started. */
+  const reading = useRef<{
+    readonly controller: AbortController;
+    readonly landed: Promise<void>;
+  } | null>(null);
+  const openRoomId = useRef(roomId);
+  const readWorkspace = useCallback((): Promise<void> => {
+    if (openRoomId.current !== roomId) return Promise.resolve();
+    reading.current?.controller.abort();
+    const controller = new AbortController();
+    const landed = loadRoomWorkspace(roomId, controller.signal)
+      .then(
         (value) => {
-          setWorkspace({ kind: 'ready', value });
+          if (!controller.signal.aborted) setWorkspace({ kind: 'ready', value });
         },
         (error: unknown) => {
-          if (error instanceof DOMException && error.name === 'AbortError') return;
-          setWorkspace({ kind: 'failed', failure: failureMessage(error) });
+          if (!controller.signal.aborted)
+            setWorkspace({ kind: 'failed', failure: presentFailure(error).body });
         },
+      )
+      .then(() =>
+        reading.current?.controller === controller ? undefined : reading.current?.landed,
       );
-    },
-    [roomId],
-  );
+    reading.current = { controller, landed };
+    return landed;
+  }, [roomId]);
+  const refreshWorkspace = useCallback((): void => {
+    void readWorkspace();
+  }, [readWorkspace]);
 
+  /* Synced before the read effect below, which checks it; a read the old room starts in
+     between is aborted by that effect's cleanup. */
   useEffect(() => {
-    const controller = new AbortController();
+    openRoomId.current = roomId;
+  }, [roomId]);
+  useEffect(() => {
     setWorkspace({ kind: 'loading' });
-    refreshWorkspace(controller.signal);
+    refreshWorkspace();
     return () => {
-      controller.abort();
+      reading.current?.controller.abort();
     };
   }, [refreshWorkspace, reloadToken]);
 
@@ -308,27 +354,30 @@ export function RoomView({
     exportsSection.refresh,
   ]);
 
-  /** Runs a mutation, then refreshes from the server rather than guessing state. */
-  const runMutation = (
-    body: Readonly<Record<string, unknown>>,
-    entryId: string | null,
-  ): void => {
-    setBusyEntryId(entryId);
+  /**
+   * Runs a mutation, then refreshes from the server rather than guessing state. The structure
+   * stays busy until that refresh lands: until then every row carries the revisions this write
+   * replaced, and a second action would send them and be refused as a conflict.
+   */
+  const runMutation = (body: Readonly<Record<string, unknown>>): void => {
+    setWritePending(true);
     setActionFailure(null);
-    mutateStructure(body).then(
-      () => {
-        setBusyEntryId(null);
-        onStatus(translate('structure.saving'));
-        refreshWorkspace();
-        onRoomsChanged();
-      },
-      (error: unknown) => {
-        setBusyEntryId(null);
-        // A rejected revision means a colleague changed the room. The member is
-        // told to refresh; the write is never retried behind their back.
-        setActionFailure(failureMessage(error));
-      },
-    );
+    void mutateStructure(body)
+      .then(
+        () => {
+          onStatus(translate('structure.saving'));
+          onRoomsChanged();
+          return readWorkspace();
+        },
+        (error: unknown) => {
+          // A rejected revision means a colleague changed the room. The member is
+          // told to refresh; the write is never retried behind their back.
+          setActionFailure(presentFailure(error).body);
+        },
+      )
+      .finally(() => {
+        setWritePending(false);
+      });
   };
 
   const entries = roomEntries(workspace);
@@ -343,8 +392,9 @@ export function RoomView({
    * selection are ignored rather than silently expanded, because expanding a folder
    * client-side would export documents the member did not choose.
    */
+  const selected = new Set(selection);
   const selectedDocumentIds = entries
-    .filter((entry) => entry.resourceKind === 'document' && selection.includes(entry.entryId))
+    .filter((entry) => entry.resourceKind === 'document' && selected.has(entry.entryId))
     .map((entry) => entry.resourceId);
 
   const restore = (input: {
@@ -355,23 +405,26 @@ export function RoomView({
     if (workspace.kind !== 'ready') return;
     setBusyTrashId(input.entry.trashId);
     setActionFailure(null);
-    restoreFromTrash({
+    // Busy until the refresh lands, as in runMutation: the stale row would offer a second restore.
+    void restoreFromTrash({
       trashId: input.entry.trashId,
       destinationFolderId: input.destinationFolderId,
       displayName: input.displayName,
       expectedEntryRevision: input.entry.entryRevision,
       expectedWorkingRevision: workspace.value.workingRevision,
-    }).then(
-      () => {
+    })
+      .then(
+        () => {
+          onRoomsChanged();
+          return readWorkspace();
+        },
+        (error: unknown) => {
+          setActionFailure(presentFailure(error).body);
+        },
+      )
+      .finally(() => {
         setBusyTrashId(null);
-        refreshWorkspace();
-        onRoomsChanged();
-      },
-      (error: unknown) => {
-        setBusyTrashId(null);
-        setActionFailure(failureMessage(error));
-      },
-    );
+      });
   };
 
   const runSearch = (): void => {
@@ -385,7 +438,7 @@ export function RoomView({
       },
       (error: unknown) => {
         setSearchPending(false);
-        setActionFailure(failureMessage(error));
+        setActionFailure(presentFailure(error).body);
       },
     );
   };
@@ -412,19 +465,50 @@ export function RoomView({
   };
 
   /**
-   * Uploads a reviewed queue sequentially. Each file keeps its own result, so one
-   * rejected source cannot make already-quarantined files look absent or turn a
-   * partial batch into a false all-or-nothing success.
+   * Uploads a reviewed queue sequentially, after recreating its directory folders. Each
+   * file keeps its own result, so one rejected source cannot make already-quarantined
+   * files look absent or turn a partial batch into a false all-or-nothing success.
    */
   const upload = (items: readonly UploadItem[]): void => {
+    if (workspace.kind !== 'ready') return;
+    const { workingRevision } = workspace.value;
     const controller = new AbortController();
     uploadAbort.current = controller;
     setUploadPending(true);
     setUploadFailure(null);
     setUploadDoneCount(0);
-    setUploadStates(new Map(items.map((item) => [item.id, { kind: 'waiting' } as const])));
+    setUploadStates((current) => {
+      const next = new Map(current);
+      for (const item of items) next.set(item.id, { kind: 'waiting' });
+      return next;
+    });
 
     void (async () => {
+      // A cancel during folder creation leaves this empty and ends at the loop's first check.
+      let destinations: ReadonlyMap<string, string | null> = new Map();
+      try {
+        destinations = await resolveUploadFolders({
+          relativePaths: items.map((item) => item.relativePath),
+          entries,
+          workingRevision,
+          createFolder: (folder) =>
+            createFolder({ roomId, ...folder, signal: controller.signal }),
+        });
+      } catch (error: unknown) {
+        if (!controller.signal.aborted) {
+          // No file was transferred; folders created before the refusal are reused next time.
+          setUploadPending(false);
+          uploadAbort.current = null;
+          setUploadFailure(
+            error instanceof Error && error.message === 'UPLOAD_FOLDER_NAME_TAKEN'
+              ? { ...presentFailure(error), body: translate('upload.folderNameTaken') }
+              : presentFailure(error),
+          );
+          refreshWorkspace();
+          onRoomsChanged();
+          return;
+        }
+      }
       let completed = 0;
       for (const item of items) {
         if (controller.signal.aborted) break;
@@ -438,12 +522,15 @@ export function RoomView({
             plan,
             signal: controller.signal,
           });
+          const parentFolderId = destinations.get(item.relativePath);
+          if (parentFolderId === undefined) throw new Error('UPLOAD_DESTINATION_UNRESOLVED');
+          // macOS reports decomposed (NFD) names; the server accepts only NFC.
           const intent = await createUploadIntent({
             roomId,
-            displayTitle: item.title,
-            originalFilename: item.file.name,
-            declaredMediaType:
-              item.file.type === '' ? 'application/octet-stream' : item.file.type,
+            ...(parentFolderId === null ? {} : { parentFolderId }),
+            displayTitle: item.title.normalize('NFC'),
+            originalFilename: item.file.name.normalize('NFC'),
+            declaredMediaType: item.mediaType,
             declaredSize: item.file.size,
             parts: checksummedPlan,
           });
@@ -473,6 +560,9 @@ export function RoomView({
 
       setUploadPending(false);
       uploadAbort.current = null;
+      // Folders and files created before a cancel or a failure have still changed the room.
+      refreshWorkspace();
+      onRoomsChanged();
       if (controller.signal.aborted) {
         setUploadStates((current) => {
           const next = new Map(current);
@@ -487,8 +577,6 @@ export function RoomView({
         return;
       }
       onStatus(translate('upload.batchDone', { count: completed, total: items.length }));
-      refreshWorkspace();
-      if (completed > 0) onRoomsChanged();
       if (currentId === 'processing') {
         void processingSection.refresh(roomId).then(
           () => {
@@ -506,50 +594,43 @@ export function RoomView({
    *
    * Sequential rather than parallel because each write carries the room's working
    * revision, and concurrent writes would race that revision against each other.
-   * A failure partway reports how many succeeded instead of implying all did.
+   * Each write's returned revision feeds the next, so a colleague's change in between
+   * is refused as a conflict rather than overwritten. A failure partway reports how
+   * many succeeded instead of implying all did. The structure stays busy until the
+   * refresh lands, as in `runMutation`.
    */
   const bulkStageRemoval = (): void => {
     if (workspace.kind !== 'ready') return;
-    const targets = workspace.value.entries.filter(
-      (entry) => selection.includes(entry.entryId) && !entry.stagedRemoved,
-    );
+    const targets = removalTargets(workspace.value.entries, selection);
     if (targets.length === 0) return;
+    setWritePending(true);
     setActionFailure(null);
-    setBulkProgress({ done: 0, total: targets.length });
+    setBulkProgress({ kind: 'applying', total: targets.length });
     void (async () => {
       let done = 0;
+      let workingRevision = workspace.value.workingRevision;
       for (const entry of targets) {
         try {
-          /*
-           * The ENTRY revision is re-read per iteration, because the previous write
-           * advanced it and a cached value would be stale by construction.
-           *
-           * The room's working revision comes from the register the frame already holds.
-           * Re-reading it here would mean walking the paged register once per entry, and
-           * a stale one is self-correcting: the server refuses the write with a conflict,
-           * which the loop reports rather than retrying.
-           */
-          const current = await loadRoomWorkspace(roomId);
-          const fresh = current.entries.find((item) => item.entryId === entry.entryId);
-          if (fresh === undefined) break;
-          await mutateStructure({
+          ({ workingRevision } = await mutateStructure({
             action: 'stage-removal',
             roomId,
             entryId: entry.entryId,
-            expectedEntryRevision: fresh.revision,
-            expectedWorkingRevision: current.workingRevision,
-          });
+            expectedEntryRevision: entry.revision,
+            expectedWorkingRevision: workingRevision,
+          }));
           done += 1;
-          setBulkProgress({ done, total: targets.length });
         } catch (error: unknown) {
-          setActionFailure(failureMessage(error));
+          setActionFailure(presentFailure(error).body);
           break;
         }
       }
-      setBulkProgress(done === targets.length ? null : { done, total: targets.length });
+      setBulkProgress(
+        done === targets.length ? null : { kind: 'stopped', done, total: targets.length },
+      );
       setSelection([]);
-      refreshWorkspace();
       onRoomsChanged();
+      await readWorkspace();
+      setWritePending(false);
     })();
   };
 
@@ -669,30 +750,27 @@ export function RoomView({
             <StructureControls
               entries={entries}
               folders={folders}
-              pending={busyEntryId !== null || bulkProgress !== null}
+              pending={writePending}
               selection={selection}
               bulkProgress={bulkProgress}
               onCreateFolder={(input) => {
-                runMutation(
-                  {
-                    action: 'create-folder',
-                    roomId,
-                    ...(input.parentFolderId === null
-                      ? {}
-                      : { parentFolderId: input.parentFolderId }),
-                    displayName: input.displayName,
-                    description: input.description,
-                    expectedWorkingRevision: workspace.value.workingRevision,
-                  },
-                  null,
-                );
+                runMutation({
+                  action: 'create-folder',
+                  roomId,
+                  ...(input.parentFolderId === null
+                    ? {}
+                    : { parentFolderId: input.parentFolderId }),
+                  displayName: input.displayName,
+                  description: input.description,
+                  expectedWorkingRevision: workspace.value.workingRevision,
+                });
               }}
               onSelectionChange={setSelection}
               onBulkStageRemoval={bulkStageRemoval}
             />
             <StructureTable
               entries={entries}
-              busyEntryId={busyEntryId}
+              pending={writePending}
               selection={selection}
               onSelectionChange={setSelection}
               folders={folders}
@@ -700,73 +778,58 @@ export function RoomView({
                 settings === null ? null : settings.structureDownloads(refreshWorkspace)
               }
               onRename={(entry: WorkingEntry, displayName: string) => {
-                runMutation(
-                  {
-                    action: 'rename',
-                    roomId,
-                    entryId: entry.entryId,
-                    displayName,
-                    expectedEntryRevision: entry.revision,
-                    expectedWorkingRevision: workspace.value.workingRevision,
-                  },
-                  entry.entryId,
-                );
+                runMutation({
+                  action: 'rename',
+                  roomId,
+                  entryId: entry.entryId,
+                  displayName,
+                  expectedEntryRevision: entry.revision,
+                  expectedWorkingRevision: workspace.value.workingRevision,
+                });
               }}
               onReorder={(entry: WorkingEntry, targetPosition: number) => {
-                runMutation(
-                  {
-                    action: 'reorder',
-                    roomId,
-                    entryId: entry.entryId,
-                    targetPosition,
-                    expectedEntryRevision: entry.revision,
-                    expectedWorkingRevision: workspace.value.workingRevision,
-                  },
-                  entry.entryId,
-                );
+                runMutation({
+                  action: 'reorder',
+                  roomId,
+                  entryId: entry.entryId,
+                  targetPosition,
+                  expectedEntryRevision: entry.revision,
+                  expectedWorkingRevision: workspace.value.workingRevision,
+                });
               }}
               onStageRemoval={(entry: WorkingEntry) => {
-                runMutation(
-                  {
-                    action: 'stage-removal',
-                    roomId,
-                    entryId: entry.entryId,
-                    expectedEntryRevision: entry.revision,
-                    expectedWorkingRevision: workspace.value.workingRevision,
-                  },
-                  entry.entryId,
-                );
+                runMutation({
+                  action: 'stage-removal',
+                  roomId,
+                  entryId: entry.entryId,
+                  expectedEntryRevision: entry.revision,
+                  expectedWorkingRevision: workspace.value.workingRevision,
+                });
               }}
               onMove={(input) => {
-                runMutation(
-                  {
-                    action: 'move',
-                    roomId,
-                    entryId: input.entry.entryId,
-                    destinationFolderId: input.destinationFolderId,
-                    targetPosition: input.targetPosition,
-                    expectedEntryRevision: input.entry.revision,
-                    expectedWorkingRevision: workspace.value.workingRevision,
-                  },
-                  input.entry.entryId,
-                );
+                runMutation({
+                  action: 'move',
+                  roomId,
+                  entryId: input.entry.entryId,
+                  destinationFolderId: input.destinationFolderId,
+                  targetPosition: input.targetPosition,
+                  expectedEntryRevision: input.entry.revision,
+                  expectedWorkingRevision: workspace.value.workingRevision,
+                });
               }}
               onOpenReview={() => {
                 onSectionChange('processing');
               }}
               onMetadata={(input) => {
-                runMutation(
-                  {
-                    action: 'document-metadata',
-                    roomId,
-                    documentId: input.entry.resourceId,
-                    title: input.title,
-                    description: input.description,
-                    expectedDocumentRevision: input.entry.documentRevision,
-                    expectedWorkingRevision: workspace.value.workingRevision,
-                  },
-                  input.entry.entryId,
-                );
+                runMutation({
+                  action: 'document-metadata',
+                  roomId,
+                  documentId: input.entry.resourceId,
+                  title: input.title,
+                  description: input.description,
+                  expectedDocumentRevision: input.entry.documentRevision,
+                  expectedWorkingRevision: workspace.value.workingRevision,
+                });
               }}
             />
           </section>
@@ -873,7 +936,13 @@ export function RoomView({
           downloadingId={exportsSection.downloadingId}
           selectedDocumentIds={selectedDocumentIds}
           onPreflight={(input) => {
-            exportsSection.review({ roomId, ...input, selectedDocumentIds });
+            // The server refuses a selection sent with any other preset.
+            exportsSection.review({
+              roomId,
+              ...input,
+              selectedDocumentIds:
+                input.preset === 'selected-documents' ? selectedDocumentIds : [],
+            });
           }}
           onGenerate={() => {
             exportsSection.generate(roomId);

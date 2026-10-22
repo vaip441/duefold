@@ -124,7 +124,9 @@ describe('mail policy', () => {
     expect(messages[1]?.subject).toBe('Your sign-in code for Northwind Capital');
     expect(messages[1]?.text).toContain('12345678');
     expect(messages[1]?.html).toContain('12345678');
-    expect(messages[1]?.headers?.['X-Duefold-Challenge']).toBe('chal_abc123');
+    expect(messages[1]?.headers, 'the challenge id is the other half of the sign-in').toEqual({
+      'X-Duefold-Brand': 'Duefold',
+    });
   });
 
   it('invites a viewer by organization name, with no room or document detail', () => {

@@ -42,9 +42,7 @@ export function validateAccentColor(value: string): string {
   const light = contrastRatio(normalized, LIGHT_GROUND);
   const dark = contrastRatio(normalized, DARK_GROUND);
   if (light < MINIMUM_ACCENT_CONTRAST || dark < MINIMUM_ACCENT_CONTRAST)
-    throw new Error(
-      `BRAND_ACCENT_CONTRAST_FAILED light=${light.toFixed(2)} dark=${dark.toFixed(2)} required=${MINIMUM_ACCENT_CONTRAST.toFixed(2)}`,
-    );
+    throw new Error('BRAND_ACCENT_CONTRAST_FAILED');
   return normalized;
 }
 
@@ -54,10 +52,11 @@ function starts(bytes: Uint8Array, signature: readonly number[]): boolean {
 function pngEnd(bytes: Uint8Array): number {
   if (!starts(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
     throw new Error('BRAND_IMAGE_CONTENT_REJECTED');
+  const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 8;
   while (offset + 12 <= bytes.length) {
-    const length = Buffer.from(bytes).readUInt32BE(offset);
-    const type = Buffer.from(bytes.subarray(offset + 4, offset + 8)).toString('ascii');
+    const length = view.readUInt32BE(offset);
+    const type = view.toString('ascii', offset + 4, offset + 8);
     offset += 12 + length;
     if (offset > bytes.length) throw new Error('BRAND_IMAGE_CONTENT_REJECTED');
     if (type === 'IEND') return offset;

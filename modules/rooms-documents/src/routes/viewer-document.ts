@@ -42,6 +42,3 @@ export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
     };
   };
 }
-export function handler(): never {
-  throw new Error('viewer document metadata route runtime not initialized');
-}

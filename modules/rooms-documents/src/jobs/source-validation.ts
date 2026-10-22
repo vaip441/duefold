@@ -24,7 +24,7 @@ function versionId(payload: Readonly<Record<string, unknown>>): string {
     throw new Error('INVALID_JOB_PAYLOAD');
   return value;
 }
-function deterministic(error: unknown): boolean {
+function deterministic(error: unknown): error is Error {
   return (
     error instanceof Error &&
     (error.message.startsWith('SOURCE_') || error.message.startsWith('PROCESSOR_'))
@@ -39,7 +39,6 @@ async function failVersion(input: {
   readonly kind: 'deterministic' | 'malware' | 'transient';
   readonly code: string;
   readonly days: 7 | 30;
-  readonly cause?: unknown;
 }): Promise<void> {
   await input.pool.query(
     'SELECT fail_document_processing($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
@@ -90,7 +89,6 @@ export function createHandler(dependencies: SourceValidationDependencies) {
           kind: 'transient',
           code: 'SOURCE_STORAGE_UNAVAILABLE',
           days: 7,
-          cause: error,
         });
       else throw error;
       return;
@@ -99,7 +97,18 @@ export function createHandler(dependencies: SourceValidationDependencies) {
     try {
       scan = await dependencies.scanner.scan(bytes);
     } catch (error) {
-      if (job.attempts >= job.max_attempts)
+      if (deterministic(error))
+        await failVersion({
+          pool: dependencies.pool,
+          job,
+          context,
+          id,
+          state: 'rejected',
+          kind: 'deterministic',
+          code: 'SOURCE_SCAN_LIMIT_EXCEEDED',
+          days: 7,
+        });
+      else if (job.attempts >= job.max_attempts)
         await failVersion({
           pool: dependencies.pool,
           job,
@@ -109,7 +118,6 @@ export function createHandler(dependencies: SourceValidationDependencies) {
           kind: 'transient',
           code: 'SCANNER_UNAVAILABLE',
           days: 7,
-          cause: error,
         });
       else throw error;
       return;
@@ -161,7 +169,6 @@ export function createHandler(dependencies: SourceValidationDependencies) {
             kind: 'transient',
             code: 'FORMAT_POLICY_UNAVAILABLE',
             days: 7,
-            cause: error,
           });
         else throw error;
       } else
@@ -172,9 +179,8 @@ export function createHandler(dependencies: SourceValidationDependencies) {
           id,
           state: 'rejected',
           kind: 'deterministic',
-          code: 'SOURCE_REJECTED',
+          code: error.message,
           days: 7,
-          cause: error,
         });
       return;
     }
@@ -209,9 +215,8 @@ export function createHandler(dependencies: SourceValidationDependencies) {
           id,
           state: 'rejected',
           kind: 'deterministic',
-          code: 'PROCESSING_REJECTED',
+          code: error.message,
           days: 7,
-          cause: error,
         });
       else if (job.attempts >= job.max_attempts)
         await failVersion({
@@ -223,7 +228,6 @@ export function createHandler(dependencies: SourceValidationDependencies) {
           kind: 'transient',
           code: 'PROCESSOR_UNAVAILABLE',
           days: 7,
-          cause: error,
         });
       else throw error;
       return;
@@ -298,7 +302,6 @@ export function createHandler(dependencies: SourceValidationDependencies) {
           kind: 'transient',
           code: 'DERIVATIVE_STORAGE_UNAVAILABLE',
           days: 7,
-          cause: error,
         });
       else throw error;
       return;

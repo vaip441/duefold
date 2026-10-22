@@ -27,6 +27,15 @@ describe('room structure normalization', () => {
     }).not.toThrow();
   });
 
+  it.each(['Legal\n', 'Legal\t', 'Legal\r', 'Legal\u0085', 'Legal\u2028', 'Legal\u2029'])(
+    'refuses %j, which would sit beside "Legal" looking the same, as room titles do',
+    (name) => {
+      expect(() => {
+        validateStructureName(name);
+      }).toThrow('STRUCTURE_NAME_REJECTED');
+    },
+  );
+
   it('generates stable fractional keys and requests a bounded rebalance only when exhausted', () => {
     expect(fractionalOrderKey(undefined, undefined)).toBe(1024);
     expect(fractionalOrderKey(1024, 2048)).toBe(1536);
@@ -34,6 +43,9 @@ describe('room structure normalization', () => {
     expect(() => {
       fractionalOrderKey(1, 1);
     }).toThrow('ORDER_BOUNDS_INVALID');
+    expect(() => {
+      fractionalOrderKey(1, 1.000000000000001);
+    }).toThrow('ORDER_REBALANCE_REQUIRED');
   });
 
   it('counts supplementary-plane characters as code points at exact boundaries', () => {

@@ -68,6 +68,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return { exportId: generated.exportId };
   };
 }
-export function handler(): never {
-  throw new Error('export route runtime not initialized');
-}

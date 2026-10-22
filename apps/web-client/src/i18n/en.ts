@@ -204,7 +204,6 @@ export const messages = {
   'structure.cancel': 'Cancel',
   'structure.saving': 'Saving…',
   'structure.refresh': 'Refresh',
-  'structure.rejected': 'That change was not accepted. Check the name and try again.',
 
   'publish.action': 'Publish changes',
   'publish.contributorNote': 'A room manager publishes changes. You can stage them here.',
@@ -758,6 +757,8 @@ export const messages = {
   'upload.summary.one': '1 file · {size} MB',
   'upload.clear': 'Clear queue',
   'upload.title.label': 'Document title',
+  'upload.title.repeated':
+    'Another file or a folder in this queue has this name in the same folder. Change this title.',
   'upload.submit': 'Upload',
   'upload.pending': 'Uploading\u2026',
   'upload.progress': '{percent}% uploaded',
@@ -768,12 +769,17 @@ export const messages = {
   'upload.state.done': 'Accepted',
   'upload.state.cancelled': 'Cancelled',
   'upload.cancel': 'Cancel upload',
-  'upload.cancelled': 'Upload cancelled. Nothing was added.',
+  'upload.cancelled':
+    'Upload cancelled. Files already accepted and folders already created stay in the room.',
+  'upload.folderNameTaken':
+    'A document in this room already has the name of a folder in this directory, in the same place. Rename one of them, then upload again.',
   'upload.note':
     'Choose files or one directory, then review every title. Each file is scanned and converted before anyone can read it.',
   'upload.noFile': 'Choose one or more files to upload.',
-  'upload.preflight.count': 'This queue has too many files. Choose 2,000 files or fewer.',
-  'upload.preflight.total': 'This queue is larger than the 20 GB directory limit.',
+  'upload.preflight.count': 'This queue has too many files. Choose 1,000 files or fewer.',
+  'upload.preflight.total': 'This queue is larger than the 10 GB directory limit.',
+  'upload.preflight.fileSize':
+    'A file is empty or larger than the 250 MB limit. Remove it and choose again.',
   'upload.preflight.collision':
     'Two paths resolve to the same name. Rename one file and choose the directory again.',
   'upload.preflight.type': 'This directory contains an unsupported file type.',
@@ -851,6 +857,8 @@ export const messages = {
   'exports.originals.label': 'Include the original files',
   'exports.originals.help':
     'Original files are not watermarked. A downloaded original carries no mark identifying who received it.',
+  'exports.selection.tooMany':
+    'One export can hold at most 1,000 chosen documents. Select fewer documents and export the rest separately.',
   'exports.preflight': 'Review this export',
   'exports.preflight.loading': 'Working out what this export contains',
   'exports.preflight.title': 'What this export contains',

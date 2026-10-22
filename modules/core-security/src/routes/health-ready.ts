@@ -102,7 +102,3 @@ export function createReadinessHandler(
     return report;
   };
 }
-
-export function handler(): never {
-  throw new Error('readiness route runtime not initialized');
-}

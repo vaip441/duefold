@@ -3,7 +3,10 @@ import { Pool } from 'pg';
 import { generatedMigrations } from '../../.duefold/generated/migrations.ts';
 import { migrate } from '../../modules/core-security/src/db/migrate.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
-import { createUploadIntent } from '../../modules/rooms-documents/src/uploads.ts';
+import {
+  createUploadIntent,
+  finalizeUpload,
+} from '../../modules/rooms-documents/src/uploads.ts';
 import { requestManualProcessingRetry } from '../../modules/rooms-documents/src/processing-retry.ts';
 import { deleteFailedSource } from '../../modules/rooms-documents/src/failed-source-deletion.ts';
 import type { WebStorage } from '../../modules/rooms-documents/src/storage/s3-compatible.ts';
@@ -531,5 +534,121 @@ describe('repeated processing failure', () => {
         ).rows[0]?.v,
         role,
       ).toBe(false);
+  });
+});
+
+describe('directory upload destinations', () => {
+  const folderRoomId = createOpaqueId();
+  const otherRoomId = createOpaqueId();
+  const contributor = identity(contributorId, 'member', 'contributor');
+  let orderKey = 0;
+  beforeAll(async () => {
+    for (const [id, title] of [
+      [folderRoomId, 'Directory Upload'],
+      [otherRoomId, 'Other Room'],
+    ] as const)
+      await migrationPool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+        id,
+        title,
+        '',
+        ownerId,
+        createOpaqueId(),
+        createCorrelationId(),
+      ]);
+    await migrationPool.query(
+      "INSERT INTO room_assignment (id,room_id,member_id,room_role) VALUES ($1,$2,$3,'contributor')",
+      [createOpaqueId(), folderRoomId, contributorId],
+    );
+  });
+  async function folder(room: string, name: string, parentFolderId: string | null = null) {
+    const id = createOpaqueId();
+    const selected = await migrationPool.query<{ working_revision: number }>(
+      'SELECT working_revision FROM room WHERE id = $1',
+      [room],
+    );
+    orderKey += 1024;
+    await runtimePool.query('SELECT create_folder_entry($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [
+      id,
+      room,
+      parentFolderId,
+      name,
+      '',
+      orderKey,
+      ownerId,
+      selected.rows[0]?.working_revision,
+      createOpaqueId(),
+      createCorrelationId(),
+    ]);
+    return id;
+  }
+  function intent(displayTitle: string, parentFolderId?: string) {
+    return createUploadIntent({
+      pool: runtimePool,
+      storage,
+      identity: contributor,
+      input: {
+        roomId: folderRoomId,
+        ...(parentFolderId === undefined ? {} : { parentFolderId }),
+        displayTitle,
+        originalFilename: 'minutes.txt',
+        declaredMediaType: 'text/plain',
+        declaredSize: 1,
+        parts: [{ partNumber: 1, size: 1 }],
+      },
+      now: new Date(),
+    });
+  }
+
+  it('accepts a folder of the room and refuses one elsewhere or staged for removal', async () => {
+    const legal = await folder(folderRoomId, 'Legal');
+    const foreign = await folder(otherRoomId, 'Foreign');
+    const staged = await folder(folderRoomId, 'Staged');
+    await migrationPool.query(
+      'UPDATE working_structure_entry SET staged_removed = true WHERE folder_id = $1',
+      [staged],
+    );
+    await expect(intent('Minutes', legal)).resolves.toHaveProperty('intentId');
+    const before = storageCalls;
+    await expect(intent('Minutes', foreign)).rejects.toThrow('UPLOAD_FORBIDDEN');
+    await expect(intent('Minutes', staged)).rejects.toThrow('UPLOAD_FORBIDDEN');
+    expect(storageCalls).toBe(before);
+  });
+
+  it('attaches the document inside its folder, whose names then collide there alone', async () => {
+    const board = await folder(folderRoomId, 'Board');
+    const created = await intent('Signed NDA', board);
+    const attached = await finalizeUpload({
+      pool: runtimePool,
+      storage: {
+        ...storage,
+        headObject: () =>
+          Promise.resolve({
+            size: 1,
+            contentType: 'text/plain',
+            metadata: { 'duefold-intent': created.intentId },
+          }),
+      },
+      identity: contributor,
+      input: {
+        intentId: created.intentId,
+        uploadId: created.uploadId,
+        parts: [{ partNumber: 1, etag: 'a'.repeat(32) }],
+      },
+      now: new Date(),
+      log: { warn: () => undefined },
+    });
+    expect(
+      (
+        await migrationPool.query<{ parent_folder_id: string; reason_code: string }>(
+          `SELECT e.parent_folder_id,a.reason_code FROM working_structure_entry e
+           JOIN audit_event a ON a.resource_id = e.document_id AND a.actor_id = $2
+             AND a.reason_code = 'DOCUMENT_ATTACHED'
+           WHERE e.document_id = $1`,
+          [attached.documentId, contributorId],
+        )
+      ).rows,
+    ).toEqual([{ parent_folder_id: board, reason_code: 'DOCUMENT_ATTACHED' }]);
+    await expect(intent('signed nda', board)).rejects.toMatchObject({ code: '23505' });
+    await expect(intent('Signed NDA')).resolves.toHaveProperty('intentId');
   });
 });

@@ -170,6 +170,41 @@ describe('directory preflight', () => {
     ).toThrow('PREFLIGHT_CONFUSABLE_REJECTED');
   });
 });
+describe('directory preflight names', () => {
+  it('accepts ordinary file names the server accepts, normalized to NFC', () => {
+    const names = [
+      'P&L 2025.pdf',
+      'Q1, Q2 report.pdf',
+      "Investor's deck.pdf",
+      '(Draft) SPA.pdf',
+      'Ka\u0308ufer.pdf',
+    ];
+    expect(
+      preflightDirectoryUpload(names.map((path) => ({ path, size: 1 }))).map(
+        ({ path }) => path,
+      ),
+    ).toEqual([...names.slice(0, 4), 'K\u00e4ufer.pdf']);
+    expect(() => preflightDirectoryUpload([{ path: 'a\u0007b.pdf', size: 1 }])).toThrow(
+      'PREFLIGHT_PATH_REJECTED',
+    );
+  });
+
+  it('refuses a backslash in a name as the server does, since browsers separate paths with /', () => {
+    for (const path of ['a\\b.pdf', 'Folder/a\\b.pdf', '\\a.pdf'])
+      expect(() => preflightDirectoryUpload([{ path, size: 1 }])).toThrow(
+        'PREFLIGHT_PATH_REJECTED',
+      );
+  });
+
+  it('declares the media type from the extension', () => {
+    expect(
+      preflightDirectoryUpload([
+        { path: 'Model.CSV', size: 1 },
+        { path: 'scan.jpeg', size: 1 },
+      ]).map(({ mediaType }) => mediaType),
+    ).toEqual(['text/csv', 'image/jpeg']);
+  });
+});
 describe('content-based source validation', () => {
   it('detects UTF-8 text/CSV and rejects declared mismatches, HTML, SVG, and invalid UTF-8', () => {
     expect(validateSourceBytes(Buffer.from('hello'), 'text/plain').mediaType).toBe(
@@ -248,6 +283,18 @@ describe('content-based source validation', () => {
     expect(() => validateSourceBytes(Uint8Array.from([0xff]), 'text/plain')).toThrow(
       'SOURCE_TYPE_REJECTED',
     );
+  });
+  it('keeps either declared text type for any safe text', () => {
+    for (const [text, declared] of [
+      ['name,amount\n"Acme, Inc.",100\n', 'text/csv'],
+      ['name;amount\nAcme;100\n', 'text/csv'],
+      ['name,amount,date\n', 'text/csv'],
+      ['Revenue grew, as planned.\nNext quarter, we expand.\n', 'text/plain'],
+    ] as const)
+      expect(validateSourceBytes(Buffer.from(text), declared).mediaType).toBe(declared);
+    expect(() =>
+      validateSourceBytes(Buffer.from('name,amount\n<script>x</script>,1\n'), 'text/csv'),
+    ).toThrow('SOURCE_ACTIVE_CONTENT_REJECTED');
   });
   it('validates hostile multi-megabyte text in linear time', () => {
     for (const hostile of [

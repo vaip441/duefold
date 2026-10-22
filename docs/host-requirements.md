@@ -182,7 +182,9 @@ contract, with no provider-specific code.
   scanner.
 - Migrations run as a separate one-shot command before the services start, using
   the migration role. That role must not be the runtime credential.
-- Both services handle `SIGTERM`; the worker finishes or releases its job lease.
+- Both services handle `SIGTERM`; the worker finishes or releases its job lease, and
+  web waits up to 5 seconds for in-flight requests, so the platform's stop grace
+  period must be longer than that.
 
 ## Qualified targets
 

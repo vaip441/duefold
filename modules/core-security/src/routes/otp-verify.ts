@@ -65,6 +65,3 @@ export function createHandler(runtime: WebRuntime) {
     return { authenticated: true };
   };
 }
-export function handler(): never {
-  throw new Error('OTP route runtime not initialized');
-}

@@ -32,27 +32,27 @@ afterAll(closeParticipantGrantPools);
 
 describe('viewer authorizers taking a caller-supplied identity', () => {
   it('keeps caller-supplied-identity viewer authorizers out of reach of the web role', async () => {
+    expect(
+      (
+        await migrationPool.query<{ allowed: boolean }>(
+          "SELECT has_function_privilege('duefold_runtime','viewer_can_preview_document(text,text,text,text)','EXECUTE') allowed",
+        )
+      ).rows[0]?.allowed,
+    ).toBe(false);
     for (const signature of [
-      'viewer_can_preview_document(text,text,text,text)',
+      'record_preview_page(text,text,text,integer)',
       'authorize_viewer_published_room(text,text,text)',
       'read_viewer_document_download_policy(text,text,text,text)',
     ])
       expect(
         (
-          await migrationPool.query<{ allowed: boolean }>(
-            "SELECT has_function_privilege('duefold_runtime',$1,'EXECUTE') allowed",
+          await migrationPool.query<{ fn: string | null }>(
+            'SELECT to_regprocedure($1)::text fn',
             [signature],
           )
-        ).rows[0]?.allowed,
+        ).rows[0]?.fn,
         signature,
-      ).toBe(false);
-    expect(
-      (
-        await migrationPool.query<{ fn: string | null }>(
-          "SELECT to_regprocedure('record_preview_page(text,text,text,integer)')::text fn",
-        )
-      ).rows[0]?.fn,
-    ).toBeNull();
+      ).toBeNull();
   });
 });
 

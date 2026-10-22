@@ -42,17 +42,19 @@ export interface ParticipantsSection {
   readonly changeFailure: PresentedFailure | null;
   readonly refresh: (roomId: string, signal?: AbortSignal) => void;
   readonly beginLoading: () => void;
+  /** Resolves true once the invitation is sent. */
   readonly invite: (input: {
     roomId: string;
     email: string;
     expectedRoomRevision: number;
-  }) => void;
+  }) => Promise<boolean>;
   readonly review: (roomId: string, submission: GrantSubmission) => void;
+  /** Resolves true once the reviewed change is committed. */
   readonly apply: (input: {
     roomId: string;
     expectedRoomRevision: number;
     confirmation: string;
-  }) => void;
+  }) => Promise<boolean>;
   readonly cancelChange: () => void;
   readonly previewGrant: (
     roomId: string,
@@ -111,7 +113,9 @@ export function useParticipantsSection(handlers: {
   const [inviteFailure, setInviteFailure] = useState<PresentedFailure | null>(null);
   const [invitePending, setInvitePending] = useState(false);
   const [impact, setImpact] = useState<GrantImpact | null>(null);
-  const [submission, setSubmission] = useState<GrantSubmission | null>(null);
+  /* A ref, not state: a review that resolves after its draft was changed or cancelled must
+     see that, or it would show an impact for a target no longer on screen. */
+  const submission = useRef<GrantSubmission | null>(null);
   const [impactPending, setImpactPending] = useState(false);
   const [applyPending, setApplyPending] = useState(false);
   const [changeFailure, setChangeFailure] = useState<PresentedFailure | null>(null);
@@ -147,17 +151,19 @@ export function useParticipantsSection(handlers: {
   const invite: ParticipantsSection['invite'] = (input) => {
     setInvitePending(true);
     setInviteFailure(null);
-    inviteParticipant(input).then(
+    return inviteParticipant(input).then(
       () => {
-        if (!mounted.current) return;
+        if (!mounted.current) return false;
         setInvitePending(false);
         handlers.onInvited(input.email);
         refresh(input.roomId);
+        return true;
       },
       (error: unknown) => {
-        if (!mounted.current) return;
+        if (!mounted.current) return false;
         setInvitePending(false);
         setInviteFailure(presentFailure(error));
+        return false;
       },
     );
   };
@@ -194,37 +200,40 @@ export function useParticipantsSection(handlers: {
   };
 
   const review: ParticipantsSection['review'] = (roomId, next) => {
-    setSubmission(next);
+    submission.current = next;
     setImpact(null);
     setChangeFailure(null);
     setImpactPending(true);
     void previewGrant(roomId, next).then((outcome) => {
-      if (!mounted.current) return;
+      if (!mounted.current || submission.current !== next) return;
       setImpactPending(false);
       if (outcome.ok) setImpact(outcome.value);
       else setChangeFailure(outcome.failure);
     });
   };
 
-  const apply: ParticipantsSection['apply'] = (input) => {
-    const current = submission;
+  const apply: ParticipantsSection['apply'] = async (input) => {
+    const current = submission.current;
     const reviewed = impact;
-    if (current === null || reviewed === null) return;
+    if (current === null || reviewed === null) return false;
     setApplyPending(true);
     setChangeFailure(null);
-    void commitGrant({ ...input, submission: current, impact: reviewed }).then((failure) => {
-      if (!mounted.current) return;
-      setApplyPending(false);
-      if (failure === null) {
-        setImpact(null);
-        setSubmission(null);
-      } else setChangeFailure(failure);
-    });
+    const failure = await commitGrant({ ...input, submission: current, impact: reviewed });
+    if (!mounted.current) return false;
+    setApplyPending(false);
+    if (failure !== null) {
+      setChangeFailure(failure);
+      return false;
+    }
+    setImpact(null);
+    submission.current = null;
+    return true;
   };
 
   const cancelChange = useCallback((): void => {
+    submission.current = null;
     setImpact(null);
-    setSubmission(null);
+    setImpactPending(false);
     setChangeFailure(null);
   }, []);
 

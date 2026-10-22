@@ -109,7 +109,7 @@ function render(overrides: Overrides = {}): string {
       invite={{
         pending: overrides.invitePending ?? false,
         failure: overrides.inviteFailure ?? null,
-        onInvite: () => undefined,
+        onInvite: () => Promise.resolve(false),
       }}
       assignment={{
         rooms: overrides.rooms ?? [],

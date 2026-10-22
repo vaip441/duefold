@@ -59,7 +59,7 @@ export interface MemberInviteProps {
   readonly onInvite: (input: {
     readonly email: string;
     readonly intendedRole: AssignableGlobalRole;
-  }) => void;
+  }) => Promise<boolean>;
 }
 
 export interface MemberAssignmentProps {

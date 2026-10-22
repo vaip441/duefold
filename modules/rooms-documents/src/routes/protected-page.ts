@@ -83,8 +83,6 @@ function record(value: unknown): Readonly<Record<string, unknown>> {
 export function createWatermarkHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const body = record(request.body);
-    if (runtime.watermarkProgram === undefined)
-      throw new Error('WATERMARK_ADAPTER_UNAVAILABLE');
     const result = await createWatermarkedPage({
       pool: runtime.pool,
       storage: runtime.deliveryStorage,
@@ -125,7 +123,4 @@ export function createTextHandler(runtime: WebRuntime, identity: ViewerIdentity)
       pageNumber: Number(query['pageNumber']),
     });
   };
-}
-export function handler(): never {
-  throw new Error('protected page route runtime not initialized');
 }

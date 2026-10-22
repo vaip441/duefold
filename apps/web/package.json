@@ -9,8 +9,6 @@
     "@duefold/core-security": "1.4.0",
     "@fastify/cookie": "11.1.2",
     "@fastify/helmet": "13.1.1",
-    "@sinclair/typebox": "0.34.52",
-    "ajv": "8.20.0",
     "fastify": "5.12.5",
     "pino": "10.3.1"
   }

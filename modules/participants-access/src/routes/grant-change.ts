@@ -127,11 +127,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
       confirmation: body.confirmation,
       auditId: createOpaqueId(),
       correlationId: createCorrelationId(),
-      now: runtime.clock.now(),
     });
     return { grantId: parsed.grantId, ...impact };
   };
-}
-export function handler(): never {
-  throw new Error('grant change route runtime not initialized');
 }

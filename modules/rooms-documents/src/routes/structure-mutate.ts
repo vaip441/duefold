@@ -6,10 +6,12 @@ import {
   createFolder,
   fractionalOrderKey,
   mutateEntry,
+  rebalanceSiblings,
   updateDocumentMetadata,
   updateFolderDescription,
+  validateStructureName,
 } from '../structure.ts';
-import { readWorkingStructure } from '../workspace-reads.ts';
+import { readWorkingStructure, type WorkingStructureEntry } from '../workspace-reads.ts';
 
 /**
  * Working-structure mutations: create, rename, move, reorder, staged removal, and
@@ -194,18 +196,13 @@ type Body =
 async function keyForPosition(
   runtime: WebRuntime,
   identity: MemberIdentity,
+  entries: readonly WorkingStructureEntry[],
   input: {
-    readonly roomId: string;
     readonly entryId: string;
     readonly destinationFolderId: string | null;
     readonly targetPosition: number;
   },
 ): Promise<{ readonly orderKey: number; readonly displayName: string }> {
-  const entries = await readWorkingStructure({
-    pool: runtime.pool,
-    identity,
-    roomId: input.roomId,
-  });
   const moving = entries.find((entry) => entry.entryId === input.entryId);
   if (moving === undefined) throw new Error('STRUCTURE_ENTRY_UNREACHABLE');
   const siblings = entries
@@ -225,23 +222,63 @@ async function keyForPosition(
   const index = Math.min(Math.max(input.targetPosition, 1), siblings.length + 1) - 1;
   const before = siblings[index - 1];
   const after = siblings[index];
-  const neighbourKey = async (entryId: string | undefined): Promise<number | undefined> => {
-    if (entryId === undefined) return undefined;
-    const row = (
-      await runtime.pool.query<{ order_key: string }>(
-        'SELECT order_key FROM read_structure_entry_revision($1,$2)',
-        [entryId, identity.id],
-      )
-    ).rows[0];
-    if (row === undefined) return undefined;
-    const parsed = Number(row.order_key);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  };
   const orderKey = fractionalOrderKey(
-    await neighbourKey(before?.entryId),
-    await neighbourKey(after?.entryId),
+    before === undefined ? undefined : await currentKey(runtime, identity, before.entryId),
+    after === undefined ? undefined : await currentKey(runtime, identity, after.entryId),
   );
   return { orderKey, displayName: moving.displayName };
+}
+
+/*
+ * Exhausted key space is renumbered once, under the client's expected working revision so
+ * a stale view still fails as a conflict. Renumbering bumps every live sibling's revision,
+ * the moving entry's included when it already sits in the destination. It keeps sibling
+ * order, so the entries already read still give the positions; only keys are read again.
+ */
+async function placeEntry(
+  runtime: WebRuntime,
+  identity: MemberIdentity,
+  entries: readonly WorkingStructureEntry[],
+  current: Pick<WorkingStructureEntry, 'parentFolderId' | 'stagedRemoved'>,
+  input: {
+    readonly roomId: string;
+    readonly entryId: string;
+    readonly destinationFolderId: string | null;
+    readonly targetPosition: number;
+    readonly expectedEntryRevision: number;
+    readonly expectedWorkingRevision: number;
+  },
+): Promise<{
+  readonly orderKey: number;
+  readonly displayName: string;
+  readonly expectedEntryRevision: number;
+  readonly expectedWorkingRevision: number;
+}> {
+  try {
+    return {
+      ...(await keyForPosition(runtime, identity, entries, input)),
+      expectedEntryRevision: input.expectedEntryRevision,
+      expectedWorkingRevision: input.expectedWorkingRevision,
+    };
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'ORDER_REBALANCE_REQUIRED') throw error;
+  }
+  const rebalanced = await rebalanceSiblings({
+    pool: runtime.pool,
+    identity,
+    roomId: input.roomId,
+    ...(input.destinationFolderId === null
+      ? {}
+      : { parentFolderId: input.destinationFolderId }),
+    expectedWorkingRevision: input.expectedWorkingRevision,
+  });
+  const renumbered =
+    current.parentFolderId === input.destinationFolderId && !current.stagedRemoved;
+  return {
+    ...(await keyForPosition(runtime, identity, entries, input)),
+    expectedEntryRevision: input.expectedEntryRevision + (renumbered ? 1 : 0),
+    expectedWorkingRevision: rebalanced.workingRevision,
+  };
 }
 
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
@@ -296,6 +333,7 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     if (current === undefined) throw await missingEntryFailure(runtime, identity, body.roomId);
 
     if (body.action === 'rename') {
+      validateStructureName(body.displayName);
       const updated = await mutateEntry({
         pool: runtime.pool,
         identity,
@@ -328,11 +366,13 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
 
     const destination =
       body.action === 'move' ? body.destinationFolderId : current.parentFolderId;
-    const placed = await keyForPosition(runtime, identity, {
+    const placed = await placeEntry(runtime, identity, entries, current, {
       roomId: body.roomId,
       entryId: body.entryId,
       destinationFolderId: destination,
       targetPosition: body.targetPosition,
+      expectedEntryRevision: body.expectedEntryRevision,
+      expectedWorkingRevision: body.expectedWorkingRevision,
     });
     const updated = await mutateEntry({
       pool: runtime.pool,
@@ -342,8 +382,8 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
       displayName: placed.displayName,
       orderKey: placed.orderKey,
       stagedRemoved: current.stagedRemoved,
-      expectedEntryRevision: body.expectedEntryRevision,
-      expectedWorkingRevision: body.expectedWorkingRevision,
+      expectedEntryRevision: placed.expectedEntryRevision,
+      expectedWorkingRevision: placed.expectedWorkingRevision,
     });
     reply.code(200);
     return updated;
@@ -385,8 +425,4 @@ async function currentKey(
   const parsed = Number(row.order_key);
   if (!Number.isFinite(parsed)) throw new Error('STRUCTURE_ORDER_KEY_INVALID');
   return parsed;
-}
-
-export function handler(): never {
-  throw new Error('structure mutation route runtime not initialized');
 }

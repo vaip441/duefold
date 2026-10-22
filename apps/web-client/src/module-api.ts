@@ -46,7 +46,6 @@ export type {
   SectionProps,
   SectionTab,
   SupportContact,
-  SupportContactSlot,
   TopSectionContribution,
   TopSectionProps,
   ViewerIntroductionSlot,

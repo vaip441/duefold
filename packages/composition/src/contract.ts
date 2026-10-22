@@ -31,14 +31,8 @@ export const REQUIRED_MODULE_IDS: readonly ModuleId[] = [
   'participants-access',
 ];
 
-export const OPTIONAL_MODULE_IDS: readonly ModuleId[] = ['branding-notifications'];
-
 export function isModuleId(value: string): value is ModuleId {
   return (MODULE_IDS as readonly string[]).includes(value);
-}
-
-export function isRequiredModule(id: ModuleId): boolean {
-  return REQUIRED_MODULE_IDS.includes(id);
 }
 
 /** Which service a registry entry belongs to. */
@@ -62,10 +56,11 @@ export interface RouteDeclaration {
   readonly audience: RouteAudience;
   /** Module-relative import specifier of the handler module. */
   readonly handler: string;
-  /** Optional runtime factory export for dependency-injected handlers. */
+  /**
+   * Runtime factory export for a dependency-injected handler. Without it the
+   * handler module must export a ready `handler`.
+   */
   readonly handlerFactoryExport?: string;
-  /** Named export of the handler module. Defaults to `handler`. */
-  readonly handlerExport?: string;
   /**
    * When true, a cookie-authenticated mutation requires CSRF verification.
    * Defaults to true for mutating methods in the generator.

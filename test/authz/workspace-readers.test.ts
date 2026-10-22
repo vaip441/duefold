@@ -567,6 +567,49 @@ describe('member workspace readers', () => {
     expect(JSON.stringify(entry)).not.toMatch(/daysRemaining|days_remaining/u);
   });
 
+  it('marks trash that publication moved in as published before removal', async () => {
+    const roomId = createOpaqueId(),
+      folderId = createOpaqueId();
+    await runtimePool.query('SELECT create_room($1,$2,$3,$4,$5,$6)', [
+      roomId,
+      'Published removal room',
+      '',
+      ownerId,
+      ...audit(),
+    ]);
+    await migrationPool.query(
+      "INSERT INTO room_assignment(id,room_id,member_id,room_role) VALUES($1,$2,$3,'manager')",
+      [createOpaqueId(), roomId, managerId],
+    );
+    await runtimePool.query('SELECT create_folder_entry($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9)', [
+      folderId,
+      roomId,
+      'Signed term sheet',
+      '',
+      1000,
+      ownerId,
+      await workingRevision(roomId),
+      ...audit(),
+    ]);
+    const publish = async (publishedRevision: number) =>
+      migrationPool.query('SELECT publish_room_structure($1,$2,$3,$4,$5,$6)', [
+        roomId,
+        ownerId,
+        await workingRevision(roomId),
+        publishedRevision,
+        ...audit(),
+      ]);
+    await publish(0);
+    await runtimePool.query(
+      'SELECT mutate_structure_entry($1,NULL,$2,1000,true,$3,1,$4,$5,$6)',
+      [folderId, 'Signed term sheet', ownerId, await workingRevision(roomId), ...audit()],
+    );
+    await publish(1);
+    expect(
+      await readTrash({ pool: runtimePool, identity: identity(managerId), roomId }),
+    ).toMatchObject([{ displayName: 'Signed term sheet', wasPublished: true }]);
+  });
+
   it('returns no trash to an unauthorized member while trash genuinely exists', async () => {
     for (const actor of [outsiderId, contributorId]) {
       const trash = await readTrash({

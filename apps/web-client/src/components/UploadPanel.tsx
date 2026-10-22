@@ -21,9 +21,13 @@ import { useId, useRef, useState } from 'react';
 interface DirectoryInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   readonly webkitdirectory?: string;
 }
-import { preflightDirectoryUpload } from '../../../../modules/rooms-documents/src/preflight.ts';
+import {
+  preflightDirectoryUpload,
+  type NormalizedDirectoryEntry,
+} from '../../../../modules/rooms-documents/src/preflight.ts';
 import { translate, translateCount } from '../i18n/translate.ts';
 import type { PresentedFailure } from '../workspace/failures.ts';
+import { repeatedTitles } from '../workspace/upload.ts';
 import { Notice } from './Notice.tsx';
 
 /** Provider limit mirrored from the server contract. */
@@ -56,6 +60,30 @@ export interface UploadItem {
   readonly file: File;
   readonly title: string;
   readonly relativePath: string;
+  /* From the extension, never `file.type`: Windows reports a CSV as application/vnd.ms-excel. */
+  readonly mediaType: NormalizedDirectoryEntry['mediaType'];
+}
+
+/** Preflights a choice into review items; throws the preflight's refusal code. */
+export function queueUploads(files: readonly File[]): readonly UploadItem[] {
+  const normalized = preflightDirectoryUpload(
+    files.map((file) => ({
+      path: file.webkitRelativePath === '' ? file.name : file.webkitRelativePath,
+      size: file.size,
+    })),
+  );
+  return files.map((file, index) => {
+    const normalizedEntry = normalized[index];
+    if (normalizedEntry === undefined) throw new Error('PREFLIGHT_PATH_REJECTED');
+    return {
+      /* Random per queueing, so a file chosen again is not mistaken for one already accepted. */
+      id: crypto.randomUUID(),
+      file,
+      relativePath: normalizedEntry.path,
+      title: file.name.replace(/\.[^.]+$/u, '').trim() || file.name,
+      mediaType: normalizedEntry.mediaType,
+    };
+  });
 }
 
 export type UploadItemState =
@@ -64,6 +92,16 @@ export type UploadItemState =
   | { readonly kind: 'done' }
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'failed'; readonly message: string };
+
+/** What Upload sends: a file already accepted is never transferred again. */
+export function pendingUploads(
+  items: readonly UploadItem[],
+  states: ReadonlyMap<string, UploadItemState>,
+): readonly UploadItem[] {
+  return items
+    .filter((item) => states.get(item.id)?.kind !== 'done')
+    .map((item) => ({ ...item, title: item.title.trim() }));
+}
 
 export interface UploadPanelProps {
   readonly pending: boolean;
@@ -96,24 +134,7 @@ export function UploadPanel({
   const choose = (files: FileList | null): void => {
     if (files === null) return;
     try {
-      const chosen = Array.from(files);
-      const normalized = preflightDirectoryUpload(
-        chosen.map((file) => ({
-          path: file.webkitRelativePath === '' ? file.name : file.webkitRelativePath,
-          size: file.size,
-        })),
-      );
-      const next = chosen.map((file, index) => {
-        const normalizedEntry = normalized[index];
-        if (normalizedEntry === undefined) throw new Error('PREFLIGHT_PATH_REJECTED');
-        return {
-          id: `${normalizedEntry.path}:${String(file.size)}:${String(file.lastModified)}:${String(index)}`,
-          file,
-          relativePath: normalizedEntry.path,
-          title: file.name.replace(/\.[^.]+$/u, ''),
-        };
-      });
-      setItems(next);
+      setItems(queueUploads(Array.from(files)));
       setPreflightFailure(null);
       setAttempted(false);
     } catch (error) {
@@ -124,11 +145,9 @@ export function UploadPanel({
           error.message === 'PREFLIGHT_CONFUSABLE_REJECTED')
       ) {
         setPreflightFailure(translate('upload.preflight.collision'));
-      } else if (
-        error instanceof Error &&
-        (error.message === 'PREFLIGHT_FILE_SIZE_REJECTED' ||
-          error.message === 'PREFLIGHT_TOTAL_SIZE_REJECTED')
-      ) {
+      } else if (error instanceof Error && error.message === 'PREFLIGHT_FILE_SIZE_REJECTED') {
+        setPreflightFailure(translate('upload.preflight.fileSize'));
+      } else if (error instanceof Error && error.message === 'PREFLIGHT_TOTAL_SIZE_REJECTED') {
         setPreflightFailure(translate('upload.preflight.total'));
       } else {
         setPreflightFailure(
@@ -145,6 +164,7 @@ export function UploadPanel({
   };
 
   const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
+  const repeated = repeatedTitles(items);
 
   return (
     <section aria-labelledby={headingId}>
@@ -253,6 +273,7 @@ export function UploadPanel({
           <ol className="df-upload-list">
             {items.map((item) => {
               const state = states.get(item.id) ?? { kind: 'waiting' as const };
+              const titleRepeated = repeated.has(item.id);
               return (
                 <li key={item.id} className="df-upload-list__item" data-state={state.kind}>
                   <div className="df-upload-list__identity">
@@ -273,7 +294,14 @@ export function UploadPanel({
                       className="df-field__input"
                       value={item.title}
                       disabled={pending}
-                      aria-invalid={attempted && item.title.trim() === '' ? 'true' : undefined}
+                      aria-invalid={
+                        titleRepeated || (attempted && item.title.trim() === '')
+                          ? 'true'
+                          : undefined
+                      }
+                      aria-describedby={
+                        titleRepeated ? `${fieldId}-${item.id}-repeated` : undefined
+                      }
                       onChange={(event) => {
                         const title = event.target.value;
                         setItems((current) =>
@@ -283,6 +311,11 @@ export function UploadPanel({
                         );
                       }}
                     />
+                    {titleRepeated ? (
+                      <p className="df-field__error" id={`${fieldId}-${item.id}-repeated`}>
+                        {translate('upload.title.repeated')}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="df-upload-list__state" aria-live="polite">
                     {state.kind === 'active' ? (
@@ -320,8 +353,14 @@ export function UploadPanel({
           disabled={pending}
           onClick={() => {
             setAttempted(true);
-            if (items.length === 0 || items.some((item) => item.title.trim() === '')) return;
-            onUpload(items.map((item) => ({ ...item, title: item.title.trim() })));
+            if (
+              items.length === 0 ||
+              items.some((item) => item.title.trim() === '') ||
+              repeated.size > 0
+            )
+              return;
+            const remaining = pendingUploads(items, states);
+            if (remaining.length > 0) onUpload(remaining);
           }}
         >
           {pending ? translate('upload.pending') : translate('upload.submit')}

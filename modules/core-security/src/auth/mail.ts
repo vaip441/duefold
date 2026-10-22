@@ -376,7 +376,6 @@ export function createRequiredMailer(input: {
     to: string,
     identity: MailIdentity,
     rendered: RenderedMail,
-    headers: Readonly<Record<string, string>>,
     delivery: MailDelivery = {},
   ): Promise<void> => {
     const key = delivery.idempotencyKey;
@@ -387,7 +386,7 @@ export function createRequiredMailer(input: {
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
-        headers: { ...headers, 'X-Duefold-Brand': 'Duefold' },
+        headers: { 'X-Duefold-Brand': 'Duefold' },
       },
       key === undefined ? {} : { idempotencyKey: safeIdempotencyKey(key) },
     );
@@ -401,7 +400,6 @@ export function createRequiredMailer(input: {
           organizationName: message.identity.organizationName,
           code: message.code,
         }),
-        { 'X-Duefold-Challenge': message.challengeId },
       );
     },
     deliverInvitation(message) {
@@ -412,7 +410,6 @@ export function createRequiredMailer(input: {
           organizationName: message.identity.organizationName,
           authenticatedLink: message.authenticatedLink,
         }),
-        {},
       );
     },
     deliverOnboarding(message) {
@@ -423,7 +420,6 @@ export function createRequiredMailer(input: {
           organizationName: message.identity.organizationName,
           authenticatedLink: message.authenticatedLink,
         }),
-        {},
         { idempotencyKey: message.idempotencyKey },
       );
     },

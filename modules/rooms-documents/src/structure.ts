@@ -2,10 +2,10 @@ import type { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { MemberIdentity } from '../../core-security/src/authorization.ts';
 
-export const MAX_FOLDER_DEPTH = 5;
 export const MAX_STRUCTURE_NAME_LENGTH = 200;
 export const MAX_STRUCTURE_DESCRIPTION_LENGTH = 4000;
-export const MAX_REBALANCE_SIBLINGS = 1000;
+// Room titles refuse these too: invisible in a listing, they would let a name pass as its sibling.
+const NAME_BREAK = /[\t\n\r\u0085\u2028\u2029]/u;
 function containsForbiddenPlainText(value: string): boolean {
   return (
     Array.from(value).some((character) => {
@@ -26,7 +26,8 @@ export function validateStructureName(value: string): void {
     length > MAX_STRUCTURE_NAME_LENGTH ||
     value !== value.normalize('NFC') ||
     value.trim().length < 1 ||
-    containsForbiddenPlainText(value)
+    containsForbiddenPlainText(value) ||
+    NAME_BREAK.test(value)
   )
     throw new Error('STRUCTURE_NAME_REJECTED');
 }
@@ -103,36 +104,6 @@ export async function createFolder(input: {
   return { folderId, workingRevision: revision };
 }
 
-export async function createDocumentEntry(input: {
-  readonly pool: Pool;
-  readonly identity: MemberIdentity;
-  readonly documentId: string;
-  readonly parentFolderId?: string;
-  readonly displayName: string;
-  readonly orderKey: number;
-  readonly expectedWorkingRevision: number;
-}): Promise<{ readonly entryId: string; readonly workingRevision: number }> {
-  validateStructureName(input.displayName);
-  const entryId = createOpaqueId();
-  const result = await input.pool.query<{ create_document_entry: number }>(
-    'SELECT create_document_entry($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-    [
-      entryId,
-      input.documentId,
-      input.parentFolderId ?? null,
-      input.displayName,
-      input.orderKey,
-      input.identity.id,
-      input.expectedWorkingRevision,
-      createOpaqueId(),
-      createCorrelationId(),
-    ],
-  );
-  const revision = result.rows[0]?.create_document_entry;
-  if (revision === undefined) throw new Error('STRUCTURE_MUTATION_FAILED');
-  return { entryId, workingRevision: revision };
-}
-
 export async function updateFolderDescription(input: {
   readonly pool: Pool;
   readonly identity: MemberIdentity;
@@ -194,7 +165,10 @@ export function fractionalOrderKey(
   if (after === undefined) return before + 1024;
   if (!(before > 0 && after > before)) throw new Error('ORDER_BOUNDS_INVALID');
   const key = before + (after - before) / 2;
-  if (key === before || key === after) throw new Error('ORDER_REBALANCE_REQUIRED');
+  // order_key is numeric(30,15): a midpoint that rounds onto a neighbour would collide.
+  const stored = key.toFixed(15);
+  if (stored === before.toFixed(15) || stored === after.toFixed(15))
+    throw new Error('ORDER_REBALANCE_REQUIRED');
   return key;
 }
 
@@ -209,7 +183,6 @@ export async function mutateEntry(input: {
   readonly expectedEntryRevision: number;
   readonly expectedWorkingRevision: number;
 }): Promise<EntryRevision> {
-  validateStructureName(input.displayName);
   const result = await input.pool.query<{ entry_revision: number; working_revision: number }>(
     'SELECT * FROM mutate_structure_entry($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
     [
@@ -240,7 +213,7 @@ export async function updateDocumentMetadata(input: {
   readonly expectedDocumentRevision: number;
   readonly expectedWorkingRevision: number;
 }): Promise<DocumentRevision> {
-  validateStructureName(input.title);
+  // The title arrives with every description edit; the name trigger checks it only if it changed.
   validateStructureDescription(input.description);
   const result = await input.pool.query<{
     document_revision: number;

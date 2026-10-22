@@ -57,6 +57,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return finalized;
   };
 }
-export function handler(): never {
-  throw new Error('upload finalize route runtime not initialized');
-}

@@ -106,6 +106,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return { entries, trash, workingRevision, retentionDays: TRASH_RETENTION_DAYS };
   };
 }
-export function handler(): never {
-  throw new Error('room workspace route runtime not initialized');
-}

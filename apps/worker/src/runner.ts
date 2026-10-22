@@ -142,12 +142,15 @@ export class JobRunner {
       );
       const exhaustedJob = exhausted.rows[0];
       if (exhaustedJob !== undefined) await finishExhaustion(client, exhaustedJob, this.#sink);
+      /* A bulk upload queues one long validation per file; other due work, such as a
+         sign-in code, is claimed ahead of that backlog instead of waiting behind it. */
       const result = await client.query<Omit<LeasedJob, 'lease_token'>>(
         `SELECT id,job_type,payload,attempts,max_attempts FROM job_queue
          WHERE attempts < max_attempts AND (
               (state = 'pending' AND available_at <= transaction_timestamp())
            OR (state = 'running' AND lease_expires_at <= transaction_timestamp()))
-         ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
+         ORDER BY job_type = 'document.source.validate',available_at,created_at
+         FOR UPDATE SKIP LOCKED LIMIT 1`,
       );
       const selected = result.rows[0];
       if (selected === undefined) {
@@ -243,7 +246,23 @@ export class JobRunner {
   }): Promise<void> {
     const pollMilliseconds = options.pollMilliseconds ?? 1_000;
     while (!options.signal.aborted) {
-      const worked = await this.runOne();
+      let worked: boolean;
+      try {
+        worked = await this.runOne();
+      } catch {
+        // The error is not recorded: a `pg` error carries the connection parameters.
+        this.#sink.write(
+          `${JSON.stringify(
+            allowlistedTelemetry({
+              event: 'job.run.failed',
+              level: 'warn',
+              code: 'JOB_RUN_FAILED',
+              service: 'worker',
+            }),
+          )}\n`,
+        );
+        worked = false;
+      }
       if (!worked) {
         try {
           await delay(pollMilliseconds, undefined, { signal: options.signal });

@@ -82,6 +82,3 @@ export function createHandler(
     };
   };
 }
-export function handler(): never {
-  throw new Error('session route runtime not initialized');
-}

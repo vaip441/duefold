@@ -1,7 +1,7 @@
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
 import { systemClock } from '@duefold/shared/clock';
 import { createResilientPool } from '@duefold/shared/database-pool';
-import { installProcessFailureHandlers } from '@duefold/shared/process-errors';
+import { boundedClose, installProcessFailureHandlers } from '@duefold/shared/process-errors';
 import { loadConfig } from '../../../modules/core-security/src/config.ts';
 import { createConfiguredMailer } from '../../../modules/core-security/src/auth/mail.ts';
 import { composedManifest } from '../../../.duefold/generated/manifest.ts';
@@ -28,6 +28,18 @@ let closeResources: () => Promise<void> = () => Promise.resolve();
 const terminate = installProcessFailureHandlers('worker', {
   close: () => closeResources(),
 });
+const controller = new AbortController();
+let running: Promise<void> = Promise.resolve();
+/* Bounded like the crash path: the job in flight when the signal arrives can outlast the
+   platform's SIGKILL. A job cut off here keeps its lease and runs again once it expires. */
+for (const signal of ['SIGTERM', 'SIGINT'] as const)
+  process.once(signal, () => {
+    controller.abort();
+    void boundedClose(async () => {
+      await running;
+      await closeResources();
+    }).then(() => process.exit(0));
+  });
 function stringConfig(
   config: Readonly<Record<string, string | number | boolean>>,
   key: string,
@@ -141,19 +153,10 @@ try {
     mailer.close();
     await pool.end();
   };
-  const controller = new AbortController();
-  process.once('SIGTERM', () => {
-    controller.abort();
-  });
-  process.once('SIGINT', () => {
-    controller.abort();
-  });
-  try {
-    await runner.run({ signal: controller.signal });
-  } finally {
-    mailer.close();
-    await pool.end();
-  }
+  // An unreachable database at start is a configuration fault; the runner rides out later outages.
+  await pool.query('SELECT 1');
+  running = runner.run({ signal: controller.signal });
+  await running;
 } catch (error) {
   terminate(error);
 }

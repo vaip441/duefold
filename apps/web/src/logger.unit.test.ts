@@ -2,6 +2,7 @@ import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { createWebLogger } from './app.ts';
 import { createOpaqueId } from '@duefold/shared/ids';
+import { buildTestWebApp, testWebRuntime } from '../../../test/support/web-runtime.ts';
 
 class Capture extends Writable {
   public readonly chunks: string[] = [];
@@ -69,6 +70,34 @@ describe('real logger allowlisted serialization', () => {
     // The error itself is still never serialized, only the code.
     expect(serialized).not.toContain('Error');
     expect(serialized).not.toContain('stack');
+  });
+
+  it('logs a mapped refusal below error level and keeps faults at error level', async () => {
+    const capture = new Capture();
+    const app = await buildTestWebApp({
+      runtime: testWebRuntime(),
+      authenticate: () => Promise.resolve(null),
+      logDestination: capture,
+    });
+    app.get('/_test/refused', () => {
+      throw new Error('ROOM_WORKSPACE_FORBIDDEN');
+    });
+    app.get('/_test/fault', () => {
+      throw new Error('connection terminated unexpectedly');
+    });
+    expect((await app.inject({ method: 'GET', url: '/_test/refused' })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/_test/fault' })).statusCode).toBe(500);
+    await app.close();
+    const pinoError = 50;
+    const records = capture.chunks.map(
+      (chunk) => JSON.parse(chunk) as { level: number; status?: number },
+    );
+    const refused = records.filter((record) => record.status === 403);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.level).toBeLessThan(pinoError);
+    expect(records.filter((record) => record.level >= pinoError)).toEqual([
+      expect.objectContaining({ code: 'REQUEST_FAILED' }),
+    ]);
   });
 
   it('still drops a code outside the closed set', () => {

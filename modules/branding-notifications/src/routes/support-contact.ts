@@ -40,6 +40,3 @@ export function createHandler(runtime: WebRuntime): () => Promise<SupportContact
     return { supportContact: row ?? null };
   };
 }
-export function handler(): never {
-  throw new Error('branding route runtime not initialized');
-}

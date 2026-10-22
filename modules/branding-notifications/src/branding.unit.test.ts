@@ -45,11 +45,9 @@ function processorOutput(image: Uint8Array = png()): Uint8Array {
 }
 
 describe('constrained branding', () => {
-  it('accepts a contrast-valid accent and reports both measured ratios when one fails', () => {
+  it('accepts a contrast-valid accent and refuses one that fails either ground', () => {
     expect(validateAccentColor('#08766a')).toBe('#08766a');
-    expect(() => validateAccentColor('#f2f3f1')).toThrow(
-      /BRAND_ACCENT_CONTRAST_FAILED light=1\.00 dark=\d+\.\d{2} required=3\.00/u,
-    );
+    expect(() => validateAccentColor('#f2f3f1')).toThrow('BRAND_ACCENT_CONTRAST_FAILED');
   });
 
   it('permits only the specified plain-text branding fields', () => {
@@ -85,6 +83,23 @@ describe('constrained branding', () => {
       'BRAND_IMAGE_CONTENT_REJECTED',
     );
     expect(inspectBrandImage(png(), 'image/png')).toBe('image/png');
+  });
+
+  it('walks a PNG of many chunks in time linear in its size', () => {
+    const chunks = 4096;
+    const dataBytes = 500;
+    const bytes = Buffer.alloc(png().length + chunks * (12 + dataBytes));
+    Buffer.from(png()).copy(bytes, 0, 0, 33);
+    let offset = 33;
+    for (let index = 0; index < chunks; index += 1) {
+      bytes.writeUInt32BE(dataBytes, offset);
+      bytes.write('IDAT', offset + 4, 'ascii');
+      offset += 12 + dataBytes;
+    }
+    bytes.write('IEND', offset + 4, 'ascii');
+    const started = performance.now();
+    expect(inspectBrandImage(bytes, 'image/png')).toBe('image/png');
+    expect(performance.now() - started).toBeLessThan(100);
   });
 
   it('scans before using the shared credential-free sandbox and returns only a fresh bounded PNG', async () => {

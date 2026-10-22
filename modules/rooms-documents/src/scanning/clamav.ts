@@ -1,6 +1,9 @@
 import { connect } from 'node:net';
 
 export const MAX_SIGNATURE_AGE_MILLISECONDS = 24 * 60 * 60 * 1_000;
+// Covers a 250 MiB stream transfer plus clamd's MaxScanTime of 120 s
+// (deploy/clamav.Dockerfile), so clamd's own verdict arrives first.
+const SCAN_TIMEOUT_MILLISECONDS = 180_000;
 
 /** Whether signatures built at `signatureDate` are young enough to scan with. */
 export function signaturesCurrent(
@@ -35,7 +38,11 @@ function responseLine(bytes: Buffer): string {
   if (line.includes('\n') || line.length > 1024) throw new Error('SCANNER_RESPONSE_MALFORMED');
   return line;
 }
-async function command(options: ClamAvClientOptions, request: Uint8Array): Promise<string> {
+async function command(
+  options: ClamAvClientOptions,
+  request: Uint8Array,
+  timeoutMilliseconds: number,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = connect(options.socket);
     const chunks: Buffer[] = [];
@@ -56,7 +63,7 @@ async function command(options: ClamAvClientOptions, request: Uint8Array): Promi
     };
     const timer = setTimeout(() => {
       finish(new Error('SCANNER_TIMEOUT'));
-    }, options.timeoutMilliseconds);
+    }, timeoutMilliseconds);
     socket.once('error', () => {
       finish(new Error('SCANNER_UNAVAILABLE'));
     });
@@ -103,7 +110,9 @@ export function createClamAvClient(options: ClamAvClientOptions) {
     readonly signatureVersion: string;
     readonly signatureDate: Date;
   }> {
-    const result = version(await command(options, Buffer.from('zVERSION\0')));
+    const result = version(
+      await command(options, Buffer.from('zVERSION\0'), options.timeoutMilliseconds),
+    );
     return { signatureVersion: result.signatureVersion, signatureDate: result.date };
   }
   async function checkReady(): Promise<{
@@ -132,7 +141,13 @@ export function createClamAvClient(options: ClamAvClientOptions) {
       parts.push(size, Buffer.from(chunk));
     }
     parts.push(Buffer.alloc(4));
-    const result = await command(options, Buffer.concat(parts));
+    const result = await command(options, Buffer.concat(parts), SCAN_TIMEOUT_MILLISECONDS);
+    // Whether clamd hits MaxScanTime depends on host load, so it is retried like a client timeout.
+    if (result === 'stream: Heuristics.Limits.Exceeded.MaxScanTime FOUND')
+      throw new Error('SCANNER_TIMEOUT');
+    // AlertExceedsMax names input clamd could not scan completely: not clean, and not malware.
+    if (/^stream: Heuristics\.Limits\.Exceeded\.\S+ FOUND$/u.test(result))
+      throw new Error('SOURCE_SCAN_LIMIT_EXCEEDED');
     if (result === 'stream: OK')
       return {
         result: 'clean',

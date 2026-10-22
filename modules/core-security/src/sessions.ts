@@ -247,6 +247,21 @@ export async function rotateSession(
     client.release();
   }
 }
+/** Idempotent: a session another request already ended is left as it is, with no second event. */
+export async function revokeSession(
+  pool: Pool,
+  sessionId: string,
+  principal: Principal,
+): Promise<void> {
+  await pool.query(
+    `WITH revoked AS (
+       UPDATE session SET state = 'revoked' WHERE id = $1 AND state = 'active' RETURNING id
+     )
+     INSERT INTO audit_event (id,event_type,actor_kind,actor_id,subject_id,result,reason_code,correlation_id)
+     SELECT $2,'session.revoked',$3,$4,id,'success','SIGN_OUT',$5 FROM revoked`,
+    [sessionId, createOpaqueId(), principal.kind, principal.id, createCorrelationId()],
+  );
+}
 export async function revokeSessionFamily(pool: Pool, familyId: string): Promise<number> {
   const client = await pool.connect();
   try {

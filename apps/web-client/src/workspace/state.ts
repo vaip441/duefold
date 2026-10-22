@@ -9,7 +9,7 @@
  * whether a retry might work.
  */
 
-import type { ExportRecord, ProcessingVersion } from '../api/client.ts';
+import type { ExportPreset, ExportRecord, ProcessingVersion } from '../api/client.ts';
 import type { MessageKey } from '../i18n/translate.ts';
 import type { StateTone } from './state-tone.ts';
 
@@ -121,6 +121,19 @@ export function presentExport(record: ExportRecord, now: Date): ExportPresentati
     canDownload: record.state === 'ready' && record.consumedAt === null && live,
     consumed: record.consumedAt !== null,
   };
+}
+
+/** The server's cap on the documents one export may name; above it the request is malformed. */
+const EXPORT_SELECTION_LIMIT = 1000;
+
+/** Why an export cannot be reviewed with this selection yet, or null when it can. */
+export function exportSelectionProblem(
+  preset: ExportPreset,
+  selectedCount: number,
+): 'none-selected' | 'too-many' | null {
+  if (preset !== 'selected-documents') return null;
+  if (selectedCount === 0) return 'none-selected';
+  return selectedCount > EXPORT_SELECTION_LIMIT ? 'too-many' : null;
 }
 
 /** Rounded byte size for a preflight summary. Never implies exactness. */

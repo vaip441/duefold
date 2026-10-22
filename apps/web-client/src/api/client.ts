@@ -28,26 +28,15 @@ export {
   ApiError,
   isRecord,
   json,
-  readJson,
-  request,
-  requireArray,
   requireBoolean,
   requireNumber,
   requireString,
-  type ApiFailure,
-  type RequestOptions,
 } from './transport.ts';
 
-export {
-  OIDC_BEGIN_PATH,
-  loadSession,
-  requestOtp,
-  signOut,
-  verifyOtp,
-  type SessionState,
-} from './auth.ts';
+export { OIDC_BEGIN_PATH, loadSession, requestOtp, signOut, verifyOtp } from './auth.ts';
 
 export {
+  createFolder,
   createRoom,
   loadRoom,
   loadRoomWorkspace,
@@ -58,15 +47,11 @@ export {
   restoreFromTrash,
   searchRoom,
   type DocumentEntry,
-  type FolderEntry,
   type MemberRoom,
   type NewRoom,
   type PublicationChangeKind,
   type PublicationImpact,
-  type PublicationItem,
-  type RoomAccessSource,
   type RoomCursor,
-  type RoomPage,
   type RoomState,
   type RoomWorkspace,
   type SearchHit,
@@ -90,7 +75,6 @@ export {
   setRoomDownloadPolicy,
   type DefaultExpiryImpact,
   type PurgeImpact,
-  type PurgeState,
   type RetentionImpact,
   type ReviewedVisibility,
   type RoomCapabilities,
@@ -113,17 +97,13 @@ export {
   loadViewerStructure,
   protectedPageImageUrl,
   resolveInterstitial,
-  searchViewerRoom,
-  type DownloadLease,
   type DownloadPolicy,
   type InterstitialTarget,
-  type PreviewActivity,
   type TextLayer,
   type TextLayerItem,
   type ViewerDocument,
   type ViewerEntry,
   type ViewerRoom,
-  type ViewerSearchHit,
 } from './viewer.ts';
 
 export {
@@ -132,7 +112,6 @@ export {
   loadPreviewTextLayer,
   previewPageImageUrl,
   type PreviewRoom,
-  type PreviewRoomState,
 } from './room-preview.ts';
 
 export {
@@ -145,11 +124,8 @@ export {
   removeViewerFromCounterparty,
   type Counterparty,
   type GrantChangeAction,
-  type GrantChangeRequest,
   type GrantImpact,
-  type GrantSource,
   type GrantTargetKind,
-  type GranteeKind,
   type Participant,
   type ParticipantGrant,
   type ParticipantRoster,
@@ -164,18 +140,14 @@ export {
   revokeMemberInvitation,
   setMemberRole,
   setMemberState,
-  type AppliedAssignments,
   type AssignableGlobalRole,
   type GlobalRole,
-  type InvitedMember,
-  type MemberPage,
   type MemberPageCursor,
   type MemberState,
   type MemberSubject,
   type OwnershipTransferImpact,
   type PendingInvitation,
   type ProvisionedMember,
-  type RevokedAssignment,
   type RoomAssignment,
   type RoomRole,
 } from './administration.ts';
@@ -194,7 +166,6 @@ export {
   type ExportPreflight,
   type ExportPreset,
   type ExportRecord,
-  type ExportRequestInput,
   type ProcessingPage,
   type ProcessingVersion,
   type UploadIntentResponse,
@@ -203,12 +174,9 @@ export {
 export {
   loadInstallationStatus,
   type CheckObservation,
-  type ContentStatus,
-  type DeploymentStatus,
   type InstallationStatus,
   type ObservationCode,
   type StatusCheck,
-  type StatusCheckRow,
 } from './status.ts';
 
 export {

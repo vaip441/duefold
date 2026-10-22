@@ -14,10 +14,11 @@
   test that asserts the refusals independently.
 -->
 <policymap>
-  <!-- Deny every coder, then allow the raster formats the fixed pipelines use. -->
+  <!-- Deny every coder, then allow the raster formats the fixed pipelines use.
+       XC reads no input: it is the blank canvas text pages are drawn on. -->
   <policy domain="delegate" rights="none" pattern="*" />
   <policy domain="coder" rights="none" pattern="*" />
-  <policy domain="coder" rights="read | write" pattern="{PNG,JPEG,JPG,WEBP,CAPTION}" />
+  <policy domain="coder" rights="read | write" pattern="{PNG,JPEG,JPG,WEBP,CAPTION,XC}" />
 
   <!--
     SVG and MSVG carry script and external references; MVG is a drawing language that

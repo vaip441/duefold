@@ -89,10 +89,6 @@ export const moduleDeclaration: ModuleDeclaration = {
   config: [],
   browserEntries: [
     {
-      id: 'branding-notifications.support-contact',
-      source: 'browser/support-contact.ts',
-    },
-    {
       id: 'branding-notifications.branding',
       source: 'browser/branding.ts',
     },

@@ -373,21 +373,3 @@ export async function fetchDownloadRange(input: {
     throw new ApiError(failureForStatus(response.status, await serverErrorCode(response)));
   return response.arrayBuffer();
 }
-
-/*
- * ---------------------------------------------------------------------------
- * Participants, grants, processing, exports, and branding
- *
- * Two rules shape everything below.
- *
- * FIRST: grant impact is never computed here. `affectedCount` and `paths` come
- * from the server's dry-run, and apply echoes the server's `grantId`,
- * `confirmation`, and `expectedRoomRevision`. A client-side estimate of "who can
- * now see what" would be a second definition of access that could disagree with
- * the authoritative one, and a Manager would be deciding on the wrong number.
- *
- * SECOND: an expired grant is reported, not hidden. The reader deliberately
- * returns `effective: false` rather than omitting the row, because a Manager
- * cannot fix an expiry they cannot see.
- * ---------------------------------------------------------------------------
- */

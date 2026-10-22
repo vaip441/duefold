@@ -481,85 +481,92 @@ describe('multipart intent and quarantine transaction', () => {
     ).toEqual({ state: 'ready_for_review', text_layer: null, accessible_label: 'Page 1' });
   });
 
-  it('database-quarantines malware for 30 days and cannot advance it', async () => {
-    const { created, etag } = await createAndUpload(owner, 'malware bytes');
-    const finalized = await finalizeUpload({
-      pool: runtimePool,
-      storage,
-      identity: owner,
-      input: {
-        intentId: created.intentId,
-        uploadId: created.uploadId,
-        parts: [{ partNumber: 1, etag }],
-      },
-      now: new Date(),
-      log: silentLog,
-    });
-    const malware = await startClamAvTestEndpoint({
-      signatureDate: new Date(),
-      response: 'malware',
-    });
-    try {
-      const workerStorage = createWorkerStorage(
-        workerStorageConfig({
-          endpoint: endpoint.endpoint,
-          region: 'us-east-1',
-          bucket: endpoint.bucket,
-          credentials: {
-            accessKeyId: endpoint.accessKeyId,
-            secretAccessKey: endpoint.secretAccessKey,
-          },
-          pathStyle: true,
-          checksumSupport: false,
-        }),
-      );
-      const runner = new JobRunner(
-        workerPool,
-        new Map([
-          [
-            'document.source.validate',
-            createSourceValidationHandler({
-              pool: workerPool,
-              storage: workerStorage,
-              scanner: createClamAvClient({
-                socket: { host: malware.host, port: malware.port },
-                timeoutMilliseconds: 1_000,
+  it.each([
+    ['malware', 'malware_quarantined', 'malware', 30],
+    ['limit', 'rejected', 'deterministic', 7],
+  ] as const)(
+    'fails a %s scan reply closed as %s and cannot advance it',
+    async (response, state, failureKind, retainedDays) => {
+      const { created, etag } = await createAndUpload(owner, `${response} bytes`);
+      const finalized = await finalizeUpload({
+        pool: runtimePool,
+        storage,
+        identity: owner,
+        input: {
+          intentId: created.intentId,
+          uploadId: created.uploadId,
+          parts: [{ partNumber: 1, etag }],
+        },
+        now: new Date(),
+        log: silentLog,
+      });
+      const scanner = await startClamAvTestEndpoint({ signatureDate: new Date(), response });
+      try {
+        const workerStorage = createWorkerStorage(
+          workerStorageConfig({
+            endpoint: endpoint.endpoint,
+            region: 'us-east-1',
+            bucket: endpoint.bucket,
+            credentials: {
+              accessKeyId: endpoint.accessKeyId,
+              secretAccessKey: endpoint.secretAccessKey,
+            },
+            pathStyle: true,
+            checksumSupport: false,
+          }),
+        );
+        const runner = new JobRunner(
+          workerPool,
+          new Map([
+            [
+              'document.source.validate',
+              createSourceValidationHandler({
+                pool: workerPool,
+                storage: workerStorage,
+                scanner: createClamAvClient({
+                  socket: { host: scanner.host, port: scanner.port },
+                  timeoutMilliseconds: 1_000,
+                }),
+                processorPrograms: fixturePrograms(),
               }),
-              processorPrograms: fixturePrograms(),
-            }),
-          ],
-        ]),
-      );
-      expect(await runner.runOne()).toBe(true);
-    } finally {
-      await malware.close();
-    }
-    const version = (
-      await migrationPool.query<{ state: string; failure_kind: string; retained_days: number }>(
-        `SELECT state,failure_kind,extract(day FROM retained_until - created_at)::int AS retained_days FROM document_version WHERE id = $1`,
-        [finalized.versionId],
-      )
-    ).rows[0];
-    expect(version).toEqual({
-      state: 'malware_quarantined',
-      failure_kind: 'malware',
-      retained_days: 30,
-    });
-    expect(
-      (
-        await migrationPool.query<{ n: number }>(
-          'SELECT count(*)::int AS n FROM document_derivative WHERE version_id = $1',
+            ],
+          ]),
+        );
+        expect(await runner.runOne()).toBe(true);
+      } finally {
+        await scanner.close();
+      }
+      const version = (
+        await migrationPool.query<{
+          state: string;
+          failure_kind: string;
+          retained_days: number;
+        }>(
+          `SELECT state,failure_kind,extract(day FROM retained_until - created_at)::int AS retained_days FROM document_version WHERE id = $1`,
           [finalized.versionId],
         )
-      ).rows[0]?.n,
-    ).toBe(0);
-    await expect(
-      runtimePool.query(
-        "UPDATE document_version SET state = 'ready_for_review',detected_media_type = 'text/plain',sha256 = repeat('a',64),scan_signature_version = 'x',failure_kind = NULL,failure_code = NULL WHERE id = $1",
-        [finalized.versionId],
-      ),
-    ).rejects.toMatchObject({ code: '42501' });
-  });
+      ).rows[0];
+      expect(version).toEqual({
+        state,
+        failure_kind: failureKind,
+        retained_days: retainedDays,
+      });
+      expect(
+        (
+          await migrationPool.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM document_derivative WHERE version_id = $1',
+            [finalized.versionId],
+          )
+        ).rows[0]?.n,
+      ).toBe(0);
+      await expect(
+        runtimePool.query(
+          "UPDATE document_version SET state = 'ready_for_review',detected_media_type = 'text/plain',sha256 = repeat('a',64),scan_signature_version = 'x',failure_kind = NULL,failure_code = NULL WHERE id = $1",
+          [finalized.versionId],
+        ),
+      ).rejects.toMatchObject({ code: '42501' });
+    },
+  );
 
   it('keeps the version quarantined when a real scanner socket returns malformed data', async () => {
     const { created, etag } = await createAndUpload(owner, 'scan outage');

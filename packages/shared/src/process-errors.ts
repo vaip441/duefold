@@ -8,7 +8,6 @@ export interface SafeProcessSink {
 export interface ProcessFailureOptions {
   readonly sink?: SafeProcessSink;
   readonly close?: () => void | Promise<void>;
-  readonly closeTimeoutMilliseconds?: number;
   readonly stage?: () => 'config' | 'oidc' | 'database' | 'application' | 'listen';
 }
 
@@ -42,13 +41,13 @@ export function emitProcessFailure(
   );
 }
 
-const exitAfterClose = async (
+/** Settles when close does or once the timeout passes; a close rejection propagates. */
+export function boundedClose(
   close: () => void | Promise<void>,
-  timeout: number,
-): Promise<never> => {
-  await Promise.race([Promise.resolve().then(close), delay(timeout)]).catch(() => undefined);
-  process.exit(1);
-};
+  timeout = 5_000,
+): Promise<void> {
+  return Promise.race([Promise.resolve().then(close), delay(timeout)]);
+}
 
 /** Emits one safe record, attempts only the supplied bounded close, then exits. */
 export function installProcessFailureHandlers(
@@ -65,9 +64,10 @@ export function installProcessFailureHandlers(
       options.stage,
       cause instanceof StartupRefusal ? cause.code : 'PROCESS_FAILED',
     );
-    const timeout = options.closeTimeoutMilliseconds ?? 5_000;
     const close = options.close ?? (() => undefined);
-    void exitAfterClose(close, timeout);
+    void boundedClose(close)
+      .catch(() => undefined)
+      .then(() => process.exit(1));
   };
   process.on('unhandledRejection', terminate);
   process.on('uncaughtException', terminate);

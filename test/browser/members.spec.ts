@@ -97,6 +97,8 @@ test.describe('inviting a member', () => {
     await expect(alert).toContainText('Reload to see the current state');
     await expect(alert).not.toContainText('room');
     await expect(alert).not.toContainText('23505');
+    /* Refused, so the address stays for correction instead of being cleared on submit. */
+    await expect(page.getByLabel('Email address')).toHaveValue(address);
   });
 
   test('explains an address that is not an email instead of sending it', async ({ page }) => {

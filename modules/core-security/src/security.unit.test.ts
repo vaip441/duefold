@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { FixedClock } from '@duefold/shared/clock';
 import { hasFreshOidc } from './authorization.ts';
 import {
   clientNetwork,
   generateOtp,
-  invitationExpiry,
   networkCorrelation,
   otpUsable,
   OTP_MAX_ATTEMPTS,
@@ -44,12 +42,6 @@ describe('OTP policy', () => {
         now,
       ),
     ).toBe(false);
-  });
-  it('sets invitations to seven days', () => {
-    const now = new Date('2026-03-01T00:00:00Z');
-    expect(invitationExpiry(new FixedClock(now)).toISOString()).toBe(
-      '2026-03-08T00:00:00.000Z',
-    );
   });
   it('rotates network correlation monthly', () => {
     const key = 'k'.repeat(32);

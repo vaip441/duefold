@@ -132,7 +132,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     }
   };
 }
-
-export function handler(): never {
-  throw new Error('policies route runtime not initialized');
-}

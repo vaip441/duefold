@@ -20,6 +20,7 @@ import { Collapsible } from '@base-ui/react/collapsible';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { DocumentEntry, WorkingEntry } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
+import { pathOptions, type PathOption } from '../viewer/structure-depth.ts';
 import { Notice } from './Notice.tsx';
 
 export interface CreateFolderInput {
@@ -40,12 +41,39 @@ export interface MetadataInput {
   readonly description: string;
 }
 
+/**
+ * The folders an entry can be placed in. The structure trigger refuses a folder staged for
+ * removal or inside one, and a folder moved into its own subtree, so neither is offered.
+ */
+export function destinationOptions(
+  folders: readonly WorkingEntry[],
+  moving: WorkingEntry | null,
+): readonly PathOption<WorkingEntry>[] {
+  const refused = new Set<string>();
+  return pathOptions(folders).filter(({ entry }) => {
+    if (
+      entry.stagedRemoved ||
+      entry.resourceId === moving?.resourceId ||
+      (entry.parentFolderId !== null && refused.has(entry.parentFolderId))
+    ) {
+      refused.add(entry.resourceId);
+      return false;
+    }
+    return true;
+  });
+}
+
+/** A bulk action under way, or the count of one a failure stopped, which stays until the next. */
+export type BulkProgress =
+  | { readonly kind: 'applying'; readonly total: number }
+  | { readonly kind: 'stopped'; readonly done: number; readonly total: number };
+
 export interface StructureControlsProps {
   readonly entries: readonly WorkingEntry[];
   readonly folders: readonly WorkingEntry[];
   readonly pending: boolean;
   readonly selection: readonly string[];
-  readonly bulkProgress: { readonly done: number; readonly total: number } | null;
+  readonly bulkProgress: BulkProgress | null;
   readonly onCreateFolder: (input: CreateFolderInput) => void;
   readonly onSelectionChange: (selection: readonly string[]) => void;
   readonly onBulkStageRemoval: () => void;
@@ -140,7 +168,7 @@ export function StructureControls({
 
       {bulkProgress === null ? null : (
         <Notice tone="neutral" role="status">
-          {bulkProgress.done === bulkProgress.total
+          {bulkProgress.kind === 'applying'
             ? translate('bulk.pending', { count: bulkProgress.total })
             : translate('bulk.partial', {
                 done: bulkProgress.done,
@@ -193,9 +221,9 @@ export function StructureControls({
               }}
             >
               <option value="">{translate('structure.move.destinationRoot')}</option>
-              {folders.map((folder) => (
+              {destinationOptions(folders, null).map(({ entry: folder, label }) => (
                 <option key={folder.resourceId} value={folder.resourceId}>
-                  {folder.displayName}
+                  {label}
                 </option>
               ))}
             </select>
@@ -267,7 +295,13 @@ export function MoveForm({
   onCancel,
 }: MoveFormProps): React.ReactElement {
   const fieldId = useId();
-  const [destination, setDestination] = useState(entry.parentFolderId ?? '');
+  const options = destinationOptions(folders, entry);
+  /* A parent that is not offered would be sent while the select showed the top level. */
+  const [destination, setDestination] = useState(
+    () =>
+      options.find((option) => option.entry.resourceId === entry.parentFolderId)?.entry
+        .resourceId ?? '',
+  );
   const [position, setPosition] = useState(String(entry.position));
   const parsed = Number.parseInt(position, 10);
   const valid = Number.isFinite(parsed) && parsed >= 1;
@@ -303,13 +337,11 @@ export function MoveForm({
           }}
         >
           <option value="">{translate('structure.move.destinationRoot')}</option>
-          {folders
-            .filter((folder) => folder.resourceId !== entry.resourceId)
-            .map((folder) => (
-              <option key={folder.resourceId} value={folder.resourceId}>
-                {folder.displayName}
-              </option>
-            ))}
+          {options.map(({ entry: folder, label }) => (
+            <option key={folder.resourceId} value={folder.resourceId}>
+              {label}
+            </option>
+          ))}
         </select>
       </div>
       <div className="df-field">

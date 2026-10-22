@@ -240,6 +240,7 @@ export interface UploadIntentResponse {
 export async function createUploadIntent(input: {
   readonly roomId: string;
   readonly documentId?: string;
+  readonly parentFolderId?: string;
   readonly displayTitle: string;
   readonly originalFilename: string;
   readonly declaredMediaType: string;

@@ -194,6 +194,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return { results };
   };
 }
-export function handler(): never {
-  throw new Error('room action route runtime not initialized');
-}

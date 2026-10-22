@@ -750,8 +750,9 @@ describe('trash, search, and bulk database boundary', () => {
       completeMultipart: () => Promise.reject(new Error('UNUSED')),
       abortMultipart: () => Promise.reject(new Error('UNUSED')),
       headObject: () => Promise.reject(new Error('UNUSED')),
-      deleteObject: (key: string) => {
-        deleted.push(key);
+      deleteObject: () => Promise.reject(new Error('UNUSED')),
+      deleteObjects: (keys: readonly string[]) => {
+        deleted.push(...keys);
         return Promise.resolve();
       },
       getObjectBytes: () => Promise.reject(new Error('UNUSED')),
@@ -759,6 +760,7 @@ describe('trash, search, and bulk database boundary', () => {
       putExportStream: () => Promise.reject(new Error('UNUSED')),
       putBrandingAsset: () => Promise.reject(new Error('UNUSED')),
       putSystemDeletionMarker: () => Promise.reject(new Error('UNUSED')),
+      listDeletionMarkedRoomIds: () => Promise.reject(new Error('UNUSED')),
       putDerivative: () => Promise.reject(new Error('UNUSED')),
     };
     const handler = createTrashPurgeHandler({ pool: workerPool, storage });

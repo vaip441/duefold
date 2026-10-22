@@ -43,6 +43,3 @@ export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
     };
   };
 }
-export function handler(): never {
-  throw new Error('viewer structure route runtime not initialized');
-}

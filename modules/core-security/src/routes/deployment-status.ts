@@ -94,7 +94,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return () =>
     readDeploymentStatus({ pool: runtime.pool, identity, facts: runtime.deployment });
 }
-
-export function handler(): never {
-  throw new Error('deployment status route runtime not initialized');
-}

@@ -48,7 +48,7 @@ export function createHandler(dependencies: OtpDeliveryDependencies) {
        ), audited AS (
          INSERT INTO audit_event
            (id,event_type,actor_kind,subject_id,result,reason_code,correlation_id)
-         SELECT $7,'auth.otp','system',id,'failure','OTP_DELIVERY_FAILED',$8
+         SELECT $7,'auth.otp','system',id,'denied','OTP_NOT_ELIGIBLE',$8
            FROM prepared WHERE state = 'invalidated'
        )
        SELECT email_display,state FROM prepared`,

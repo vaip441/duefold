@@ -16,7 +16,7 @@
  * navigation concept.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
   createRoom,
@@ -39,12 +39,12 @@ import { ThemeSelect, type ThemeChoice } from '../components/ThemeSelect.tsx';
 import type { SectionTab } from '../contract.ts';
 import { currentSection } from '../workspace/sections.ts';
 import { translate } from '../i18n/translate.ts';
-import { failureMessage } from '../workspace/failure-message.ts';
-import type { PresentedFailure } from '../workspace/failures.ts';
+import { presentFailure, type PresentedFailure } from '../workspace/failures.ts';
 import { settle } from '../workspace/outcome.ts';
 import type { Load } from '../workspace/state.ts';
 import { useOpenRoom } from '../workspace/useOpenRoom.ts';
 import { formatMemberLocation, parseMemberLocation, useLocation } from '../navigation.ts';
+import { depthFirst } from '../viewer/structure-depth.ts';
 import { AdministrationView } from '../workspace/views/AdministrationView.tsx';
 import { InvestorPreview } from '../workspace/views/InvestorPreview.tsx';
 import { RegisterView } from '../workspace/views/RegisterView.tsx';
@@ -186,10 +186,15 @@ export function Workspace({
    * page it insisted on reading first.
    */
   const [openRoomToken, setOpenRoomToken] = useState(0);
+  /* The cursor the shown register continues from. A later page that settles after a refresh
+     replaced the register continues one that is gone, so it is dropped. */
+  const roomsContinueFrom = useRef<RoomCursor | null>(null);
   const refreshRooms = useCallback((signal?: AbortSignal): void => {
     setOpenRoomToken((token) => token + 1);
     loadRooms(signal === undefined ? {} : { signal }).then(
       (page) => {
+        roomsContinueFrom.current = page.nextCursor;
+        setRoomsLoadingMore(false);
         setRoomsFailure(null);
         setRooms({
           kind: 'ready',
@@ -198,7 +203,9 @@ export function Workspace({
       },
       (error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        setRooms({ kind: 'failed', failure: failureMessage(error) });
+        roomsContinueFrom.current = null;
+        setRoomsLoadingMore(false);
+        setRooms({ kind: 'failed', failure: presentFailure(error).body });
       },
     );
   }, []);
@@ -211,36 +218,36 @@ export function Workspace({
    * `nextCursor` is replaced by whatever the server states, so a failure leaves the cursor
    * intact and the same request can be made again.
    */
-  const loadMoreRooms = useCallback((): void => {
-    setRooms((current) => {
-      if (current.kind !== 'ready' || current.value.nextCursor === null) return current;
-      const after = current.value.nextCursor;
-      setRoomsLoadingMore(true);
-      setRoomsFailure(null);
-      loadRooms({ after }).then(
-        (page) => {
-          setRoomsLoadingMore(false);
-          setRooms((latest) =>
-            latest.kind === 'ready'
-              ? {
-                  kind: 'ready',
-                  value: {
-                    rooms: [...latest.value.rooms, ...page.rooms],
-                    nextCursor: page.nextCursor,
-                  },
-                }
-              : latest,
-          );
-        },
-        (error: unknown) => {
-          setRoomsLoadingMore(false);
-          /* The cursor is untouched, so this is retryable rather than terminal. */
-          setRoomsFailure(failureMessage(error));
-        },
-      );
-      return current;
-    });
-  }, []);
+  const loadMoreRooms = (): void => {
+    if (rooms.kind !== 'ready' || rooms.value.nextCursor === null) return;
+    const after = rooms.value.nextCursor;
+    setRoomsLoadingMore(true);
+    setRoomsFailure(null);
+    loadRooms({ after }).then(
+      (page) => {
+        if (roomsContinueFrom.current !== after) return;
+        roomsContinueFrom.current = page.nextCursor;
+        setRoomsLoadingMore(false);
+        setRooms((latest) =>
+          latest.kind === 'ready'
+            ? {
+                kind: 'ready',
+                value: {
+                  rooms: [...latest.value.rooms, ...page.rooms],
+                  nextCursor: page.nextCursor,
+                },
+              }
+            : latest,
+        );
+      },
+      (error: unknown) => {
+        if (roomsContinueFrom.current !== after) return;
+        setRoomsLoadingMore(false);
+        /* The cursor is untouched, so this is retryable rather than terminal. */
+        setRoomsFailure(presentFailure(error).body);
+      },
+    );
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -290,7 +297,7 @@ export function Workspace({
       },
       (error: unknown) => {
         setImpactLoading(false);
-        setPublishFailure(failureMessage(error));
+        setPublishFailure(presentFailure(error).body);
       },
     );
   };
@@ -317,7 +324,7 @@ export function Workspace({
         setPublishFailure(
           error instanceof ApiError && error.failure === 'fresh-authentication-required'
             ? translate('publish.freshSignIn')
-            : failureMessage(error),
+            : presentFailure(error).body,
         );
       },
     );
@@ -335,7 +342,7 @@ export function Workspace({
    * one, which is the finding-aid behaviour the shell was built for.
    */
   const indexEntries = inRoom
-    ? roomEntries.map((entry) => ({
+    ? depthFirst(roomEntries).map((entry) => ({
         id: entry.entryId,
         title: entry.displayName,
         depth: entry.depth,

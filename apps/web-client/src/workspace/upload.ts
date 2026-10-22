@@ -1,5 +1,6 @@
 /**
- * The upload transfer itself: intent, part PUTs with progress, finalize.
+ * The upload transfer itself: destination folders, intent, part PUTs with progress,
+ * finalize.
  *
  * Kept out of the component so the sequencing is testable and so the component
  * holds no transfer logic. Three points of care:
@@ -14,7 +15,8 @@
  *    assembling a partial object.
  */
 
-import { ApiError } from '../api/client.ts';
+import { ApiError, type WorkingEntry } from '../api/client.ts';
+import { canonicalName } from './structure-name.ts';
 
 export interface UploadIntent {
   readonly intentId: string;
@@ -152,4 +154,85 @@ export async function transferParts(input: {
     input.onProgress(total === 0 ? 100 : Math.round((settledBytes / total) * 100));
   }
   return completed;
+}
+
+/** A name's place in an upload: its folder path and its own name, canonical and unambiguous. */
+function nameKey(folders: readonly string[], name: string): string {
+  return JSON.stringify([...folders, name].map(canonicalName));
+}
+
+/**
+ * Queued files the room would refuse as siblings: two files given one title in one folder, or
+ * a file titled like a folder the same directory adds beside it.
+ */
+export function repeatedTitles(
+  items: readonly {
+    readonly id: string;
+    readonly relativePath: string;
+    readonly title: string;
+  }[],
+): ReadonlySet<string> {
+  const folderKeys = new Set<string>();
+  const counts = new Map<string, number>();
+  const keyed = items.map((item) => {
+    const folders = item.relativePath.split('/').slice(0, -1);
+    folders.forEach((name, depth) => folderKeys.add(nameKey(folders.slice(0, depth), name)));
+    const key = nameKey(folders, item.title.trim());
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return { id: item.id, key };
+  });
+  return new Set(
+    keyed.filter(({ key }) => counts.get(key) !== 1 || folderKeys.has(key)).map(({ id }) => id),
+  );
+}
+
+/**
+ * Resolves each queued file's destination folder, by relative path; null is the room root.
+ * Folders are taken parents first: one already holding the canonical name is reused, and any
+ * other is created. Each creation carries the revision the previous one returned, so a
+ * colleague's change in between is refused rather than overwritten. A document already holding
+ * a folder's name would refuse that folder, so it throws UPLOAD_FOLDER_NAME_TAKEN instead.
+ */
+export async function resolveUploadFolders(input: {
+  readonly relativePaths: readonly string[];
+  readonly entries: readonly WorkingEntry[];
+  readonly workingRevision: number;
+  readonly createFolder: (folder: {
+    readonly parentFolderId: string | null;
+    readonly displayName: string;
+    readonly expectedWorkingRevision: number;
+  }) => Promise<{ readonly workingRevision: number; readonly folderId: string }>;
+}): Promise<ReadonlyMap<string, string | null>> {
+  const folderIds = new Map<string, string>();
+  const destinations = new Map<string, string | null>();
+  let workingRevision = input.workingRevision;
+  for (const relativePath of input.relativePaths) {
+    const folders = relativePath.split('/').slice(0, -1);
+    let parentFolderId: string | null = null;
+    for (const [depth, displayName] of folders.entries()) {
+      const key = nameKey(folders.slice(0, depth), displayName);
+      let folderId = folderIds.get(key);
+      if (folderId === undefined) {
+        const sibling = input.entries.find(
+          (entry) =>
+            !entry.stagedRemoved &&
+            entry.parentFolderId === parentFolderId &&
+            canonicalName(entry.displayName) === canonicalName(displayName),
+        );
+        if (sibling !== undefined && sibling.resourceKind !== 'folder')
+          throw new Error('UPLOAD_FOLDER_NAME_TAKEN');
+        folderId = sibling?.resourceId;
+      }
+      if (folderId === undefined)
+        ({ workingRevision, folderId } = await input.createFolder({
+          parentFolderId,
+          displayName,
+          expectedWorkingRevision: workingRevision,
+        }));
+      folderIds.set(key, folderId);
+      parentFolderId = folderId;
+    }
+    destinations.set(relativePath, parentFolderId);
+  }
+  return destinations;
 }

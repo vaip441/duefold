@@ -4,6 +4,7 @@ const TELEMETRY_EVENTS = [
   'auth.oidc.refused',
   'database.connection.lost',
   'job.exhaustion.failed',
+  'job.run.failed',
   'upload.cleanup.failed',
 ] as const;
 /** A setting a process refuses to start with, named so the operator knows which to fix. */
@@ -68,6 +69,11 @@ const TELEMETRY_CODES = [
   'UPLOAD_FAILURE_UNRECORDED',
   'MULTIPART_ABORT_FAILED',
   'UPLOAD_OBJECT_DELETE_FAILED',
+  /*
+   * A worker poll that failed, such as on an unreachable database or a lost job lease. The
+   * worker keeps polling; a job whose lease it lost runs again once that lease expires.
+   */
+  'JOB_RUN_FAILED',
 ] as const;
 const TELEMETRY_LEVELS = ['info', 'warn', 'error'] as const;
 const TELEMETRY_SERVICES = ['web', 'worker', 'cli'] as const;

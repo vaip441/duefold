@@ -74,9 +74,6 @@ interface ChildPage {
 const MAX_PAGES = 10_000;
 const MAX_TEXT_ITEMS_PER_PAGE = 100_000;
 const MAX_TEXT_LENGTH = 10_000;
-const MAX_CSV_ROWS = 100_000;
-const MAX_CSV_COLUMNS = 1_000;
-const MAX_CELL_LENGTH = 32_768;
 const DEFAULT_LIMITS: SandboxLimits = {
   timeoutMilliseconds: 120_000,
   maximumOutputBytes: 300 * 1024 * 1024,
@@ -241,45 +238,17 @@ export function parseProcessorOutput(bytes: Uint8Array): ProcessedDocument {
 }
 function argumentsFor(mediaType: SourceMediaType): readonly string[] {
   switch (mediaType) {
-    case 'application/pdf':
-      return [
-        'render-pdf',
-        '--raster-format=png',
-        '--positional-text=sanitized',
-        '--disable-actions',
-        '--disable-embedded-media',
-      ];
     case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
       return ['xlsx'];
     case 'application/vnd.oasis.opendocument.spreadsheet':
       return ['ods'];
+    case 'application/pdf':
     case 'text/plain':
-      return [
-        'render-text',
-        '--format=text',
-        '--non-html',
-        '--max-cell-length',
-        String(MAX_CELL_LENGTH),
-        '--paginate',
-      ];
     case 'text/csv':
-      return [
-        'render-text',
-        '--format=csv',
-        '--non-html',
-        '--formula-cells=inert-text',
-        '--max-rows',
-        String(MAX_CSV_ROWS),
-        '--max-columns',
-        String(MAX_CSV_COLUMNS),
-        '--max-cell-length',
-        String(MAX_CELL_LENGTH),
-        '--paginate',
-      ];
     case 'image/png':
     case 'image/jpeg':
     case 'image/webp':
-      return ['render-image', '--header-bounds-first', '--strip-metadata', '--reencode=png'];
+      return [];
   }
 }
 function programFor(programs: ProcessorPrograms, mediaType: SourceMediaType): SandboxProgram {

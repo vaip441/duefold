@@ -119,16 +119,19 @@ export function useRoomSettings(
     [],
   );
 
+  /* A committed change re-reads in place rather than through `reload`: dropping the read
+     unmounted every control, the one just used among them, and lost keyboard focus. A press
+     before the re-read lands carries the superseded revision, which the server refuses. */
   const commit = useCallback(
     async (work: Promise<unknown>): Promise<PresentedFailure | null> => {
       const failure = await committed(work);
       if (failure === null && mounted.current) {
-        reload();
+        setToken((current) => current + 1);
         onChanged();
       }
       return failure;
     },
-    [reload, onChanged],
+    [onChanged],
   );
 
   const load = readFor(read, roomId);

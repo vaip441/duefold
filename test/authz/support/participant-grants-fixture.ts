@@ -70,8 +70,8 @@ export async function createViewerSession(viewer: string): Promise<string> {
 export function audit(): readonly [string, string] {
   return [createOpaqueId(), createCorrelationId()];
 }
-// The caller-supplied-identity authorizers are reachable only by their owner and the
-// digest-bound SECURITY DEFINER entry points, so fixtures call them as the owner.
+// The caller-supplied-identity authorizer is reachable only by its owner and the
+// digest-bound SECURITY DEFINER entry points, so fixtures call it as the owner.
 interface FixtureViewer {
   readonly id: string;
   readonly sessionId: string;
@@ -80,13 +80,6 @@ export async function canViewerPreviewDocument(identity: FixtureViewer): Promise
   const result = await migrationPool.query<{ allowed: boolean }>(
     'SELECT viewer_can_preview_document($1,$2,$3,$4) allowed',
     [identity.id, identity.sessionId, roomId, documentId],
-  );
-  return result.rows[0]?.allowed === true;
-}
-export async function authorizeViewerPublishedRoom(identity: FixtureViewer): Promise<boolean> {
-  const result = await migrationPool.query<{ allowed: boolean }>(
-    'SELECT authorize_viewer_published_room($1,$2,$3) allowed',
-    [identity.id, identity.sessionId, roomId],
   );
   return result.rows[0]?.allowed === true;
 }
@@ -149,31 +142,50 @@ interface GrantInput {
   readonly documentId?: string;
   readonly expiresAt?: Date;
 }
-export async function grant(input: GrantInput): Promise<{ resolvedExpiresAt: string | null }> {
-  const args = [
-    managerId,
-    roomId,
-    'grant',
-    input.id,
-    input.granteeKind,
-    input.viewerId ?? null,
-    input.counterpartyId ?? null,
-    input.targetKind,
-    input.folderId ?? null,
-    input.documentId ?? null,
-    input.expiresAt ?? null,
-  ];
+type GrantChange = readonly [
+  action: 'grant' | 'revoke' | 'expiry',
+  grantId: string,
+  granteeKind: GrantInput['granteeKind'] | null,
+  viewerId: string | null,
+  counterpartyId: string | null,
+  targetKind: GrantInput['targetKind'] | null,
+  folderId: string | null,
+  documentId: string | null,
+  expiresAt: Date | null,
+];
+/** Dry-runs and applies one manager grant change, returning its impact and audit id. */
+export async function changeGrant(change: GrantChange): Promise<{
+  readonly impact: { readonly resolvedExpiresAt: string | null };
+  readonly auditId: string;
+}> {
+  const args = [managerId, roomId, ...change];
   const impact = (
     await runtimePool.query<{
       dry_run_grant_change: { confirmation: string; resolvedExpiresAt: string | null };
     }>('SELECT dry_run_grant_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', args)
   ).rows[0]?.dry_run_grant_change;
   if (!impact) throw new Error('GRANT_IMPACT_ABSENT');
+  const [auditId, correlationId] = audit();
   await runtimePool.query(
     'SELECT apply_grant_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
-    [...args, await roomRevision(), freshOidcAt, impact.confirmation, ...audit()],
+    [...args, await roomRevision(), freshOidcAt, impact.confirmation, auditId, correlationId],
   );
-  return impact;
+  return { impact, auditId };
+}
+export async function grant(input: GrantInput): Promise<{ resolvedExpiresAt: string | null }> {
+  return (
+    await changeGrant([
+      'grant',
+      input.id,
+      input.granteeKind,
+      input.viewerId ?? null,
+      input.counterpartyId ?? null,
+      input.targetKind,
+      input.folderId ?? null,
+      input.documentId ?? null,
+      input.expiresAt ?? null,
+    ])
+  ).impact;
 }
 
 /** Resets the schema and seeds the rooms, members, viewers, publication and grants. */

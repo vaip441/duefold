@@ -128,7 +128,7 @@ async function sharedLibraries(executable: string): Promise<readonly string[]> {
     ...new Set([...paths, ...targets.filter((path): path is string => path !== undefined)]),
   ];
 }
-const IMAGE_MODULES = new Set(['caption.so', 'jpeg.so', 'png.so', 'webp.so']);
+const IMAGE_MODULES = new Set(['caption.so', 'jpeg.so', 'png.so', 'webp.so', 'xc.so']);
 async function discoverImageMagickDirectories(root: string): Promise<readonly string[]> {
   let entries;
   try {

@@ -1,13 +1,9 @@
 import type { Pool } from 'pg';
-import type { ViewerIdentity } from '../../core-security/src/authorization.ts';
+import { sessionProof, type ViewerIdentity } from '../../core-security/src/authorization.ts';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { DeliveryStorage } from './storage/s3-compatible.ts';
 
 const MAX_ORIGINAL_BYTES = 262_144_000;
-function sessionProof(identity: ViewerIdentity): string {
-  if (identity.sessionProof === undefined) throw new Error('VIEWER_SESSION_PROOF_REQUIRED');
-  return identity.sessionProof;
-}
 export interface DownloadLeaseResult {
   readonly leaseId: string;
   readonly versionId: string;

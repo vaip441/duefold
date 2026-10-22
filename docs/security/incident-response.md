@@ -35,7 +35,57 @@ Do not place document names, viewer emails, tokens, object keys, raw IPs, or fil
 2. Patch with allowed/denied regression tests. For parser issues, include hostile corpus, timeout/OOM, environment, network/filesystem, and descendant-cleanup tests as relevant.
 3. Run full CI, dependency/image/secret/license scans, and independent review for critical incidents.
 4. Restore only from a known recovery point. Validate migration checksums, manifest/image digests, object SHA-256 samples, private storage, authorization isolation, allowed/denied download, mail sink behavior, and deletion markers.
-5. Keep external mail/OIDC/viewers disabled until `restore enable-external` succeeds and an Owner explicitly approves.
+5. Keep external mail/OIDC/viewers disabled until `restore enable-external` succeeds and an Owner explicitly approves. It refuses while a purge is unreconciled or a deletion marker in storage names a room the restored database still holds. It and `restore reconcile-marker <purge-id>` read storage, so run them where the worker storage credentials and network are, not in the `migrate` service:
+
+   ```sh
+   # Docker Compose
+   docker compose run --rm --no-deps --entrypoint node \
+     -e DUEFOLD_MIGRATION_DATABASE_URL="postgresql://duefold_migration:<migration-pw>@postgres:5432/duefold" \
+     worker apps/cli/src/main.ts restore enable-external
+   # Railway
+   railway ssh --service worker -- \
+     env DUEFOLD_MIGRATION_DATABASE_URL="postgresql://duefold_migration:<migration-pw>@postgres.railway.internal:5432/duefold" \
+     node apps/cli/src/main.ts restore enable-external
+   ```
+
+   A refusal exits non-zero without naming its cause. Find it with `psql "postgresql://duefold_migration:<migration-pw>@<host>:5432/duefold"`, taking the room ids from the marker keys `system/deletion-markers/v1/<room-id>/<purge-id>.json` in the bucket:
+
+   ```sql
+   SELECT purge_id, room_id FROM unreconciled_deletion_markers();
+   SELECT r.id, r.state, p.id AS purge_id, p.state AS purge_state, p.purge_after
+     FROM room r LEFT JOIN room_purge p ON p.room_id = r.id AND p.state <> 'cancelled'
+    WHERE r.id = ANY ('{<room-id>,<room-id>}');
+   ```
+
+   - A purge the first query lists whose room the second does not return has completed: run `restore reconcile-marker <purge-id>`, then `restore enable-external` again.
+   - A room the second query returns was restored from before its purge finished. Purge it again: rewriting its marker and deleting objects that are already gone both succeed. The worker runs the purge, and it also delivers all mail queued in the snapshot, which can include mail to viewers of that room. Until `restore enable-external` succeeds, run the worker with `DUEFOLD_SMTP_URL` pointed at the mail sink validated in step 4, never with production SMTP or Resend credentials. A Resend build cannot send to a sink, so use an SMTP build for this step.
+     - If `purge_state` is `scheduled`, `marker_pending` or `purging`, do not cancel it. The worker resumes the purge once `purge_after` has passed, so a `scheduled` purge first waits out the rest of its 30-day cancellation period.
+
+       The worker resumes it only through the purge's `room.whole.purge` job, and only while that job has attempts left. Check that it does:
+
+       ```sql
+       SELECT count(*) AS live FROM job_queue
+        WHERE job_type = 'room.whole.purge' AND payload->>'purgeId' = '<purge-id>'
+          AND state IN ('pending', 'running') AND attempts < max_attempts;
+       ```
+
+       If `live` is 0, the job used up its attempts before the snapshot was taken and nothing resumes the purge: a failed job never runs again, and the purge can no longer be cancelled or scheduled again. Fix what made it fail first, usually the worker's storage credentials or its reach to storage, then queue a fresh job for the same purge. It runs once `purge_after` has passed and continues from the state the purge recorded. The statement queues nothing while a live job for the purge exists:
+
+       ```sql
+       INSERT INTO job_queue (id, job_type, idempotency_key, payload, available_at, max_attempts)
+       SELECT fresh.id, 'room.whole.purge', 'whole-room-purge-rerun:' || fresh.id,
+              jsonb_build_object('purgeId', p.id), p.purge_after, 10
+         FROM room_purge p, (SELECT replace(gen_random_uuid()::text, '-', '') AS id) AS fresh
+        WHERE p.id = '<purge-id>' AND p.state IN ('scheduled', 'marker_pending', 'purging')
+          AND NOT EXISTS (SELECT 1 FROM job_queue j
+                           WHERE j.job_type = 'room.whole.purge' AND j.payload->>'purgeId' = p.id
+                             AND j.state IN ('pending', 'running') AND j.attempts < j.max_attempts);
+       ```
+
+     - If `purge_state` is empty, an Owner archives the room and schedules its purge again in Room settings. A new 30-day cancellation period starts, and the worker runs the purge once it ends. Scheduling needs the Owner's fresh OIDC sign-in, so allow that one sign-in while mail and viewers stay disabled.
+
+     Duefold cannot purge before `purge_after`. Once the room is gone, run `restore reconcile-marker <purge-id>` for the purge, then `restore enable-external` again.
+
 6. Deploy synthetic canary content first; verify health, headers, scanner freshness, sandbox preflight, watermark, denial, revocation, audit, backup status, and alerts.
 
 ## 5. Notification

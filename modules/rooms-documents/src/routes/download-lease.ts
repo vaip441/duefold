@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return createLeaseHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('download lease route runtime not initialized');
-}

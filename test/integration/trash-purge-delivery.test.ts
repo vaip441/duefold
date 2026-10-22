@@ -96,8 +96,9 @@ async function purgeTrash(entryId: string): Promise<{ trashId: string; deleted: 
       completeMultipart: unused,
       abortMultipart: unused,
       headObject: unused,
-      deleteObject: (key: string) => {
-        deleted.push(key);
+      deleteObject: unused,
+      deleteObjects: (keys: readonly string[]) => {
+        deleted.push(...keys);
         return Promise.resolve();
       },
       getObjectBytes: unused,
@@ -105,6 +106,7 @@ async function purgeTrash(entryId: string): Promise<{ trashId: string; deleted: 
       putExportStream: unused,
       putBrandingAsset: unused,
       putSystemDeletionMarker: unused,
+      listDeletionMarkedRoomIds: unused,
       putDerivative: unused,
     },
   });

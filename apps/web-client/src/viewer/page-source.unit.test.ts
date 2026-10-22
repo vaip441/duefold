@@ -46,7 +46,7 @@ afterEach(() => {
 describe('protected page source', () => {
   it('composes a page once when load and prefetch race for it', async () => {
     serve();
-    const source = protectedPageSource(ACTIVITY);
+    const source = protectedPageSource(() => Promise.resolve(ACTIVITY));
     source.prefetch(page);
     const loaded = await source.load(page, new AbortController().signal);
     expect(calls.filter((call) => call.path === '/api/viewer/pages/cache')).toHaveLength(1);
@@ -57,7 +57,7 @@ describe('protected page source', () => {
 
   it('composes again once a composition has settled, so access is rechecked', async () => {
     serve();
-    const source = protectedPageSource(ACTIVITY);
+    const source = protectedPageSource(() => Promise.resolve(ACTIVITY));
     await source.load(page, new AbortController().signal);
     await source.load(page, new AbortController().signal);
     expect(calls.filter((call) => call.path === '/api/viewer/pages/cache')).toHaveLength(2);

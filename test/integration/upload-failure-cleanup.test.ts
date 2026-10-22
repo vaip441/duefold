@@ -25,7 +25,7 @@ import {
   migrationPool,
   workerPool,
 } from '../authz/support/database.ts';
-import { resetRoomSchema, seedRoom } from '../authz/support/room-fixture.ts';
+import { resetRoomSchema, seedMember, seedRoom } from '../authz/support/room-fixture.ts';
 import { startS3TestEndpoint, type S3TestEndpoint } from '../support/s3-endpoint.ts';
 
 const silentLog = { warn: () => undefined };
@@ -174,7 +174,7 @@ describe('a failed upload completion', () => {
     expect(await intentState(upload.intentId)).toBe('failed');
   });
 
-  it('keeps the completed object when the intent could not be marked failed', async () => {
+  it('keeps the completed object while the intent is completing, and the reaper clears it on expiry', async () => {
     const upload = await uploadedIntent('unmarked completed object');
     const deleted: string[] = [];
     const logged: TelemetryRecord[] = [];
@@ -208,6 +208,26 @@ describe('a failed upload completion', () => {
     await expect(storage.headObject(upload.objectKey)).resolves.toMatchObject({
       contentType: 'text/plain',
     });
+
+    await migrationPool.query(
+      `UPDATE upload_intent SET created_at = transaction_timestamp() - interval '1 day',
+         expires_at = transaction_timestamp() - interval '1 second' WHERE id = $1`,
+      [upload.intentId],
+    );
+    await workerPool.query(
+      `UPDATE job_queue SET available_at = transaction_timestamp()
+       WHERE job_type = 'upload.multipart.reap' AND payload->>'intentId' = $1`,
+      [upload.intentId],
+    );
+    const runner = new JobRunner(
+      workerPool,
+      new Map([
+        ['upload.multipart.reap', createMultipartReapHandler({ pool: workerPool, storage })],
+      ]),
+    );
+    expect(await runner.runOne()).toBe(true);
+    await expect(storage.headObject(upload.objectKey)).rejects.toThrow();
+    expect(await intentState(upload.intentId)).toBe('expired');
   });
 
   it('is cleared by the reaper when storage completed the object and the abort failed', async () => {
@@ -271,6 +291,80 @@ describe('a failed upload completion', () => {
       ).rows[0]?.state,
     ).toBe('succeeded');
     expect(await runner.runOne(), 'the reap job is not queued again').toBe(false);
+  });
+});
+
+describe('finalizing an upload intent', () => {
+  it('denies an outsider alike whether the intent is absent, open, or no longer open', async () => {
+    const outsiderId = await seedMember('member', 'upload-outsider');
+    const outsider: MemberIdentity = {
+      kind: 'member',
+      id: outsiderId,
+      globalRole: 'member',
+      roomRoles: {},
+    };
+    const open = await uploadedIntent('outsider open');
+    const closed = await uploadedIntent('outsider closed');
+    await migrationPool.query("UPDATE upload_intent SET state = 'failed' WHERE id = $1", [
+      closed.intentId,
+    ]);
+    for (const input of [
+      { ...open.input, intentId: createOpaqueId() },
+      open.input,
+      closed.input,
+    ])
+      await expect(
+        finalizeUpload({
+          pool: databasePool,
+          storage,
+          identity: outsider,
+          input,
+          now: new Date(),
+          log: silentLog,
+        }),
+      ).rejects.toThrow('UPLOAD_FORBIDDEN');
+  });
+
+  it('answers its own uploader a conflict, not a denial, for an intent no longer open', async () => {
+    const upload = await uploadedIntent('owner closed');
+    await migrationPool.query("UPDATE upload_intent SET state = 'failed' WHERE id = $1", [
+      upload.intentId,
+    ]);
+    await expect(
+      finalizeUpload({
+        pool: databasePool,
+        storage,
+        identity: owner,
+        input: upload.input,
+        now: new Date(),
+        log: silentLog,
+      }),
+    ).rejects.toThrow('UPLOAD_INTENT_INVALID');
+  });
+
+  it('answers a conflict when the intent stops completing while storage assembles it', async () => {
+    const upload = await uploadedIntent('reaped mid-finalize');
+    const logged: TelemetryRecord[] = [];
+    await expect(
+      finalizeUpload({
+        pool: databasePool,
+        storage: {
+          ...storage,
+          completeMultipart: async (identity) => {
+            await storage.completeMultipart(identity);
+            await migrationPool.query(
+              "UPDATE upload_intent SET state = 'expired' WHERE id = $1",
+              [upload.intentId],
+            );
+          },
+        },
+        identity: owner,
+        input: upload.input,
+        now: new Date(),
+        log: { warn: (record) => logged.push(record) },
+      }),
+    ).rejects.toThrow('UPLOAD_INTENT_INVALID');
+    expect(logged, 'the reaper owns this cleanup').toStrictEqual([]);
   });
 });
 

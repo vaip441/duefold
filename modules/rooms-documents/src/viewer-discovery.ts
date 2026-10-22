@@ -1,10 +1,5 @@
 import type { Pool } from 'pg';
-import type { ViewerIdentity } from '../../core-security/src/authorization.ts';
-
-function sessionProof(identity: ViewerIdentity): string {
-  if (identity.sessionProof === undefined) throw new Error('VIEWER_SESSION_PROOF_REQUIRED');
-  return identity.sessionProof;
-}
+import { sessionProof, type ViewerIdentity } from '../../core-security/src/authorization.ts';
 
 export interface ViewerRoom {
   readonly roomId: string;

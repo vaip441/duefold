@@ -121,10 +121,6 @@ function harnessDeliveryStorage(pageImage: Uint8Array = PNG_1X1): DeliveryStorag
       watermarks.set(input.key, input.bytes);
       return Promise.resolve();
     },
-    putExport: (input) => {
-      watermarks.set(input.key, input.bytes);
-      return Promise.resolve();
-    },
     deleteObject: (key) => {
       watermarks.delete(key);
       return Promise.resolve();
@@ -405,17 +401,6 @@ export async function startTestServer(
      */
     watermarkProgram,
     classifyClient: () => ({ browser: 'chromium', os: 'linux', device: 'desktop' }),
-    revokeSession: async (sessionId) => {
-      await authPool.query(
-        "UPDATE session SET state = 'revoked' WHERE id = $1 AND state = 'active'",
-        [sessionId],
-      );
-      await authPool.query(
-        `INSERT INTO audit_event (id,event_type,actor_kind,subject_id,result,reason_code,correlation_id)
-         VALUES ($1,'session.revoked','system',$2,'success','SIGN_OUT',$3)`,
-        [createOpaqueId(), sessionId, `corr_${createOpaqueId()}`],
-      );
-    },
   };
 
   const tls = loopbackTls();

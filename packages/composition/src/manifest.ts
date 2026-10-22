@@ -9,7 +9,6 @@
 import { readFile } from 'node:fs/promises';
 import {
   isModuleId,
-  isRequiredModule,
   MODULE_IDS,
   REQUIRED_MODULE_IDS,
   type CompositionManifest,
@@ -149,9 +148,6 @@ export function validateDeclarations(
       if (!selected.has(dependency)) {
         fail(`module ${declaration.id} requires ${dependency}, which the manifest omits`);
       }
-    }
-    if (!isRequiredModule(declaration.id) && declaration.requires.length === 0) {
-      // Optional modules may stand alone; nothing to assert.
     }
   }
 

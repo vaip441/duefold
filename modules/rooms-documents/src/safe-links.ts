@@ -1,6 +1,7 @@
 import { domainToASCII, domainToUnicode } from 'node:url';
 
 export interface SafeHttpsLink {
+  readonly href: string;
   readonly interstitialPath: string;
   readonly normalizedDomain: string;
 }
@@ -74,6 +75,7 @@ export function normalizeSafeHttpsLink(value: unknown): SafeHttpsLink | undefine
   url.hostname = ascii;
   const href = url.toString();
   return {
+    href,
     interstitialPath: `/api/viewer/links/interstitial?target=${encodeURIComponent(href)}`,
     normalizedDomain: unicode,
   };

@@ -11,8 +11,9 @@ const budgets = {
   initial: 70_000,
   authentication: 10_000,
   viewer: 10_000,
-  // The member investor preview shares the reader, so those modules count here (§23).
-  member: 90_000,
+  // The member investor preview shares the reader, so those modules count here (§23). Raised
+  // in 1.5.0 so pickers can name folders by path.
+  member: 92_000,
 } as const;
 
 type BudgetGroup = keyof typeof budgets;
@@ -48,7 +49,7 @@ function manifestEntry(value: unknown): ManifestEntry | undefined {
   };
 }
 
-function parseManifest(value: unknown): ReadonlyMap<string, ManifestEntry> {
+export function parseManifest(value: unknown): ReadonlyMap<string, ManifestEntry> {
   if (!isRecord(value)) throw new Error('build manifest is not an object');
   const parsed = new Map<string, ManifestEntry>();
   for (const [key, rawEntry] of Object.entries(value)) {
@@ -66,6 +67,39 @@ function routeGroup(name: string): Exclude<BudgetGroup, 'initial'> | undefined {
   return undefined;
 }
 
+/**
+ * The files each budget counts. `initial` is everything the entry statically imports: a
+ * shared chunk the bundler splits out still loads first. The route groups load eagerly too,
+ * but each is budgeted on its own (§23), so it is not counted twice under `initial`.
+ */
+export function budgetFiles(
+  manifest: ReadonlyMap<string, ManifestEntry>,
+): Readonly<Record<BudgetGroup, ReadonlySet<string>>> {
+  const groupedFiles: Record<BudgetGroup, Set<string>> = {
+    initial: new Set<string>(),
+    authentication: new Set<string>(),
+    viewer: new Set<string>(),
+    member: new Set<string>(),
+  };
+  const pending = [...manifest]
+    .filter(([, entry]) => entry.isEntry === true)
+    .map(([key]) => key);
+  const visited = new Set<string>();
+  for (let key = pending.pop(); key !== undefined; key = pending.pop()) {
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const entry = manifest.get(key);
+    if (entry === undefined) throw new Error(`build manifest import is missing: ${key}`);
+    if (routeGroup(entry.name ?? '') === undefined) groupedFiles.initial.add(entry.file);
+    pending.push(...(entry.imports ?? []));
+  }
+  for (const entry of manifest.values()) {
+    const group = routeGroup(entry.name ?? '');
+    if (group !== undefined) groupedFiles[group].add(entry.file);
+  }
+  return groupedFiles;
+}
+
 async function gzipBytes(files: ReadonlySet<string>): Promise<number> {
   let total = 0;
   for (const file of files) total += gzipSync(await readFile(resolve(dist, file))).byteLength;
@@ -81,18 +115,7 @@ async function main(): Promise<void> {
       cause: error,
     });
   }
-  const manifest = parseManifest(rawManifest);
-  const groupedFiles: Record<BudgetGroup, Set<string>> = {
-    initial: new Set<string>(),
-    authentication: new Set<string>(),
-    viewer: new Set<string>(),
-    member: new Set<string>(),
-  };
-  for (const entry of manifest.values()) {
-    if (entry.isEntry === true) groupedFiles.initial.add(entry.file);
-    const group = routeGroup(entry.name ?? '');
-    if (group !== undefined) groupedFiles[group].add(entry.file);
-  }
+  const groupedFiles = budgetFiles(parseManifest(rawManifest));
 
   for (const [group, limit] of Object.entries(budgets) as [BudgetGroup, number][]) {
     const size = await gzipBytes(groupedFiles[group]);
@@ -109,7 +132,8 @@ async function main(): Promise<void> {
     );
 }
 
-void main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1]?.endsWith('check-browser-budgets.ts'))
+  void main().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });

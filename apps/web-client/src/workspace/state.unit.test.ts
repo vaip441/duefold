@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   contrastRatio,
+  exportSelectionProblem,
   formatSize,
   presentExport,
   presentProcessing,
@@ -118,6 +119,19 @@ describe('presentExport', () => {
   it('offers no download while generating or after failure', () => {
     for (const state of ['generating', 'failed', 'deleted', 'expired'])
       expect(presentExport(record({ state }), now).canDownload).toBe(false);
+  });
+});
+
+describe('exportSelectionProblem', () => {
+  it('blocks a selected-documents review that is empty or above the server cap', () => {
+    expect(exportSelectionProblem('selected-documents', 0)).toBe('none-selected');
+    expect(exportSelectionProblem('selected-documents', 1000)).toBeNull();
+    expect(exportSelectionProblem('selected-documents', 1001)).toBe('too-many');
+  });
+
+  it('ignores the selection for a preset that does not send it', () => {
+    expect(exportSelectionProblem('room-index-audit', 0)).toBeNull();
+    expect(exportSelectionProblem('participant-access', 1001)).toBeNull();
   });
 });
 

@@ -18,12 +18,14 @@ export function createHandler(dependencies: RequiredMailDeliveryDependencies) {
     const invitationId = field(job.payload, 'invitationId');
     const roomId = field(job.payload, 'roomId');
     const mail = (
-      await dependencies.pool.query<{ email_display: string }>(
+      await dependencies.pool.query<{ email_display: string | null }>(
         'SELECT * FROM read_viewer_invitation_mail($1,$2,$3,$4,$5)',
         [invitationId, roomId, job.id, context.leaseOwner, job.lease_token],
       )
     ).rows[0];
     if (mail === undefined) throw new Error('INVITATION_MAIL_FORBIDDEN');
+    // An accepted, revoked or lapsed invitation needs no mail; completing is not a failure.
+    if (mail.email_display === null) return;
     const base = new URL(dependencies.publicUrl);
     base.pathname = '/read';
     base.search = '';

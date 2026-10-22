@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return createDeliveryHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('protected page delivery route runtime not initialized');
-}

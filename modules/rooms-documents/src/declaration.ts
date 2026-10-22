@@ -288,6 +288,12 @@ export const moduleDeclaration: ModuleDeclaration = {
     { id: '039_member_state_paging', file: '039_member_state_paging.sql' },
     { id: '041_unused_preview_page_recorder', file: '041_unused_preview_page_recorder.sql' },
     { id: '042_sign_in_retention', file: '042_sign_in_retention.sql' },
+    { id: '043_preview_activity_resume', file: '043_preview_activity_resume.sql' },
+    { id: '045_published_entry_lookup', file: '045_published_entry_lookup.sql' },
+    { id: '046_audit_export_paging', file: '046_audit_export_paging.sql' },
+    { id: '049_structure_corrections', file: '049_structure_corrections.sql' },
+    { id: '050_directory_upload_destination', file: '050_directory_upload_destination.sql' },
+    { id: '051_audit_retention_sweep', file: '051_audit_retention_sweep.sql' },
   ],
   jobs: [
     {
@@ -368,6 +374,13 @@ export const moduleDeclaration: ModuleDeclaration = {
     {
       id: 'sign_in.retention.sweep',
       handler: 'jobs/sign-in-retention.ts',
+      handlerFactoryExport: 'createHandler',
+      service: 'worker',
+      everySeconds: 24 * 60 * 60,
+    },
+    {
+      id: 'audit.retention.sweep',
+      handler: 'jobs/audit-retention.ts',
       handlerFactoryExport: 'createHandler',
       service: 'worker',
       everySeconds: 24 * 60 * 60,

@@ -166,7 +166,9 @@ The upstream image starts freshclam before clamd, so its first update cannot
 notify the daemon and clamd keeps serving the signatures baked into the image
 until the next scheduled cycle; Duefold then refuses to publish anything.
 `deploy/clamav.Dockerfile` starts clamd first and runs one notified update, so the
-scanner is current as soon as it is reachable.
+scanner is current as soon as it is reachable. It also raises clamd's 100 MB scan
+limits to cover every accepted upload; the stock image refuses larger uploads, so
+they fail processing.
 
 ## 6. Web and worker services
 

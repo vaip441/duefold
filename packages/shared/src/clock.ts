@@ -17,7 +17,3 @@ export class FixedClock implements Clock {
     return new Date(this.#instant.getTime());
   }
 }
-
-export function addSeconds(instant: Date, seconds: number): Date {
-  return new Date(instant.getTime() + seconds * 1_000);
-}

@@ -42,6 +42,3 @@ export function createHandler(runtime: WebRuntime) {
     return null;
   };
 }
-export function handler(): never {
-  throw new Error('OIDC route runtime not initialized');
-}

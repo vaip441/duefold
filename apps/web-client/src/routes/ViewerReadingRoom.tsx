@@ -20,7 +20,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isAborted } from '../api/abort.ts';
 import {
   ApiError,
-  beginPreview,
   createDownloadLease,
   fetchDownloadRange,
   loadViewerDocument,
@@ -34,21 +33,21 @@ import {
   type ViewerRoom,
 } from '../api/client.ts';
 import { AppShell } from '../components/AppShell.tsx';
+import { DocumentPages } from '../components/DocumentPages.tsx';
 import { DownloadPanel, type DownloadState } from '../components/DownloadPanel.tsx';
-import { FindBar } from '../components/FindBar.tsx';
 import { LinkInterstitial } from '../components/LinkInterstitial.tsx';
 import { Notice } from '../components/Notice.tsx';
-import { PageReader } from '../components/PageReader.tsx';
 import { ThemeSelect, type ThemeChoice } from '../components/ThemeSelect.tsx';
 import { translate } from '../i18n/translate.ts';
 import { protectedPageSource } from '../viewer/page-source.ts';
-import { entryDepth } from '../viewer/structure-depth.ts';
+import { collectionEntries, depthFirst, entryDepth } from '../viewer/structure-depth.ts';
 import { useDocumentReader } from '../viewer/useDocumentReader.ts';
-import { usePreviewEvidence } from '../viewer/usePreviewEvidence.ts';
+import { usePreviewEvidence, type AccessLoss } from '../viewer/usePreviewEvidence.ts';
 import { useViewerIntroduction } from '../branding/useViewerIntroduction.ts';
 import { formatViewerLocation, parseViewerLocation, useLocation } from '../navigation.ts';
-import { DocumentPager } from '../components/DocumentPager.tsx';
 import { RoomContents } from '../components/RoomContents.tsx';
+import { presentFailure } from '../workspace/failures.ts';
+import type { Load } from '../workspace/state.ts';
 
 export interface ViewerReadingRoomProps {
   readonly theme: ThemeChoice;
@@ -56,42 +55,17 @@ export interface ViewerReadingRoomProps {
   readonly onSignedOut: () => void;
 }
 
-type Load<T> =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly value: T }
-  | { readonly kind: 'failed'; readonly failure: string };
-
 /** One range request per chunk. 4 MiB keeps memory bounded on long documents. */
 const RANGE_CHUNK = 4 * 1024 * 1024;
 
-function failureMessage(error: unknown): string {
-  if (!(error instanceof ApiError)) return translate('error.unavailable.body');
-  switch (error.failure) {
-    case 'offline':
-      return translate('app.offline.body');
-    case 'denied':
-      return translate('error.denied.body');
-    case 'fresh-authentication-required':
-      return translate('error.freshSignIn.body');
-    case 'not-found':
-      return translate('error.notFound.body');
-    case 'unauthenticated':
-      return translate('viewer.expired');
-    case 'rate-limited':
-      return translate('otp.paused');
-    /*
-     * A viewer performs no optimistic write, so a 409 is not a stale-revision
-     * collision they can resolve; and a 400 from a viewer request means the
-     * client built a malformed one. Both are reported as the neutral unavailable
-     * state rather than inventing viewer-facing copy for a condition a viewer
-     * cannot act on.
-     */
-    case 'conflict':
-    case 'invalid':
-    case 'export-too-large':
-    case 'unavailable':
-      return translate('error.unavailable.body');
-  }
+/* A viewer performs no write, so a 409 is not a collision they can resolve and a 400
+   means the client built a malformed request: neither gets copy asking them to act. */
+function viewerFailure(error: unknown): string {
+  const failure = error instanceof ApiError ? error.failure : null;
+  if (failure === 'unauthenticated') return translate('viewer.expired');
+  if (failure === 'conflict' || failure === 'invalid' || failure === 'export-too-large')
+    return translate('error.unavailable.body');
+  return presentFailure(error).body;
 }
 
 export function ViewerReadingRoom({
@@ -122,12 +96,10 @@ export function ViewerReadingRoom({
     onStatus: setStatus,
   });
   const { document, openDocument, receiveDocument } = reader;
-  const [activityId, setActivityId] = useState<string | null>(null);
-  const pageSource = useMemo(
-    () => (activityId === null ? null : protectedPageSource(activityId)),
-    [activityId],
-  );
-  const [accessLost, setAccessLost] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [roomLost, setRoomLost] = useState(false);
+  const [roomsRead, setRoomsRead] = useState(0);
+  const [documentWithdrawn, setDocumentWithdrawn] = useState(false);
   const [pendingSignOut, setPendingSignOut] = useState<'this-device' | 'everywhere' | null>(
     null,
   );
@@ -142,11 +114,85 @@ export function ViewerReadingRoom({
   const [download, setDownload] = useState<DownloadState>({ kind: 'idle' });
   const downloadAbort = useRef<AbortController | null>(null);
   const linkAbort = useRef<AbortController | null>(null);
+  const refusalAbort = useRef<AbortController | null>(null);
 
-  const onEvidenceRejected = useCallback(() => {
-    setAccessLost(true);
-  }, []);
-  usePreviewEvidence({ activityId, onRejected: onEvidenceRejected });
+  /* Most readers hold one room. Arriving at the room list with a single entry is a
+     click that decides nothing, so the first arrival lands in the room itself; the
+     room list stays reachable afterwards. */
+  const arrived = useRef(false);
+  /* An ended session ends every room. A refusal ends only the open room: the investor
+     returns to a re-read list of the rooms they can still read, and never lands back
+     in the lost room even when it is the only one listed. */
+  const loseAccess = useCallback(
+    (failure: AccessLoss) => {
+      if (failure === 'unauthenticated') {
+        setSessionEnded(true);
+        return;
+      }
+      arrived.current = true;
+      setRoomLost(true);
+      setRoomsRead((count) => count + 1);
+      navigate({ kind: 'rooms' }, 'replace');
+    },
+    [navigate],
+  );
+  /* A refused open means the published version changed or access ended, and the
+     metadata says which: a new version is read from then on. A withdrawn document
+     reads as unavailable at once, then returns the reader to the room while it still
+     discloses a document, the test the room list applies; otherwise the room stops.
+     Any other failure leaves the page's own retry in place. */
+  const onEvidenceRefused = useCallback(() => {
+    if (openRoomId === null || openDocumentId === null) return;
+    refusalAbort.current?.abort();
+    const controller = new AbortController();
+    refusalAbort.current = controller;
+    loadViewerDocument({ roomId: openRoomId, documentId: openDocumentId }, controller.signal)
+      .then(async (metadata) => {
+        if (isAborted(controller.signal)) return;
+        if (metadata !== null) {
+          receiveDocument({
+            documentId: openDocumentId,
+            load: { kind: 'ready', value: metadata },
+          });
+          return;
+        }
+        receiveDocument({ documentId: openDocumentId, load: { kind: 'ready', value: null } });
+        const value = await loadViewerStructure(openRoomId, controller.signal);
+        if (isAborted(controller.signal)) return;
+        if (!value.some((entry) => entry.resourceKind === 'document')) {
+          loseAccess('denied');
+          return;
+        }
+        setStructure({ kind: 'ready', value });
+        setDocumentWithdrawn(true);
+        setStatus(translate('viewer.document.unavailable'));
+        navigate({ kind: 'room', roomId: openRoomId, documentId: null, page: 1 }, 'replace');
+      })
+      .catch((error: unknown) => {
+        if (isAborted(controller.signal)) return;
+        if (
+          error instanceof ApiError &&
+          (error.failure === 'unauthenticated' || error.failure === 'denied')
+        )
+          loseAccess(error.failure);
+      });
+  }, [openRoomId, openDocumentId, receiveDocument, navigate, loseAccess]);
+  const openActivity = usePreviewEvidence({
+    target:
+      sessionEnded || openRoomId === null || openDocument === null
+        ? null
+        : {
+            roomId: openRoomId,
+            documentId: openDocument.documentId,
+            versionId: openDocument.publishedVersionId,
+          },
+    onRefused: onEvidenceRefused,
+    onRejected: loseAccess,
+  });
+  const pageSource = useMemo(
+    () => (openActivity === null ? null : protectedPageSource(openActivity)),
+    [openActivity],
+  );
 
   const openRoom = useCallback(
     (roomId: string, mode: 'push' | 'replace' = 'push'): void => {
@@ -163,26 +209,32 @@ export function ViewerReadingRoom({
     navigate({ kind: 'room', roomId: openRoomId, documentId: null, page: 1 });
   };
 
+  // Rewrites a bare '/' or a link from before the /read prefix, so a reload after the
+  // session ends offers the investor sign-in. Only a load or Back brings such an address:
+  // navigate writes canonical ones, and replacing one later would undo a newer move.
+  useEffect(() => {
+    const { pathname, search } = window.location;
+    if (formatViewerLocation(parseViewerLocation(pathname, search)) !== `${pathname}${search}`)
+      navigate(location, 'replace');
+  }, [location, navigate]);
+
   useEffect(() => {
     const controller = new AbortController();
+    setRooms({ kind: 'loading' });
     loadViewerRooms(controller.signal).then(
       (value) => {
         setRooms({ kind: 'ready', value });
       },
       (error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        setRooms({ kind: 'failed', failure: failureMessage(error) });
+        setRooms({ kind: 'failed', failure: viewerFailure(error) });
       },
     );
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [roomsRead]);
 
-  /* Most readers hold one room. Arriving at the room list with a single entry is a
-     click that decides nothing, so the first arrival lands in the room itself; the
-     room list stays reachable afterwards. */
-  const arrived = useRef(false);
   useEffect(() => {
     if (arrived.current || rooms.kind !== 'ready') return;
     arrived.current = true;
@@ -192,16 +244,22 @@ export function ViewerReadingRoom({
   }, [rooms, location.kind, openRoom]);
 
   useEffect(() => {
+    setDocumentWithdrawn(false);
     if (openRoomId === null) return;
+    setRoomLost(false);
     const controller = new AbortController();
     setStructure({ kind: 'loading' });
+    // A withdrawal's re-read may answer first, and it is the fresher of the two.
+    const settle = (next: Load<readonly ViewerEntry[]>): void => {
+      setStructure((current) => (current.kind === 'loading' ? next : current));
+    };
     loadViewerStructure(openRoomId, controller.signal).then(
       (value) => {
-        setStructure({ kind: 'ready', value });
+        settle({ kind: 'ready', value });
       },
       (error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        setStructure({ kind: 'failed', failure: failureMessage(error) });
+        settle({ kind: 'failed', failure: viewerFailure(error) });
       },
     );
     return () => {
@@ -209,11 +267,12 @@ export function ViewerReadingRoom({
     };
   }, [openRoomId]);
 
-  // Opening a document: read its metadata, then open one preview activity for
-  // the published version before any page is requested.
+  // Opening a document reads its metadata; the evidence hook then opens the preview
+  // activity for that published version before any page is delivered.
   useEffect(() => {
     if (openRoomId === null || openDocumentId === null) return;
     const controller = new AbortController();
+    setDocumentWithdrawn(false);
     receiveDocument({ documentId: openDocumentId, load: { kind: 'loading' } });
     setDownload({ kind: 'idle' });
 
@@ -228,32 +287,21 @@ export function ViewerReadingRoom({
           documentId: openDocumentId,
           load: { kind: 'ready', value: metadata },
         });
-        if (metadata === null) return;
-        const activity = await beginPreview(
-          {
-            roomId: openRoomId,
-            documentId: openDocumentId,
-            versionId: metadata.publishedVersionId,
-          },
-          controller.signal,
-        );
-        if (isAborted(controller.signal)) return;
-        setActivityId(activity.activityId);
       } catch (error) {
         if (isAborted(controller.signal)) return;
         if (error instanceof DOMException && error.name === 'AbortError') return;
         receiveDocument({
           documentId: openDocumentId,
-          load: { kind: 'failed', failure: failureMessage(error) },
+          load: { kind: 'failed', failure: viewerFailure(error) },
         });
       }
     })();
 
     return () => {
       controller.abort();
-      // Heartbeats follow the activity, so leaving the document by any route stops them.
-      setActivityId(null);
-      // A link or download started under this document must not answer under the next.
+      // A link, download or re-read started under this document must not answer under the next.
+      refusalAbort.current?.abort();
+      refusalAbort.current = null;
       linkAbort.current?.abort();
       linkAbort.current = null;
       setInterstitial(null);
@@ -384,7 +432,7 @@ export function ViewerReadingRoom({
     })();
   };
 
-  const entries = structure.kind === 'ready' ? structure.value : [];
+  const entries = structure.kind === 'ready' ? depthFirst(structure.value) : [];
 
   const depthOf = entryDepth(entries);
 
@@ -398,12 +446,7 @@ export function ViewerReadingRoom({
             kind: 'item' as const,
           }))
         : []
-      : entries.map((entry) => ({
-          id: entry.entryId,
-          title: entry.displayName,
-          depth: depthOf(entry),
-          kind: entry.resourceKind === 'folder' ? ('group' as const) : ('item' as const),
-        }));
+      : collectionEntries(entries, depthOf);
 
   return (
     <AppShell
@@ -508,42 +551,49 @@ export function ViewerReadingRoom({
         </>
       }
     >
-      {accessLost ? (
+      {sessionEnded ? (
         <Notice tone="problem" role="alert">
-          {translate('viewer.revoked')}
+          {translate('viewer.expired')}
         </Notice>
       ) : openRoomId === null ? (
-        rooms.kind === 'loading' ? (
-          <p className="df-field__help">{translate('viewer.rooms.loading')}</p>
-        ) : rooms.kind === 'failed' ? (
-          <Notice tone="problem" role="alert">
-            {rooms.failure}
-          </Notice>
-        ) : rooms.value.length === 0 ? (
-          <div className="df-empty">
-            <span className="df-empty__lead">{translate('viewer.rooms.empty')}</span>
-            {translate('viewer.rooms.emptyHelp')}
-          </div>
-        ) : (
-          <ul className="df-results">
-            {rooms.value.map((room) => (
-              <li key={room.roomId}>
-                <button
-                  type="button"
-                  className="df-button df-button--quiet"
-                  onClick={() => {
-                    openRoom(room.roomId);
-                  }}
-                >
-                  <span className="df-results__name">{room.title}</span>
-                </button>
-                {room.description === '' ? null : (
-                  <span className="df-register__meta">{room.description}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )
+        <>
+          {roomLost ? (
+            <Notice tone="problem" role="alert">
+              {translate('viewer.revoked')}
+            </Notice>
+          ) : null}
+          {rooms.kind === 'loading' ? (
+            <p className="df-field__help">{translate('viewer.rooms.loading')}</p>
+          ) : rooms.kind === 'failed' ? (
+            <Notice tone="problem" role="alert">
+              {rooms.failure}
+            </Notice>
+          ) : rooms.value.length === 0 ? (
+            <div className="df-empty">
+              <span className="df-empty__lead">{translate('viewer.rooms.empty')}</span>
+              {translate('viewer.rooms.emptyHelp')}
+            </div>
+          ) : (
+            <ul className="df-results">
+              {rooms.value.map((room) => (
+                <li key={room.roomId}>
+                  <button
+                    type="button"
+                    className="df-button df-button--quiet"
+                    onClick={() => {
+                      openRoom(room.roomId);
+                    }}
+                  >
+                    <span className="df-results__name">{room.title}</span>
+                  </button>
+                  {room.description === '' ? null : (
+                    <span className="df-register__meta">{room.description}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       ) : openDocumentId === null ? (
         structure.kind === 'loading' ? (
           <p className="df-field__help">{translate('viewer.structure.loading')}</p>
@@ -557,7 +607,22 @@ export function ViewerReadingRoom({
             {translate('viewer.index.emptyHelp')}
           </div>
         ) : (
-          <RoomContents entries={entries} depthOf={depthOf} onOpenDocument={openDocumentById} />
+          <>
+            {documentWithdrawn ? (
+              <Notice
+                tone="caution"
+                role="status"
+                title={translate('viewer.document.unavailable')}
+              >
+                {translate('viewer.document.unavailableHelp')}
+              </Notice>
+            ) : null}
+            <RoomContents
+              entries={entries}
+              depthOf={depthOf}
+              onOpenDocument={openDocumentById}
+            />
+          </>
         )
       ) : document.kind === 'loading' ? (
         <p className="df-field__help">{translate('viewer.document.loading')}</p>
@@ -572,36 +637,16 @@ export function ViewerReadingRoom({
         </div>
       ) : (
         <>
-          <FindBar {...reader.findBar} />
-
-          <DocumentPager
+          <DocumentPages
+            reader={reader}
+            roomId={openRoomId}
+            documentId={openDocumentId}
             pageNumber={pageNumber}
             pageCount={openDocument.pageCount}
-            zoom={reader.zoom}
-            onPage={reader.goToPage}
-            onZoom={reader.setZoom}
+            source={pageSource}
+            onLinkActivate={openLink}
+            onUnauthorized={loseAccess}
           />
-
-          {pageSource === null ? (
-            <p className="df-field__help">{translate('viewer.document.loading')}</p>
-          ) : (
-            <div className="df-page-zoom" data-zoom={reader.zoom}>
-              <PageReader
-                roomId={openRoomId}
-                documentId={openDocumentId}
-                pageNumber={pageNumber}
-                totalPages={openDocument.pageCount}
-                source={pageSource}
-                matches={reader.matches}
-                currentMatch={reader.currentMatch}
-                onTextLayer={reader.onTextLayer}
-                onLinkActivate={openLink}
-                onUnauthorized={() => {
-                  setAccessLost(true);
-                }}
-              />
-            </div>
-          )}
 
           <DownloadPanel
             policy={openDocument.downloadPolicy}

@@ -8,13 +8,14 @@
 import { useId, type ReactElement } from 'react';
 import type { GrantTargetKind, WorkingEntry } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
+import type { PathOption } from '../viewer/structure-depth.ts';
 import type { GrantDraft, GrantDraftProblem } from '../workspace/grants.ts';
 
 export interface GrantDraftFieldsProps {
   readonly draft: GrantDraft;
   readonly problems: readonly GrantDraftProblem[];
-  readonly folders: readonly WorkingEntry[];
-  readonly documents: readonly WorkingEntry[];
+  readonly folders: readonly PathOption<WorkingEntry>[];
+  readonly documents: readonly PathOption<WorkingEntry>[];
   readonly firstField?: React.Ref<HTMLSelectElement | HTMLInputElement>;
   readonly onDraftChange: (draft: GrantDraft) => void;
 }
@@ -78,9 +79,9 @@ export function GrantDraftFields({
                 }}
               >
                 <option value="">{translate('grant.target.pick')}</option>
-                {folders.map((folder) => (
+                {folders.map(({ entry: folder, label }) => (
                   <option key={folder.resourceId} value={folder.resourceId}>
-                    {folder.displayName}
+                    {label}
                   </option>
                 ))}
               </select>
@@ -104,9 +105,9 @@ export function GrantDraftFields({
                 }}
               >
                 <option value="">{translate('grant.target.pick')}</option>
-                {documents.map((document) => (
+                {documents.map(({ entry: document, label }) => (
                   <option key={document.resourceId} value={document.resourceId}>
-                    {document.displayName}
+                    {label}
                   </option>
                 ))}
               </select>

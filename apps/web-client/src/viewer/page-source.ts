@@ -35,7 +35,7 @@ export interface PageSource {
 
 type ProtectedPage = Awaited<ReturnType<typeof createProtectedPage>>;
 
-export function protectedPageSource(activityId: string): PageSource {
+export function protectedPageSource(openActivity: () => Promise<string>): PageSource {
   /*
    * Composing a watermarked page is the slow step, so the next page is composed while
    * the current one is read. Composition records nothing: evidence is written only
@@ -56,7 +56,12 @@ export function protectedPageSource(activityId: string): PageSource {
   };
   return {
     async load(page, signal) {
-      const [composed, layer] = await Promise.all([compose(page), loadTextLayer(page, signal)]);
+      // Delivery requires an active activity, and it may have ended since the last page.
+      const [composed, layer, activityId] = await Promise.all([
+        compose(page),
+        loadTextLayer(page, signal),
+        openActivity(),
+      ]);
       return {
         imageUrl: protectedPageImageUrl({ cacheId: composed.cacheId, activityId }),
         layer,

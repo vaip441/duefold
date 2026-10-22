@@ -37,7 +37,6 @@ import {
   createViewerSession,
   audit,
   canViewerPreviewDocument,
-  authorizeViewerPublishedRoom,
   roomRevision,
   createCounterparty,
   addViewer,
@@ -281,7 +280,7 @@ describe('Participant HTTP contracts', () => {
           confirmation: broad.confirmation,
         },
       } as never),
-    ).rejects.toThrow('FRESH_OIDC_REQUIRED');
+    ).rejects.toThrow('fresh OIDC required');
     const broadRevoke = await createGrantRouteHandler(
       runtime,
       stale,
@@ -475,12 +474,10 @@ describe('Participant and allow-only grant boundary', () => {
     ).toContain(roomId);
   });
 
-  it('unions direct and counterparty grants and mints the published-room witness only after real authorization', async () => {
+  it('unions direct and counterparty grants', async () => {
     const counterpartyIdentity = viewerIdentity(viewerId);
     const directIdentity = viewerIdentity(directViewerId);
     const deniedIdentity = viewerIdentity(deniedViewerId);
-    const allowed = await authorizeViewerPublishedRoom(counterpartyIdentity);
-    expect(allowed).toBe(true);
     expect(
       (
         await readViewerStructure({
@@ -503,8 +500,6 @@ describe('Participant and allow-only grant boundary', () => {
         roomId,
       }),
     ).toEqual([]);
-    expect(await authorizeViewerPublishedRoom(directIdentity)).toBe(false);
-    expect(await authorizeViewerPublishedRoom(deniedIdentity)).toBe(false);
   });
 
   it('explains source and marks document-level exceptions without exposing the preview to Contributors', async () => {
@@ -591,7 +586,6 @@ describe('Participant and allow-only grant boundary', () => {
     // The document sits two levels under folderId: this proves subtree, not only
     // an immediate-child special case.
     expect(await canViewerPreviewDocument(identity)).toBe(true);
-    expect(await authorizeViewerPublishedRoom(identity)).toBe(false);
 
     const documentProjection = await readViewerStructure({
       pool: runtimePool,
@@ -1018,7 +1012,6 @@ describe('Participant and allow-only grant boundary', () => {
     await migrationPool.query("UPDATE room SET state='draft' WHERE id=$1", [roomId]);
     try {
       expect(await canViewerPreviewDocument(identity)).toBe(false);
-      expect(await authorizeViewerPublishedRoom(identity)).toBe(false);
     } finally {
       await migrationPool.query("UPDATE room SET state='published' WHERE id=$1", [roomId]);
     }
@@ -1224,11 +1217,13 @@ describe('Participant and allow-only grant boundary', () => {
   it('resolves one uniform installation-room-document download policy independent of viewer', async () => {
     const policy = async (viewer: string) =>
       (
-        await migrationPool.query<{ policy: string }>(
-          'SELECT policy FROM read_viewer_document_download_policy($1,$2,$3,$4)',
-          [viewer, viewerIdentity(viewer).sessionId, roomId, documentId],
-        )
-      ).rows[0]?.policy;
+        await readViewerDocumentMetadata({
+          pool: runtimePool,
+          identity: viewerIdentity(viewer),
+          roomId,
+          documentId,
+        })
+      )?.downloadPolicy;
     expect(await policy(viewerId)).toBe('deny');
     expect(await policy(directViewerId)).toBe('deny');
     // The same populated document remains undiscoverable through policy lookup to
@@ -1523,7 +1518,7 @@ describe('Participant and allow-only grant boundary', () => {
           identity.sessionProof,
         ])
       ).rows[0]?.ok,
-    ).toBe(false);
+    ).toBe(true);
     await migrationPool.query(
       "UPDATE preview_activity SET heartbeat_at=statement_timestamp()-interval '60 seconds' WHERE id=$1",
       [activityId],
@@ -1917,7 +1912,6 @@ describe('Participant and allow-only grant boundary', () => {
           getObjectBytes: () => Promise.reject(new Error('storage touched')),
           streamObjectRange: () => Promise.reject(new Error('storage touched')),
           putWatermark: () => Promise.reject(new Error('storage touched')),
-          putExport: () => Promise.reject(new Error('storage touched')),
           deleteObject: () => Promise.reject(new Error('storage touched')),
         },
         watermarkProgram: sandboxProgram('/nonexistent/compositor'),

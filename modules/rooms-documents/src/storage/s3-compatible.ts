@@ -5,6 +5,7 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
@@ -12,6 +13,7 @@ import {
   S3Client,
   S3ServiceException,
   UploadPartCommand,
+  paginateListObjectsV2,
   type CompletedPart,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -115,11 +117,6 @@ export interface DeliveryStorage {
     readonly bytes: Uint8Array;
     readonly contentType: 'image/png' | 'image/webp';
   }): Promise<void>;
-  putExport(input: {
-    readonly key: string;
-    readonly bytes: Uint8Array;
-    readonly contentType: 'application/json' | 'application/zip';
-  }): Promise<void>;
   deleteObject(key: string): Promise<void>;
 }
 export interface WorkerStorage extends WebStorage {
@@ -135,13 +132,22 @@ export interface WorkerStorage extends WebStorage {
     readonly key: string;
     readonly bytes: Uint8Array;
   }): Promise<void>;
+  listDeletionMarkedRoomIds(): Promise<readonly string[]>;
   putDerivative(input: {
     readonly key: string;
     readonly bytes: Uint8Array;
     readonly contentType: 'image/png' | 'image/webp';
     readonly sha256Base64: string;
   }): Promise<void>;
+  /** Deletes 1 to DELETE_OBJECTS_BATCH_KEYS keys in one request. */
+  deleteObjects(keys: readonly string[]): Promise<void>;
 }
+
+/** The S3 DeleteObjects per-request key limit. */
+export const DELETE_OBJECTS_BATCH_KEYS = 1000;
+const DELETION_MARKER_PREFIX = 'system/deletion-markers/v1/';
+const DELETION_MARKER_KEY =
+  /^system\/deletion-markers\/v1\/([A-Za-z0-9_-]{32})\/[A-Za-z0-9_-]{32}\.json$/u;
 
 function endpointUrl(raw: string): URL {
   const endpoint = new URL(raw);
@@ -360,21 +366,6 @@ export function createDeliveryStorage(config: WebStorageConfig): DeliveryStorage
         }),
       );
     },
-    async putExport(input): Promise<void> {
-      if (!/^exports\/[A-Za-z0-9_-]{32}\/[A-Za-z0-9_-]{32}$/u.test(input.key))
-        throw new Error('STORAGE_EXPORT_KEY_INVALID');
-      await client.send(
-        new PutObjectCommand({
-          Bucket: config.bucket,
-          Key: input.key,
-          Body: input.bytes,
-          ContentType: input.contentType,
-          ServerSideEncryption: 'AES256',
-          Metadata: { 'duefold-private-temporary': 'export' },
-          IfNoneMatch: '*',
-        }),
-      );
-    },
     async deleteObject(key): Promise<void> {
       await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
     },
@@ -480,11 +471,7 @@ export function createWorkerStorage(config: WorkerStorageConfig): WorkerStorage 
       }
     },
     async putSystemDeletionMarker(input): Promise<void> {
-      if (
-        !/^system\/deletion-markers\/v1\/[A-Za-z0-9_-]{32}\/[A-Za-z0-9_-]{32}\.json$/u.test(
-          input.key,
-        )
-      )
+      if (!DELETION_MARKER_KEY.test(input.key))
         throw new Error('STORAGE_DELETION_MARKER_KEY_INVALID');
       if (input.bytes.byteLength < 2 || input.bytes.byteLength > 4096)
         throw new Error('STORAGE_DELETION_MARKER_SIZE_INVALID');
@@ -509,6 +496,32 @@ export function createWorkerStorage(config: WorkerStorageConfig): WorkerStorage 
          * reading or overwriting provider-versioned marker evidence.
          */
       }
+    },
+    async listDeletionMarkedRoomIds(): Promise<readonly string[]> {
+      const roomIds: string[] = [];
+      for await (const page of paginateListObjectsV2(
+        { client },
+        { Bucket: config.bucket, Prefix: DELETION_MARKER_PREFIX },
+      ))
+        for (const object of page.Contents ?? []) {
+          // An unrecognized object in the marker prefix cannot be ruled out as a marker.
+          const roomId = DELETION_MARKER_KEY.exec(object.Key ?? '')?.[1];
+          if (roomId === undefined) throw new Error('STORAGE_DELETION_MARKER_KEY_INVALID');
+          roomIds.push(roomId);
+        }
+      return roomIds;
+    },
+    async deleteObjects(keys): Promise<void> {
+      if (keys.length < 1 || keys.length > DELETE_OBJECTS_BATCH_KEYS)
+        throw new Error('STORAGE_DELETE_BATCH_INVALID');
+      const result = await client.send(
+        new DeleteObjectsCommand({
+          Bucket: config.bucket,
+          Delete: { Objects: keys.map((key) => ({ Key: key })), Quiet: true },
+        }),
+      );
+      // The request succeeds even when keys fail; each failure is listed per key instead.
+      if ((result.Errors ?? []).length > 0) throw new Error('STORAGE_DELETE_FAILED');
     },
     async getObjectBytes(key): Promise<Uint8Array> {
       const result = await client.send(

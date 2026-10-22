@@ -2,7 +2,6 @@ import type { Pool } from 'pg';
 import type { FastifyRequest } from 'fastify';
 import type { PrincipalIdentity } from '../../../modules/core-security/src/authorization.ts';
 import {
-  constantTimeDigestMatch,
   digestSecret,
   IDLE_RENEWAL_CADENCE_MINUTES,
   SESSION_COOKIE,
@@ -87,11 +86,15 @@ export function createSessionAuthenticator(
            OR (s.principal_kind = 'viewer' AND v.id IS NOT NULL))
        GROUP BY s.id,s.family_id,s.principal_kind,s.member_id,s.viewer_id,s.csrf_digest,
                 s.secret_digest,s.oidc_authenticated_at,m.id`,
-      [digestSecret(secret), policy.idleMinutes, IDLE_RENEWAL_CADENCE_MINUTES],
+      // Renewing at most every half idle period keeps a short idle limit from lapsing between renewals.
+      [
+        digestSecret(secret),
+        policy.idleMinutes,
+        Math.min(IDLE_RENEWAL_CADENCE_MINUTES, policy.idleMinutes / 2),
+      ],
     );
     const session = result.rows[0];
-    if (session === undefined || !constantTimeDigestMatch(secret, session.secret_digest))
-      return null;
+    if (session === undefined) return null;
     let principal: PrincipalIdentity;
     if (session.principal_kind === 'member') {
       if (session.member_id === null || session.global_role === null) return null;

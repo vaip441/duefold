@@ -456,6 +456,8 @@ height so they satisfy WCAG 2.2 2.5.8 without looking like controls.
   var(--accent)`, so the checked state is the system green in both themes rather than
   the browser's blue. A radio row's whole label is its target; a register's selection
   checkbox sits in a `2.75rem` label target.
+- **Entry pickers:** a folder or document option is named by its path from the room root
+  ("2024 / Contracts"), in reading order, so two entries that share a name never read alike.
 - **Fieldsets:** a fieldset is a panel block — one rule above, its legend flowing as the
   block's subheading — never a bordered box.
 - **Code field:** tracked 0.32em at 1.25rem with tabular figures and an `11em`

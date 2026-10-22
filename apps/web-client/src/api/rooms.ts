@@ -319,8 +319,40 @@ export async function loadRoomWorkspace(
 }
 
 /** Structure mutations. The body is a discriminated union the server validates. */
-export async function mutateStructure(body: Readonly<Record<string, unknown>>): Promise<void> {
-  await json({ method: 'POST', path: '/api/rooms/structure', body });
+export async function mutateStructure(
+  body: Readonly<Record<string, unknown>>,
+): Promise<{ readonly workingRevision: number }> {
+  const payload = await json({ method: 'POST', path: '/api/rooms/structure', body });
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  return { workingRevision: requireInteger(payload, 'workingRevision') };
+}
+
+/** Creates a working folder and returns its id, which a directory upload attaches files to. */
+export async function createFolder(input: {
+  readonly roomId: string;
+  readonly parentFolderId: string | null;
+  readonly displayName: string;
+  readonly expectedWorkingRevision: number;
+  readonly signal: AbortSignal;
+}): Promise<{ readonly workingRevision: number; readonly folderId: string }> {
+  const payload = await json({
+    method: 'POST',
+    path: '/api/rooms/structure',
+    body: {
+      action: 'create-folder',
+      roomId: input.roomId,
+      ...(input.parentFolderId === null ? {} : { parentFolderId: input.parentFolderId }),
+      displayName: input.displayName,
+      description: '',
+      expectedWorkingRevision: input.expectedWorkingRevision,
+    },
+    signal: input.signal,
+  });
+  if (!isRecord(payload)) throw new ApiError('unavailable');
+  return {
+    workingRevision: requireInteger(payload, 'workingRevision'),
+    folderId: requireString(payload, 'folderId'),
+  };
 }
 
 export async function publicationDryRun(roomId: string): Promise<PublicationImpact> {
@@ -416,22 +448,6 @@ export async function searchRoom(
   });
   return requireArray(payload, 'results') as readonly SearchHit[];
 }
-
-/*
- * ---------------------------------------------------------------------------
- * Viewer reading room
- *
- * Everything a viewer sees is what the server disclosed for that viewer's own
- * session. The client never filters a room, folder, document, or page for
- * itself: an entry absent from these responses is absent because the server
- * made an authorization decision, so there is no client-side list to leak an
- * inaccessible title, path, count, or peer.
- *
- * `downloadPolicy` is echoed from the server so the UI does not offer an action
- * the server would refuse. It is not a permission: the lease endpoint decides,
- * and every range request is re-authorized.
- * ---------------------------------------------------------------------------
- */
 
 export interface NewRoom {
   readonly title: string;

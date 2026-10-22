@@ -7,11 +7,8 @@ import {
 import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
 import { systemClock } from '@duefold/shared/clock';
 import { createResilientPool } from '@duefold/shared/database-pool';
-import { installProcessFailureHandlers } from '@duefold/shared/process-errors';
+import { boundedClose, installProcessFailureHandlers } from '@duefold/shared/process-errors';
 import { loadConfig } from '../../../modules/core-security/src/config.ts';
-import { appendAudit } from '../../../modules/core-security/src/audit.ts';
-import { createDatabase } from '../../../modules/core-security/src/db/database.ts';
-import { createCorrelationId } from '@duefold/shared/ids';
 import { composedManifest } from '../../../.duefold/generated/manifest.ts';
 import { generatedJobs } from '../../../.duefold/generated/jobs.ts';
 import { generatedMigrations } from '../../../.duefold/generated/migrations.ts';
@@ -46,6 +43,13 @@ const terminate = installProcessFailureHandlers('web', {
   close: () => closeResources(),
   stage: () => startupStage,
 });
+/* Closing drains in-flight requests, bounded like the crash path: a keep-alive socket whose
+   response finishes after close() began stays open until keepAliveTimeout (72 s), past the
+   platform's SIGKILL. A close rejection still reaches the failure handler. */
+for (const signal of ['SIGTERM', 'SIGINT'] as const)
+  process.once(signal, () => {
+    void boundedClose(closeResources).then(() => process.exit(0));
+  });
 
 function stringConfig(
   config: Readonly<Record<string, string | number | boolean>>,
@@ -126,8 +130,6 @@ try {
     application_name: 'duefold-authenticator',
   });
   await assertDistinctDatabaseRoles(pool, authPool);
-  const database = createDatabase(databaseUrl);
-  const authDatabase = createDatabase(authenticatorDatabaseUrl);
   const sessionPolicy = {
     idleMinutes: numberConfig(config, 'DUEFOLD_SESSION_IDLE_MINUTES'),
     absoluteHours: numberConfig(config, 'DUEFOLD_SESSION_ABSOLUTE_HOURS'),
@@ -193,26 +195,6 @@ try {
     ]),
     classifyClient,
     ...(sandboxIsolation.mode === 'namespaced' ? {} : { sandboxIsolation }),
-    revokeSession: async (sessionId, principal) => {
-      await authDatabase.transaction().execute(async (transaction) => {
-        const result = await transaction
-          .updateTable('session')
-          .set({ state: 'revoked' })
-          .where('id', '=', sessionId)
-          .where('state', '=', 'active')
-          .executeTakeFirst();
-        if (result.numUpdatedRows !== 1n) throw new Error('session is not active');
-        await appendAudit(transaction, {
-          eventType: 'session.revoked',
-          actorKind: principal.kind,
-          actorId: principal.id,
-          subjectId: sessionId,
-          result: 'success',
-          reasonCode: 'SIGN_OUT',
-          correlationId: createCorrelationId(),
-        });
-      });
-    },
   };
   startupStage = 'application';
   const app = await buildWebApp({
@@ -257,8 +239,6 @@ try {
     ),
   });
   app.addHook('onClose', async () => {
-    await authDatabase.destroy();
-    await database.destroy();
     await authPool.end();
     await pool.end();
   });

@@ -60,7 +60,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     }
   };
 }
-
-export function handler(): never {
-  throw new Error('branding route runtime not initialized');
-}

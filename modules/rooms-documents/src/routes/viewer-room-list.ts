@@ -27,6 +27,3 @@ export const schema = {
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return async () => ({ rooms: await readViewerRooms({ pool: runtime.pool, identity }) });
 }
-export function handler(): never {
-  throw new Error('viewer room list route runtime not initialized');
-}

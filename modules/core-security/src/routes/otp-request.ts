@@ -72,6 +72,3 @@ export function createHandler(runtime: WebRuntime) {
     return { ...NEUTRAL_AUTH_RESPONSE, challengeId: challenge.id };
   };
 }
-export function handler(): never {
-  throw new Error('OTP route runtime not initialized');
-}

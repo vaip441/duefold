@@ -17,6 +17,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { translate, type MessageKey } from '../i18n/translate.ts';
 import type { PublicationChangeKind, WorkingEntry } from '../api/client.ts';
+import { depthFirst } from '../viewer/structure-depth.ts';
 import type { StructureDownloads } from '../workspace/room-settings.ts';
 import { DownloadMarker, DownloadOverrideControl } from './DownloadOverrideControl.tsx';
 import {
@@ -39,7 +40,11 @@ const CHANGE_LABEL: Readonly<Record<PublicationChangeKind, MessageKey>> = {
 
 export interface StructureTableProps {
   readonly entries: readonly WorkingEntry[];
-  readonly busyEntryId: string | null;
+  /**
+   * A structure write or its refresh is in flight. Every row still carries the revisions it
+   * replaced, so any row action now would be refused as a conflict.
+   */
+  readonly pending: boolean;
   /** Entry ids currently selected for a bulk action. */
   readonly selection?: readonly string[];
   readonly onSelectionChange?: (selection: readonly string[]) => void;
@@ -63,7 +68,7 @@ function statusText(entry: WorkingEntry): string {
 
 export function StructureTable({
   entries,
-  busyEntryId,
+  pending,
   selection,
   onSelectionChange,
   folders,
@@ -85,6 +90,7 @@ export function StructureTable({
   const rows = useRef(new Map<string, HTMLTableRowElement>());
   const previousTops = useRef(new Map<string, number>());
   const selectable = selection !== undefined && onSelectionChange !== undefined;
+  const selected = new Set(selection);
 
   useLayoutEffect(() => {
     const currentTops = new Map<string, number>();
@@ -160,8 +166,7 @@ export function StructureTable({
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => {
-            const busy = busyEntryId === entry.entryId;
+          {depthFirst(entries).map((entry) => {
             return (
               <tr
                 ref={(node) => {
@@ -180,8 +185,8 @@ export function StructureTable({
                     <label className="df-select-target">
                       <input
                         type="checkbox"
-                        checked={selection.includes(entry.entryId)}
-                        disabled={busy || entry.stagedRemoved}
+                        checked={selected.has(entry.entryId)}
+                        disabled={pending || entry.stagedRemoved}
                         aria-label={translate('bulk.selectRow', { name: entry.displayName })}
                         onChange={(event) => {
                           onSelectionChange(
@@ -211,7 +216,7 @@ export function StructureTable({
                         noValidate
                         onSubmit={(event) => {
                           event.preventDefault();
-                          if (busy || draftName.trim() === '') return;
+                          if (pending || draftName.trim() === '') return;
                           onRename(entry, draftName.trim());
                           setRenaming(null);
                         }}
@@ -223,7 +228,7 @@ export function StructureTable({
                           id={renameFieldId}
                           className="df-field__input df-field__input--inline"
                           value={draftName}
-                          disabled={busy}
+                          disabled={pending}
                           onChange={(event) => {
                             setDraftName(event.target.value);
                           }}
@@ -231,14 +236,14 @@ export function StructureTable({
                         <button
                           type="submit"
                           className="df-button df-button--primary"
-                          disabled={busy || draftName.trim() === ''}
+                          disabled={pending || draftName.trim() === ''}
                         >
                           {translate('structure.rename.submit')}
                         </button>
                         <button
                           type="button"
                           className="df-button df-button--quiet"
-                          disabled={busy}
+                          disabled={pending}
                           onClick={() => {
                             setRenaming(null);
                           }}
@@ -297,7 +302,7 @@ export function StructureTable({
                         <button
                           type="button"
                           className="df-button df-button--quiet"
-                          disabled={busy || !entry.canMoveUp}
+                          disabled={pending || !entry.canMoveUp}
                           onClick={() => {
                             onReorder(entry, entry.position - 1);
                           }}
@@ -308,7 +313,7 @@ export function StructureTable({
                         <button
                           type="button"
                           className="df-button df-button--quiet"
-                          disabled={busy || !entry.canMoveDown}
+                          disabled={pending || !entry.canMoveDown}
                           onClick={() => {
                             onReorder(entry, entry.position + 1);
                           }}
@@ -323,7 +328,7 @@ export function StructureTable({
                         className="df-button"
                         aria-expanded={managing === entry.entryId}
                         aria-controls={`manage-${entry.entryId}`}
-                        disabled={busy}
+                        disabled={pending}
                         onClick={() => {
                           setManaging((current) =>
                             current === entry.entryId ? null : entry.entryId,
@@ -343,7 +348,7 @@ export function StructureTable({
                           <button
                             type="button"
                             className="df-button df-button--quiet"
-                            disabled={busy}
+                            disabled={pending}
                             onClick={() => {
                               setRenaming(entry.entryId);
                               setDraftName(entry.displayName);
@@ -355,7 +360,7 @@ export function StructureTable({
                             <button
                               type="button"
                               className="df-button df-button--quiet"
-                              disabled={busy}
+                              disabled={pending}
                               onClick={() => {
                                 setMoving(entry.entryId);
                                 setEditingMetadata(null);
@@ -369,7 +374,7 @@ export function StructureTable({
                             <button
                               type="button"
                               className="df-button df-button--quiet"
-                              disabled={busy}
+                              disabled={pending}
                               onClick={() => {
                                 setEditingMetadata(entry.entryId);
                                 setMoving(null);
@@ -382,7 +387,7 @@ export function StructureTable({
                             <button
                               type="button"
                               className="df-button df-button--quiet"
-                              disabled={busy}
+                              disabled={pending}
                               onClick={() => {
                                 onStageRemoval(entry);
                               }}
@@ -411,7 +416,7 @@ export function StructureTable({
                           <MoveForm
                             entry={entry}
                             folders={folders}
-                            pending={busy}
+                            pending={pending}
                             onMove={(input) => {
                               onMove(input);
                               setMoving(null);
@@ -426,7 +431,7 @@ export function StructureTable({
                         entry.resourceKind === 'document' ? (
                           <MetadataForm
                             entry={entry}
-                            pending={busy}
+                            pending={pending}
                             onSave={(input) => {
                               onMetadata(input);
                               setEditingMetadata(null);

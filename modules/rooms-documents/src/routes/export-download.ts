@@ -38,6 +38,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
       .send(Readable.from(downloaded.stream));
   };
 }
-export function handler(): never {
-  throw new Error('export download route runtime not initialized');
-}

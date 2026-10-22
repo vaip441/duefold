@@ -18,6 +18,9 @@
  *   - ordering and bulk selection are fully keyboard-operable with no drag.
  */
 
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { startTestServer, type TestServer } from '../support/browser-server.ts';
@@ -147,6 +150,52 @@ test.describe('participants and grants', () => {
     await expect(page.getByText('Type the phrase exactly as shown')).toBeVisible();
   });
 
+  test('asks for a fresh review once the reviewed grant is edited, and closes after applying', async ({
+    page,
+  }) => {
+    await openRoom(page, {
+      roomTitle: 'Regrant room',
+      roomRole: 'manager',
+      withParticipant: { email: 'regrant@example.com', grant: 'none' },
+    });
+    await openSection(page, 'Access');
+    await page.getByRole('button', { name: /Give access regrant@example\.com/u }).click();
+    const target = page.getByLabel('What they can read');
+    const confirm = page.getByLabel(/^Type .+ to confirm$/u);
+    await target.selectOption('room');
+    await page.getByRole('button', { name: 'Review this change' }).click();
+    await expect(confirm).toBeVisible();
+
+    // Apply commits the REVIEWED change, so an edited target must not remain appliable.
+    await target.selectOption('document');
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Apply this change' })).toHaveCount(0);
+
+    await target.selectOption('room');
+    await page.getByRole('button', { name: 'Review this change' }).click();
+    const label = await page
+      .locator('label', { hasText: /^Type .+ to confirm$/u })
+      .textContent();
+    await confirm.fill(/^Type (.+) to confirm$/u.exec(label ?? '')?.[1] ?? '');
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/api/grants', async (route) => {
+      if ((route.request().postDataJSON() as { action: string }).action === 'apply') await held;
+      await route.continue();
+    });
+    await page.getByRole('button', { name: 'Apply this change' }).click();
+    await expect(page.getByRole('button', { name: 'Applying…' })).toBeDisabled();
+    await target.selectOption('document');
+    await expect(target).toHaveValue('room');
+    release();
+    await expect(page.locator('[data-grant-form="true"]')).toHaveCount(0);
+    await expect(page.getByRole('row', { name: /regrant@example\.com/u })).toContainText(
+      'The whole room',
+    );
+  });
+
   test('refuses an invitation that is not an email address before spending a request', async ({
     page,
   }) => {
@@ -155,6 +204,29 @@ test.describe('participants and grants', () => {
     await page.getByLabel('Email address').fill('not-an-address');
     await page.getByRole('button', { name: 'Send invitation' }).click();
     await expect(page.getByText('Enter an email address')).toBeVisible();
+  });
+
+  test('keeps the typed address when an invitation is refused', async ({ page }) => {
+    await openRoom(page, { roomTitle: 'Refused invite room', roomRole: 'manager' });
+    await openSection(page, 'Access');
+    await page.route('**/api/participants/invitations', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'CONFLICT',
+            message:
+              'The resource changed before this request completed. Reload and try again.',
+          },
+        }),
+      }),
+    );
+    const email = page.getByLabel('Email address');
+    await email.fill('kept@example.com');
+    await page.getByRole('button', { name: 'Send invitation' }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(email).toHaveValue('kept@example.com');
   });
 
   test('offers a Contributor no Access step, even through a typed address', async ({
@@ -296,6 +368,21 @@ test.describe('exports', () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByText('What this export contains')).toHaveCount(0);
   });
+
+  test('reviews a room index export while documents are selected in Collection', async ({
+    page,
+  }) => {
+    await openRoom(page, {
+      roomTitle: 'Selected export room',
+      roomRole: 'manager',
+      withProcessing: [{ title: 'Chosen document', state: 'quarantine' }],
+    });
+    await page.getByRole('checkbox', { name: /Select Chosen document/u }).check();
+    await openSection(page, 'Exports');
+    await page.getByRole('button', { name: 'Review this export' }).click();
+    await expect(page.getByText('What this export contains')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
 });
 
 test.describe('branding', () => {
@@ -325,6 +412,20 @@ test.describe('branding', () => {
     await expect(page.getByText('Enter an email address or an https link')).toHaveCount(0);
     await contact.fill('');
     await expect(page.getByText('Enter an email address or an https link')).toHaveCount(0);
+  });
+
+  test('keeps the form and its edits when a save fails', async ({ page }) => {
+    await openBranding(page);
+    await page.route('**/api/branding/configuration', async (route) => {
+      if ((route.request().postDataJSON() as { action: string }).action === 'update')
+        await route.abort('internetdisconnected');
+      else await route.continue();
+    });
+    const introduction = page.getByLabel('Room introduction');
+    await introduction.fill('Edits that outlive a failed save');
+    await page.getByRole('button', { name: 'Save branding' }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(introduction).toHaveValue('Edits that outlive a failed save');
   });
 
   test('states that custom styles and scripts are not accepted', async ({ page }) => {
@@ -374,6 +475,148 @@ test.describe('structure controls and bulk selection', () => {
     await expect(page.getByText('Nothing selected.')).toBeVisible();
   });
 
+  test('keeps a reordered entry busy until the refreshed structure arrives', async ({
+    page,
+  }) => {
+    await openRoom(page, {
+      roomTitle: 'Reorder busy room',
+      roomRole: 'manager',
+      withProcessing: [
+        { title: 'Alpha document', state: 'quarantine' },
+        { title: 'Beta document', state: 'quarantine' },
+      ],
+    });
+    await page.getByRole('button', { name: 'Reorder collection' }).click();
+    const moveDown = page.getByRole('button', { name: 'Move down Alpha document' });
+    await expect(moveDown).toBeEnabled();
+
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    await page.route(
+      (url) => url.pathname === '/api/rooms/workspace',
+      async (route) => {
+        reads += 1;
+        await held;
+        await route.continue();
+      },
+    );
+    await moveDown.click();
+    // The saved status renders with whatever busy state the write's answer leaves behind.
+    await expect(page.getByRole('status', { name: 'Status', exact: true })).toHaveText(
+      'Saving…',
+    );
+    // Every row still carries the revisions that write replaced, so a second press must wait.
+    await expect(moveDown).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Move up Beta document' })).toBeDisabled();
+    // Review refreshes the room again; the held read it supersedes must not end the wait.
+    await openSection(page, 'Processing');
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
+    await openSection(page, 'Collection');
+    await page.getByRole('button', { name: 'Reorder collection' }).click();
+    await expect(moveDown).toBeDisabled();
+    release();
+    await expect(page.getByRole('button', { name: 'Move up Alpha document' })).toBeEnabled();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('keeps a bulk removal busy until the refresh lands, then frees the controls after a partial failure', async ({
+    page,
+  }) => {
+    await openRoom(page, {
+      roomTitle: 'Bulk failure room',
+      roomRole: 'manager',
+      withProcessing: [
+        { title: 'Alpha document', state: 'quarantine' },
+        { title: 'Beta document', state: 'quarantine' },
+      ],
+    });
+    await page.getByRole('button', { name: 'Select all' }).click();
+    await expect(page.getByText(/2 of 2 selected/u)).toBeVisible();
+
+    let writes = 0;
+    await page.route(
+      (url) => url.pathname === '/api/rooms/structure',
+      async (route) => {
+        writes += 1;
+        if (writes === 1) {
+          await route.continue();
+          return;
+        }
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: {
+              code: 'CONFLICT',
+              message:
+                'The resource changed before this request completed. Reload and try again.',
+            },
+          }),
+        });
+      },
+    );
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      (url) => url.pathname === '/api/rooms/workspace',
+      async (route) => {
+        await held;
+        await route.continue();
+      },
+    );
+    await page.getByRole('button', { name: 'Stage removal of selected' }).click();
+    const stopped = page.getByText('1 of 2 items changed before an error stopped the rest.');
+    await expect(stopped).toBeVisible();
+    // Beta was refused; its row still carries the revisions Alpha's removal replaced.
+    const selectAll = page.getByRole('button', { name: 'Select all' });
+    const beta = page.getByRole('checkbox', { name: 'Select Beta document' });
+    await expect(selectAll).toBeDisabled();
+    await expect(beta).toBeDisabled();
+    release();
+    await expect(selectAll).toBeEnabled();
+    await expect(beta).toBeEnabled();
+    await expect(page.getByRole('checkbox', { name: 'Select Alpha document' })).toBeDisabled();
+    await expect(stopped).toBeVisible();
+  });
+
+  test('keeps a restore busy until the refreshed structure arrives', async ({ page }) => {
+    await openRoom(page, {
+      roomTitle: 'Restore busy room',
+      roomRole: 'manager',
+      withProcessing: [{ title: 'Alpha document', state: 'quarantine' }],
+    });
+    // A draft-only document goes straight to trash when its removal is staged.
+    await page.getByRole('button', { name: 'Select all' }).click();
+    await page.getByRole('button', { name: 'Stage removal of selected' }).click();
+    await page.getByRole('button', { name: 'Restore Alpha document' }).click();
+
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      (url) => url.pathname === '/api/rooms/workspace',
+      async (route) => {
+        await held;
+        await route.continue();
+      },
+    );
+    const restored = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/rooms/actions',
+    );
+    await page.getByRole('button', { name: 'Restore item' }).click();
+    expect((await restored).ok()).toBe(true);
+    await expect(page.getByRole('button', { name: 'Restoring…' })).toBeDisabled();
+    release();
+    await expect(page.getByRole('checkbox', { name: 'Select Alpha document' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Restore/u })).toHaveCount(0);
+  });
+
   test('offers move and metadata editing for a document', async ({ page }) => {
     await openRoom(page, {
       roomTitle: 'Metadata room',
@@ -416,6 +659,83 @@ test.describe('structure controls and bulk selection', () => {
     await expect(rail.getByText('Financials', { exact: true })).toBeVisible();
     await expect(rail.getByRole('button', { name: 'Financials' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
+  });
+});
+
+test.describe('directory upload', () => {
+  test('recreates the folders, sends each file to its own, and reuses them after a cancel', async ({
+    page,
+  }) => {
+    const root = await mkdtemp(join(tmpdir(), 'duefold-directory-'));
+    for (const folder of ['Legal', 'HR']) {
+      await mkdir(join(root, 'Deal', folder), { recursive: true });
+      await writeFile(join(root, 'Deal', folder, 'NDA.pdf'), '%PDF-1.7\n');
+    }
+    const created: { displayName: string; parentFolderId?: string; folderId: string }[] = [];
+    await page.route(
+      (url) => url.pathname === '/api/rooms/structure',
+      async (route) => {
+        const response = await route.fetch();
+        const json = (await response.json()) as { folderId: string };
+        created.push({
+          ...(route.request().postDataJSON() as {
+            displayName: string;
+            parentFolderId?: string;
+          }),
+          folderId: json.folderId,
+        });
+        await route.fulfill({ response, json });
+      },
+    );
+    const intents: { parentFolderId?: string }[] = [];
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      (url) => url.pathname === '/api/uploads/intents',
+      async (route) => {
+        intents.push(route.request().postDataJSON() as { parentFolderId?: string });
+        if (intents.length === 1) await held;
+        // The harness has no object storage, so each intent then fails; the request is the point.
+        await route.continue();
+      },
+    );
+
+    await openRoom(page, { roomTitle: 'Directory upload room', roomRole: 'manager' });
+    await page.getByRole('button', { name: 'Add documents', exact: true }).click();
+    await page.getByLabel('Choose a directory').setInputFiles(join(root, 'Deal'));
+    await page.getByRole('button', { name: 'Upload', exact: true }).click();
+    await expect.poll(() => intents.length).toBe(1);
+
+    const deal = created.find((folder) => folder.displayName === 'Deal');
+    expect(deal?.parentFolderId).toBeUndefined();
+    expect(created.map((folder) => folder.displayName).sort()).toEqual(['Deal', 'HR', 'Legal']);
+    const inDeal = created.filter((folder) => folder.parentFolderId === deal?.folderId);
+    const folderIds = inDeal.map((folder) => folder.folderId).sort();
+    expect(folderIds).toHaveLength(2);
+    expect(folderIds).toContain(intents[0]?.parentFolderId);
+
+    await page.getByRole('button', { name: 'Cancel upload' }).click();
+    release();
+    await expect(page.getByRole('status')).toContainText(
+      'Upload cancelled. Files already accepted and folders already created stay in the room.',
+    );
+    // The cancelled run's folders reach the structure before anything is retried.
+    const rail = page.getByRole('navigation', { name: 'Collection' });
+    await expect(rail.getByText('Legal', { exact: true })).toBeVisible();
+    await expect(rail.getByText('HR', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Upload', exact: true }).click();
+    await expect.poll(() => intents.length).toBe(3);
+    expect(created).toHaveLength(3);
+    expect(
+      intents
+        .slice(1)
+        .map((intent) => intent.parentFolderId)
+        .sort(),
+    ).toEqual(folderIds);
+    await rm(root, { recursive: true });
   });
 });
 

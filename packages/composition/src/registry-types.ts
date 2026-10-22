@@ -8,20 +8,24 @@
 
 import type { ConfigServiceTarget, HttpMethod, ModuleId, RouteAudience } from './contract.ts';
 
-export interface GeneratedRoute<
-  Id extends string = string,
-  Audience extends RouteAudience = RouteAudience,
-> {
+interface GeneratedRouteBase<Id extends string, Audience extends RouteAudience> {
   readonly id: Id;
   readonly module: ModuleId;
   readonly method: HttpMethod;
   readonly path: string;
   readonly audience: Audience;
   readonly csrf: boolean;
-  readonly handler: unknown;
-  readonly handlerFactory?: unknown;
   readonly schema: unknown;
 }
+
+export type GeneratedRoute<
+  Id extends string = string,
+  Audience extends RouteAudience = RouteAudience,
+> = GeneratedRouteBase<Id, Audience> &
+  (
+    | { readonly handler: unknown; readonly handlerFactory?: never }
+    | { readonly handlerFactory: unknown; readonly handler?: never }
+  );
 
 export interface GeneratedMigration {
   readonly id: string;

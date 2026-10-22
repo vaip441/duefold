@@ -6,7 +6,6 @@
   "type": "module",
   "exports": {
     "./declaration": "./src/declaration.ts",
-    "./db": "./src/db/database.ts",
     "./migrations": "./src/db/migrate.ts",
     "./auth": "./src/auth/index.ts",
     "./sessions": "./src/sessions.ts",
@@ -20,7 +19,6 @@
     "@duefold/shared": "1.4.0",
     "@sinclair/typebox": "0.34.52",
     "@types/pg": "8.23.1",
-    "kysely": "0.29.6",
     "nodemailer": "10.0.10",
     "openid-client": "6.8.8",
     "pg": "8.23.0"

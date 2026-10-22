@@ -2,12 +2,6 @@ import type { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { MemberIdentity } from '../../core-security/src/authorization.ts';
 import { hasFreshOidc } from '../../core-security/src/authorization.ts';
-import { validateStructureName } from './structure.ts';
-import {
-  MAX_DIRECTORY_FILES,
-  MAX_DIRECTORY_TOTAL_BYTES,
-  MAX_DIRECTORY_LEVELS,
-} from './resource-policy.ts';
 
 export const TRASH_RETENTION_DAYS = 30;
 export const MAX_SEARCH_QUERY_CODE_POINTS = 200;
@@ -76,7 +70,7 @@ export async function restoreTrash(input: {
   readonly expectedEntryRevision: number;
   readonly expectedWorkingRevision: number;
 }): Promise<{ readonly entryRevision: number; readonly workingRevision: number }> {
-  validateStructureName(input.displayName);
+  // Restore usually keeps the trashed name; the name trigger checks it only if it changed.
   const result = await input.pool.query<{ entry_revision: number; working_revision: number }>(
     'SELECT * FROM restore_trash_entry($1,$2,$3,$4,$5,$6,$7,$8,$9)',
     [
@@ -182,7 +176,7 @@ export async function dryRunBulkPublish(input: {
     [input.identity.id, input.roomId],
   );
   const row = result.rows[0];
-  if (row === undefined) throw new Error('BULK_DRY_RUN_FAILED');
+  if (row === undefined) throw new Error('ROOM_WORKSPACE_FORBIDDEN');
   return {
     ...row.impact,
     workingRevision: row.working_revision,
@@ -216,28 +210,4 @@ export async function applyBulkPublish(input: {
   const applied = result.rows[0]?.apply_bulk_publish;
   if (applied === undefined) throw new Error('BULK_PUBLISH_FAILED');
   return applied;
-}
-
-export interface BulkUploadPlanItem {
-  readonly path: string;
-  readonly sizeBytes: number;
-}
-export function validateBulkUploadPlan(items: readonly BulkUploadPlanItem[]): void {
-  if (items.length < 1 || items.length > MAX_DIRECTORY_FILES)
-    throw new Error('DIRECTORY_FILE_COUNT_REJECTED');
-  let total = 0;
-  for (const item of items) {
-    const segments = item.path.normalize('NFC').split('/');
-    if (
-      segments.length < 1 ||
-      segments.length > MAX_DIRECTORY_LEVELS + 1 ||
-      segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
-    )
-      throw new Error('DIRECTORY_PATH_REJECTED');
-    validateStructureName(segments.at(-1) ?? '');
-    if (!Number.isSafeInteger(item.sizeBytes) || item.sizeBytes < 1)
-      throw new Error('DIRECTORY_SIZE_REJECTED');
-    total += item.sizeBytes;
-    if (total > MAX_DIRECTORY_TOTAL_BYTES) throw new Error('DIRECTORY_AGGREGATE_REJECTED');
-  }
 }

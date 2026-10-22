@@ -112,7 +112,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
       : applyRoomVisibility({ ...change, state: body.state, confirmation: body.confirmation });
   };
 }
-
-export function handler(): never {
-  throw new Error('room visibility route runtime not initialized');
-}

@@ -18,6 +18,7 @@ export const schema = {
     {
       roomId: Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' }),
       documentId: Type.Optional(Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' })),
+      parentFolderId: Type.Optional(Type.String({ pattern: '^[A-Za-z0-9_-]{32}$' })),
       displayTitle: Type.String({ minLength: 1, maxLength: 200 }),
       originalFilename: Type.String({ minLength: 1, maxLength: 255 }),
       declaredMediaType: Type.String({ minLength: 1, maxLength: 100 }),
@@ -46,6 +47,7 @@ export const schema = {
 interface Body {
   readonly roomId: string;
   readonly documentId?: string;
+  readonly parentFolderId?: string;
   readonly displayTitle: string;
   readonly originalFilename: string;
   readonly declaredMediaType: string;
@@ -71,7 +73,4 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     reply.code(201);
     return { ...created, expiresAt: created.expiresAt.toISOString() };
   };
-}
-export function handler(): never {
-  throw new Error('upload intent route runtime not initialized');
 }

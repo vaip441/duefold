@@ -210,4 +210,35 @@ describe('preview activity races', () => {
     expect(await runFinalizer(activityId)).toBe('rescheduled');
     expect(await finalizerJobs(activityId, 'pending')).toBe(1);
   });
+
+  it('accepts a second tab beat inside the throttle window without recording it', async () => {
+    const session = await viewerSession();
+    const activityId = await begin(databasePool, session.proof);
+    if (activityId === undefined) throw new Error('ACTIVITY_ABSENT');
+    const heartbeat = async (proof: string): Promise<boolean | undefined> =>
+      (
+        await databasePool.query<{ ok: boolean }>('SELECT heartbeat_preview($1,$2) ok', [
+          activityId,
+          proof,
+        ])
+      ).rows[0]?.ok;
+    const heartbeatAt = async (): Promise<number | undefined> =>
+      (
+        await migrationPool.query<{ at: Date }>(
+          'SELECT heartbeat_at at FROM preview_activity WHERE id=$1',
+          [activityId],
+        )
+      ).rows[0]?.at.getTime();
+    const opened = await heartbeatAt();
+    expect(await heartbeat(session.proof)).toBe(true);
+    expect(await heartbeatAt()).toBe(opened);
+    expect(await heartbeat((await viewerSession()).proof)).toBe(false);
+    await databasePool.query('SELECT summarize_preview($1,$2,$3,$4)', [
+      activityId,
+      session.proof,
+      'closed',
+      createOpaqueId(),
+    ]);
+    expect(await heartbeat(session.proof)).toBe(false);
+  });
 });

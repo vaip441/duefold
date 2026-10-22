@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return createRangeHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('download range route runtime not initialized');
-}

@@ -24,16 +24,11 @@ export function createHandler() {
   return (request: FastifyRequest) => {
     const query = request.query as { readonly target: string };
     const normalized = resolveInterstitialTarget(query.target);
-    const encoded = normalized.interstitialPath.split('target=')[1];
-    if (encoded === undefined) throw new Error('EXTERNAL_LINK_UNSAFE');
     return {
       normalizedDomain: normalized.normalizedDomain,
-      destination: decodeURIComponent(encoded),
+      destination: normalized.href,
       warning: 'You are leaving Duefold. The destination is outside this data room.' as const,
       rel: 'noopener noreferrer' as const,
     };
   };
-}
-export function handler(): never {
-  throw new Error('safe link interstitial route runtime not initialized');
 }

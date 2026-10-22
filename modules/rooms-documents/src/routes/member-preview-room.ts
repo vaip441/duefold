@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return createRoomHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('member preview room route runtime not initialized');
-}

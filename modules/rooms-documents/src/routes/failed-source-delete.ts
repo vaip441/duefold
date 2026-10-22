@@ -26,6 +26,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return null;
   };
 }
-export function handler(): never {
-  throw new Error('failed source delete route runtime not initialized');
-}

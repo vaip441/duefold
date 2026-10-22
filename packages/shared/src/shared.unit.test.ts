@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
 import { FixedClock } from './clock.ts';
 import { normalizeEmail } from './email.ts';
@@ -8,6 +9,7 @@ import {
   isCorrelationId,
   isOpaqueId,
 } from './ids.ts';
+import { boundedClose } from './process-errors.ts';
 import { allowlistedTelemetry } from './redact.ts';
 
 describe('opaque identifiers', () => {
@@ -97,5 +99,28 @@ describe('telemetry allowlist', () => {
         message: 'secret-token',
       }),
     ).toEqual({ code: 'REQUEST_FAILED' });
+  });
+});
+
+describe('bounded close', () => {
+  it('stops waiting for a close that never settles once the bound passes', async () => {
+    await expect(boundedClose(() => new Promise<void>(() => undefined), 10)).resolves.toBe(
+      undefined,
+    );
+  });
+
+  it('waits for a close that settles inside the bound', async () => {
+    let closed = false;
+    await boundedClose(async () => {
+      await delay(20);
+      closed = true;
+    }, 1_000);
+    expect(closed).toBe(true);
+  });
+
+  it('propagates a close rejection so the failure handler still records it', async () => {
+    await expect(boundedClose(() => Promise.reject(new Error('pool')), 1_000)).rejects.toThrow(
+      'pool',
+    );
   });
 });

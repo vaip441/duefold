@@ -28,6 +28,7 @@ import {
 import {
   createWorkerStorage,
   workerStorageConfig,
+  type WorkerStorage,
 } from '../../../modules/rooms-documents/src/storage/s3-compatible.ts';
 import {
   formatSandboxPreflight,
@@ -60,11 +61,27 @@ function requiredString(config: RuntimeConfig, key: string): string {
   return value;
 }
 
+function storage(config: RuntimeConfig): WorkerStorage {
+  return createWorkerStorage(
+    workerStorageConfig({
+      endpoint: requiredString(config, 'DUEFOLD_STORAGE_ENDPOINT'),
+      region: requiredString(config, 'DUEFOLD_STORAGE_REGION'),
+      bucket: requiredString(config, 'DUEFOLD_STORAGE_BUCKET'),
+      credentials: {
+        accessKeyId: requiredString(config, 'DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID'),
+        secretAccessKey: requiredString(config, 'DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY'),
+      },
+      pathStyle: config['DUEFOLD_STORAGE_PATH_STYLE'] === true,
+      checksumSupport: config['DUEFOLD_STORAGE_CHECKSUM_SUPPORT'] === true,
+    }),
+  );
+}
+
 async function guardedRecovery(pool: Pool, email: string): Promise<void> {
   const prompt = createInterface({ input: stdin, output: stdout });
   try {
     console.log(
-      'IMPACT: disables every current member Owner and assigns Owner to the exact invited member email shown below.',
+      "IMPACT: disables every current member Owner and assigns Owner to the exact invited member email shown below, and revokes that member's room assignments.",
     );
     console.log(`TARGET: ${email}`);
     if (
@@ -245,7 +262,9 @@ const COMMANDS: readonly CommandDefinition[] = [
     configKeys: [MIGRATION_URL],
     database: true,
     run: async (context) => {
-      console.log(JSON.stringify(await restoreDrill(database(context))));
+      const drill = await restoreDrill(database(context));
+      console.log(JSON.stringify(drill));
+      if (drill.status !== 'passed') process.exitCode = 1;
     },
   },
   {
@@ -257,34 +276,18 @@ const COMMANDS: readonly CommandDefinition[] = [
     configKeys: [MIGRATION_URL, ...STORAGE_KEYS],
     database: true,
     run: async (context) => {
-      const storage = createWorkerStorage(
-        workerStorageConfig({
-          endpoint: requiredString(context.config, 'DUEFOLD_STORAGE_ENDPOINT'),
-          region: requiredString(context.config, 'DUEFOLD_STORAGE_REGION'),
-          bucket: requiredString(context.config, 'DUEFOLD_STORAGE_BUCKET'),
-          credentials: {
-            accessKeyId: requiredString(context.config, 'DUEFOLD_STORAGE_WORKER_ACCESS_KEY_ID'),
-            secretAccessKey: requiredString(
-              context.config,
-              'DUEFOLD_STORAGE_WORKER_SECRET_ACCESS_KEY',
-            ),
-          },
-          pathStyle: context.config['DUEFOLD_STORAGE_PATH_STYLE'] === true,
-          checksumSupport: context.config['DUEFOLD_STORAGE_CHECKSUM_SUPPORT'] === true,
-        }),
-      );
       const purgeId = argument(context, 2);
-      await reconcileDeletionMarker(database(context), storage, purgeId);
+      await reconcileDeletionMarker(database(context), storage(context.config), purgeId);
       console.log(JSON.stringify({ purgeId, deletionMarker: 'reconciled' }));
     },
   },
   {
     matches: ([group, command, extra]) =>
       group === 'restore' && command === 'enable-external' && extra === undefined,
-    configKeys: [MIGRATION_URL],
+    configKeys: [MIGRATION_URL, ...STORAGE_KEYS],
     database: true,
     run: async (context) => {
-      await assertExternalEnablementAllowed(database(context));
+      await assertExternalEnablementAllowed(database(context), storage(context.config));
       console.log(
         JSON.stringify({ externalEnablement: 'allowed', deletionMarkers: 'reconciled' }),
       );
@@ -323,6 +326,10 @@ if (
 )
   try {
     await runCli(process.argv.slice(2));
-  } catch {
-    terminate();
+  } catch (error) {
+    // Only the fixed usage text is printed; any other error may carry configuration.
+    if (error instanceof Error && error.message === USAGE) {
+      process.stderr.write(`${USAGE}\n`);
+      process.exitCode = 1;
+    } else terminate();
   }

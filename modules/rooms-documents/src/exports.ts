@@ -1,3 +1,4 @@
+import { crc32 } from 'node:zlib';
 import type { Pool } from 'pg';
 import { createCorrelationId, createOpaqueId } from '@duefold/shared/ids';
 import type { MemberIdentity } from '../../core-security/src/authorization.ts';
@@ -27,15 +28,6 @@ function selection(preset: ExportPreset, selectedDocumentIds: readonly string[])
       throw new Error('EXPORT_SELECTION_INVALID');
   } else if (selectedDocumentIds.length !== 0) throw new Error('EXPORT_SELECTION_INVALID');
   return [...selectedDocumentIds];
-}
-function crc32Update(crc: number, bytes: Uint8Array): number {
-  let next = crc;
-  for (const value of bytes) {
-    next ^= value;
-    for (let bit = 0; bit < 8; bit += 1)
-      next = (next & 1) === 0 ? next >>> 1 : 0xedb88320 ^ (next >>> 1);
-  }
-  return next;
 }
 export interface ZipEntry {
   readonly name: string;
@@ -82,16 +74,15 @@ export async function* streamingZip(entries: readonly ZipEntry[]): AsyncGenerato
     header.writeUInt16LE(name.length, 26);
     yield header;
     yield name;
-    let crc = 0xffffffff;
+    let crc = 0;
     let size = 0;
     for await (const bytes of await entry.open()) {
       size += bytes.byteLength;
       if (offset + header.length + name.length + size + DESCRIPTOR_LENGTH > ZIP32_MAX)
         throw new Error(ZIP_LIMIT_EXCEEDED);
-      crc = crc32Update(crc, bytes);
+      crc = crc32(bytes, crc);
       yield bytes;
     }
-    crc = (crc ^ 0xffffffff) >>> 0;
     const descriptor = Buffer.alloc(DESCRIPTOR_LENGTH);
     descriptor.writeUInt32LE(0x08074b50, 0);
     descriptor.writeUInt32LE(crc, 4);
@@ -239,30 +230,61 @@ export async function requestExport(input: {
   return { exportId, preflight };
 }
 
-export async function generateExportJob(input: {
+interface ExportJob {
   readonly pool: Pool;
   readonly storage: ExportStorage;
   readonly exportId: string;
   readonly jobId: string;
   readonly leaseOwner: string;
   readonly leaseToken: string;
-}): Promise<void> {
+}
+/*
+ * Writes the same document the single jsonb payload produced, 'audit' first as jsonb
+ * ordered its keys, while holding one page of audit rows at a time.
+ */
+async function* roomIndexAuditJson(
+  input: ExportJob,
+  payload: Readonly<Record<string, unknown>>,
+): AsyncGenerator<Uint8Array> {
+  yield Buffer.from('{"audit":[', 'utf8');
+  let after = 0;
+  let separator = '';
+  for (;;) {
+    const page = await input.pool.query<{ entry: { readonly sequence: number } }>(
+      'SELECT entry FROM read_export_audit_page($1,$2,$3,$4,$5) entry',
+      [input.exportId, input.jobId, input.leaseOwner, input.leaseToken, after],
+    );
+    const last = page.rows.at(-1);
+    if (last === undefined) break;
+    yield Buffer.from(
+      separator + page.rows.map(({ entry }) => JSON.stringify(entry)).join(','),
+      'utf8',
+    );
+    separator = ',';
+    after = last.entry.sequence;
+  }
+  yield Buffer.from(`],${JSON.stringify(payload).slice(1)}\n`, 'utf8');
+}
+
+export async function generateExportJob(input: ExportJob): Promise<void> {
   const payload = await input.pool.query<{ read_export_job_payload: unknown }>(
     'SELECT read_export_job_payload($1,$2,$3,$4)',
     [input.exportId, input.jobId, input.leaseOwner, input.leaseToken],
   );
   const document = payload.rows[0]?.read_export_job_payload;
   if (document === null || document === undefined) return;
-  const record = document as Readonly<Record<string, unknown>>;
-  const preset = record['preset'];
-  const includeOriginals = record['originalsIncluded'] === true;
+  // The export's own storage key is for this worker only; it never enters the file.
+  const { exportObjectKey: objectKey, ...file } = document as Readonly<Record<string, unknown>>;
+  if (typeof objectKey !== 'string') throw new Error('EXPORT_PAYLOAD_INVALID');
+  const preset = file['preset'];
+  const includeOriginals = file['originalsIncluded'] === true;
   const contentType = preset === 'selected-documents' ? 'application/zip' : 'application/json';
   const stream =
     preset === 'selected-documents'
-      ? selectedDocumentsZip(document, includeOriginals, input.storage)
-      : one(Buffer.from(`${JSON.stringify(document)}\n`, 'utf8'));
-  const objectKey = record['exportObjectKey'];
-  if (typeof objectKey !== 'string') throw new Error('EXPORT_PAYLOAD_INVALID');
+      ? selectedDocumentsZip(file, includeOriginals, input.storage)
+      : preset === 'room-index-audit'
+        ? roomIndexAuditJson(input, file)
+        : one(Buffer.from(`${JSON.stringify(file)}\n`, 'utf8'));
   let size: number;
   try {
     size = await input.storage.putStream({ key: objectKey, stream, contentType });

@@ -63,8 +63,9 @@ export function useBrandingSection(handlers: {
   return {
     configuration,
     loading,
-    // A refusal is terminal until a reload; it must not read as still loading.
-    denied: failure !== null,
+    /* A refused load is terminal until a reload and must not read as still loading. A failed
+       save keeps the loaded form, and the edits in it, under its failure notice. */
+    denied: configuration === null && failure !== null,
     failure,
     saving,
     refresh,

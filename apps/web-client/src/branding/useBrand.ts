@@ -1,6 +1,5 @@
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -109,26 +108,16 @@ export function applyAccentTokens(accentHex: string | null): void {
 
 interface BrandContextValue {
   readonly brand: EffectiveBrand | null;
-  readonly reload: () => void;
 }
-const DEFAULT_BRAND_CONTEXT: BrandContextValue = { brand: null, reload: () => undefined };
-const BrandContext = createContext<BrandContextValue>(DEFAULT_BRAND_CONTEXT);
+const BrandContext = createContext<BrandContextValue>({ brand: null });
 let sharedRequest: Promise<EffectiveBrand | null> | null = null;
-let sharedController: AbortController | null = null;
 
 function loadSharedBrand(): Promise<EffectiveBrand | null> {
   if (sharedRequest !== null) return sharedRequest;
   const slot = getBrandingSlot();
   if (slot === null) return Promise.resolve(null);
-  sharedController = new AbortController();
-  sharedRequest = slot.load(sharedController.signal);
+  sharedRequest = slot.load(new AbortController().signal);
   return sharedRequest;
-}
-
-function resetSharedBrand(): void {
-  sharedController?.abort();
-  sharedController = null;
-  sharedRequest = null;
 }
 
 function updateFavicon(brand: EffectiveBrand | null): void {
@@ -146,11 +135,6 @@ export function BrandProvider({
   readonly children: ReactNode;
 }): React.ReactElement {
   const [brand, setBrand] = useState<EffectiveBrand | null>(null);
-  const [generation, setGeneration] = useState(0);
-  const reload = useCallback(() => {
-    resetSharedBrand();
-    setGeneration((value) => value + 1);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -161,8 +145,8 @@ export function BrandProvider({
         applyAccentTokens(resolved?.accentColor ?? null);
         updateFavicon(resolved);
       },
-      (error: unknown) => {
-        if (!active || (error instanceof DOMException && error.name === 'AbortError')) return;
+      () => {
+        if (!active) return;
         setBrand(null);
         applyAccentTokens(null);
         updateFavicon(null);
@@ -171,9 +155,9 @@ export function BrandProvider({
     return () => {
       active = false;
     };
-  }, [generation]);
+  }, []);
 
-  const value = useMemo(() => ({ brand, reload }), [brand, reload]);
+  const value = useMemo(() => ({ brand }), [brand]);
   return createElement(BrandContext.Provider, { value }, children);
 }
 

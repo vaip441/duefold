@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { hasFreshOidc, type MemberIdentity } from '../../core-security/src/authorization.ts';
+import type { MemberIdentity } from '../../core-security/src/authorization.ts';
 import type { GrantTargetKind } from './grant-model.ts';
 
 export type GrantChangeAction = 'grant' | 'revoke' | 'expiry';
@@ -62,16 +62,6 @@ export async function dryRunGrantChange(input: {
   return impact;
 }
 
-export function isBroadGrantChange(change: GrantChangeInput): boolean {
-  // Room grants expose the entire room. Counterparty grants affect a group even
-  // when their current target is narrower. Revokes/expiry changes are resolved
-  // authoritatively in SQL because the existing grant shape is not client input.
-  return (
-    change.action === 'grant' &&
-    (change.targetKind === 'room' || change.granteeKind === 'counterparty')
-  );
-}
-
 export async function applyGrantChange(input: {
   readonly pool: Pool;
   readonly identity: MemberIdentity;
@@ -81,14 +71,7 @@ export async function applyGrantChange(input: {
   readonly confirmation: string;
   readonly auditId: string;
   readonly correlationId: string;
-  readonly now?: Date;
 }): Promise<GrantImpact & { readonly roomRevision: number }> {
-  const now = input.now ?? new Date();
-  if (
-    isBroadGrantChange(input.change) &&
-    !hasFreshOidc(input.identity.oidcAuthenticatedAt, now)
-  )
-    throw new Error('FRESH_OIDC_REQUIRED');
   const result = await input.pool.query<GrantImpactRow>(
     'SELECT apply_grant_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
     [

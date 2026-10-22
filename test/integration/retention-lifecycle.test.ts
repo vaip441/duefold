@@ -177,7 +177,9 @@ describe('retention and room lifecycle', () => {
   });
 
   it('executes local restore checks but refuses to record passed when provider checks are undetermined', async () => {
-    await expect(restoreDrill(migrationPool)).rejects.toThrow('RESTORE_DRILL_UNDETERMINED');
+    await expect(restoreDrill(migrationPool)).resolves.toMatchObject({
+      status: 'undetermined',
+    });
     const row = (
       await migrationPool.query<{ restore_drill_status: string; restore_drill_detail: string }>(
         'SELECT restore_drill_status,restore_drill_detail FROM operational_recovery_status WHERE singleton',
@@ -419,8 +421,10 @@ describe('retention and room lifecycle', () => {
         events.push(`marker:${input.key}`);
         return Promise.resolve();
       },
-      deleteObject: (key: string) => {
-        events.push(`delete:${key}`);
+      listDeletionMarkedRoomIds: () => Promise.reject(new Error('UNUSED')),
+      deleteObject: () => Promise.reject(new Error('UNUSED')),
+      deleteObjects: (keys: readonly string[]) => {
+        events.push(...keys.map((key) => `delete:${key}`));
         return Promise.resolve();
       },
     } satisfies WorkerStorage;
@@ -508,24 +512,24 @@ describe('retention and room lifecycle', () => {
         )
       ).rows[0]?.n,
     ).toBe(0);
-    await expect(assertExternalEnablementAllowed(migrationPool)).rejects.toThrow(
-      'EXTERNAL_ENABLEMENT_REFUSED_DELETION_MARKERS',
-    );
     const markerDocument = Buffer.from(
       JSON.stringify({ version: 1, purgeId, roomId: purgeRoomId }),
       'utf8',
     );
-    await reconcileDeletionMarker(
-      migrationPool,
-      {
-        getObjectBytes(key) {
-          expect(key).toBe(markerKey);
-          return Promise.resolve(markerDocument);
-        },
+    const markers = {
+      getObjectBytes(key: string) {
+        expect(key).toBe(markerKey);
+        return Promise.resolve(markerDocument);
       },
-      purgeId,
+      listDeletionMarkedRoomIds: () => Promise.resolve([purgeRoomId]),
+    };
+    await expect(assertExternalEnablementAllowed(migrationPool, markers)).rejects.toThrow(
+      'EXTERNAL_ENABLEMENT_REFUSED_DELETION_MARKERS',
     );
-    await expect(assertExternalEnablementAllowed(migrationPool)).resolves.toBeUndefined();
+    await reconcileDeletionMarker(migrationPool, markers, purgeId);
+    await expect(
+      assertExternalEnablementAllowed(migrationPool, markers),
+    ).resolves.toBeUndefined();
 
     const bundle = JSON.stringify(await createSupportBundle(migrationPool));
     expect(bundle).not.toContain(distinctiveRoom);
@@ -537,5 +541,19 @@ describe('retention and room lifecycle', () => {
     expect(status['statement']).toBe(
       'Provider backup status cannot be determined locally; no recovery claim is made.',
     );
+  });
+
+  it('refuses external enablement while a storage marker names a room the restored database still holds', async () => {
+    // A snapshot from before the purge: no purge row, but the marker survived in storage.
+    const markerNaming = (roomId: string) => ({
+      getObjectBytes: () => Promise.reject(new Error('UNUSED')),
+      listDeletionMarkedRoomIds: () => Promise.resolve([roomId]),
+    });
+    await expect(
+      assertExternalEnablementAllowed(migrationPool, markerNaming(retentionRoomId)),
+    ).rejects.toThrow('EXTERNAL_ENABLEMENT_REFUSED_DELETION_MARKERS');
+    await expect(
+      assertExternalEnablementAllowed(migrationPool, markerNaming(createOpaqueId())),
+    ).resolves.toBeUndefined();
   });
 });

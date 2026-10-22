@@ -83,10 +83,11 @@ const storage: ExportStorage = {
     return Promise.resolve();
   },
 };
-async function generateExport(
-  input: Parameters<typeof requestExport>[0] & { readonly storage: ExportStorage },
-): Promise<Awaited<ReturnType<typeof requestExport>>> {
-  const requested = await requestExport(input);
+async function leaseExportJob(exportId: string): Promise<{
+  readonly jobId: string;
+  readonly leaseOwner: string;
+  readonly leaseToken: string;
+}> {
   const leaseOwner = createOpaqueId();
   const leaseToken = createOpaqueId();
   const job = (
@@ -94,17 +95,21 @@ async function generateExport(
       `UPDATE job_queue SET state='running',attempts=attempts+1,lease_owner=$2,lease_token=$3,
         lease_expires_at=statement_timestamp()+interval '2 minutes'
        WHERE job_type='export.generate' AND payload->>'exportId'=$1 RETURNING id`,
-      [requested.exportId, leaseOwner, leaseToken],
+      [exportId, leaseOwner, leaseToken],
     )
   ).rows[0];
   if (job === undefined) throw new Error('EXPORT_JOB_FIXTURE_ABSENT');
+  return { jobId: job.id, leaseOwner, leaseToken };
+}
+async function generateExport(
+  input: Parameters<typeof requestExport>[0] & { readonly storage: ExportStorage },
+): Promise<Awaited<ReturnType<typeof requestExport>>> {
+  const requested = await requestExport(input);
   await generateExportJob({
     pool: workerPool,
     storage: input.storage,
     exportId: requested.exportId,
-    jobId: job.id,
-    leaseOwner,
-    leaseToken,
+    ...(await leaseExportJob(requested.exportId)),
   });
   return requested;
 }
@@ -342,14 +347,23 @@ describe('private export lifecycle', () => {
         exportId: allowed.exportId,
       }),
     ).rejects.toThrow('EXPORT_DOWNLOAD_FORBIDDEN');
-    expect(
-      await downloadExportOnce({
-        pool: runtimePool,
-        storage,
-        identity: identity(managerId, now),
-        exportId: allowed.exportId,
-      }),
-    ).toMatchObject({ contentType: 'application/json' });
+    const downloaded = await downloadExportOnce({
+      pool: runtimePool,
+      storage,
+      identity: identity(managerId, now),
+      exportId: allowed.exportId,
+    });
+    expect(downloaded).toMatchObject({ contentType: 'application/json' });
+    const objectKey = (
+      await migrationPool.query<{ object_key: string }>(
+        'SELECT object_key FROM export_request WHERE id=$1',
+        [allowed.exportId],
+      )
+    ).rows[0]?.object_key;
+    expect(objectKey).toBeDefined();
+    const file = (await bytes(downloaded.stream)).toString('utf8');
+    expect(JSON.parse(file)).toMatchObject({ preset: 'participant-access', roomId });
+    expect(file).not.toContain(objectKey);
   });
 
   it('enforces the exact server-side one-hour boundary without rejecting early', async () => {
@@ -371,9 +385,8 @@ describe('private export lifecycle', () => {
         ...audit(),
       ],
     );
-    await runtimePool.query('SELECT mark_export_ready($1,$2,$3)', [id, managerId, 1]);
     await migrationPool.query(
-      "UPDATE export_request SET expires_at=statement_timestamp()+interval '2 seconds' WHERE id=$1",
+      "UPDATE export_request SET state='ready',size_bytes=1,expires_at=statement_timestamp()+interval '2 seconds' WHERE id=$1",
       [id],
     );
     expect(
@@ -428,6 +441,17 @@ describe('private export lifecycle', () => {
         )
       ).rows[0]?.n,
     ).toBe(5);
+    // Only read_export_job_payload, under a live job lease, may build an export.
+    for (const role of ['duefold_runtime', 'duefold_authenticator', 'duefold_worker'])
+      expect(
+        (
+          await migrationPool.query<{ v: boolean }>(
+            "SELECT has_function_privilege($1,'read_export_payload(text,text)','EXECUTE') v",
+            [role],
+          )
+        ).rows[0]?.v,
+        role,
+      ).toBe(false);
   });
 });
 
@@ -647,5 +671,109 @@ describe('ZIP archive size limit', () => {
         ).rows[0]?.v,
         role,
       ).toBe(role === 'duefold_worker');
+  });
+});
+
+describe('room index and audit export paging', () => {
+  it('streams an audit trail longer than one page in order, in the document the single payload produced', async () => {
+    await migrationPool.query(
+      `INSERT INTO audit_event(id,event_type,actor_kind,actor_id,room_id,resource_type,resource_id,result,reason_code,correlation_id)
+       SELECT substr(md5(random()::text||g),1,32),'room.metadata','member',$1,$2,'document',$3,'success','FIXTURE','corr_'||md5(g||random()::text)
+       FROM generate_series(1,1200) g`,
+      [ownerId, roomId, documentId],
+    );
+    const chunks: Uint8Array[] = [];
+    const fresh = new Date();
+    const generated = await generateExport({
+      pool: runtimePool,
+      storage: {
+        ...storage,
+        putStream(input) {
+          return storage.putStream({
+            ...input,
+            stream: (async function* () {
+              for await (const chunk of input.stream) {
+                chunks.push(chunk);
+                yield chunk;
+              }
+            })(),
+          });
+        },
+      },
+      identity: identity(managerId, fresh),
+      roomId,
+      preset: 'room-index-audit',
+      selectedDocumentIds: [],
+      includeOriginals: false,
+      now: fresh,
+    });
+    // The pre-paging payload, built in one statement, is the oracle for the bytes.
+    const expected = (
+      await migrationPool.query<{ object_key: string; audit_rows: number; document: unknown }>(
+        `SELECT e.object_key,(SELECT count(*)::int FROM audit_event a WHERE a.room_id=e.room_id) audit_rows,
+           jsonb_build_object('preset',e.preset,'roomId',e.room_id,
+             'index',COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',p.resource_kind,'id',p.resource_id,'name',p.display_name) ORDER BY p.order_key,p.entry_id) FROM published_structure_entry p WHERE p.room_id=e.room_id),'[]'::jsonb),
+             'audit',COALESCE((SELECT jsonb_agg(jsonb_build_object('sequence',a.sequence,'eventType',a.event_type,'result',a.result,'occurredAt',a.occurred_at) ORDER BY a.sequence) FROM audit_event a WHERE a.room_id=e.room_id),'[]'::jsonb)) document
+         FROM export_request e WHERE e.id=$1`,
+        [generated.exportId],
+      )
+    ).rows[0];
+    if (expected === undefined) throw new Error('EXPORT_FIXTURE_ABSENT');
+    expect(expected.audit_rows).toBeGreaterThan(1_000);
+    const written = Buffer.from(objectMap.get(expected.object_key) ?? []).toString('utf8');
+    expect(written).toBe(`${JSON.stringify(expected.document)}\n`);
+    expect(written).not.toContain(expected.object_key);
+    // Opening bracket, one chunk per 1,000-row page, and the closing remainder.
+    expect(chunks).toHaveLength(Math.ceil(expected.audit_rows / 1_000) + 2);
+    await expect(
+      workerPool.query('SELECT * FROM read_export_audit_page($1,$2,$3,$4,0)', [
+        generated.exportId,
+        createOpaqueId(),
+        createOpaqueId(),
+        createOpaqueId(),
+      ]),
+    ).rejects.toMatchObject({ code: '55000' });
+    for (const role of ['duefold_runtime', 'duefold_authenticator', 'duefold_worker'])
+      expect(
+        (
+          await migrationPool.query<{ v: boolean }>(
+            "SELECT has_function_privilege($1,'read_export_audit_page(text,text,text,text,bigint)','EXECUTE') v",
+            [role],
+          )
+        ).rows[0]?.v,
+        role,
+      ).toBe(role === 'duefold_worker');
+  });
+
+  // mark_export_job_ready does not re-check manager rights, so this refusal is what
+  // keeps a demoted creator's export from completing with a cut-short audit trail.
+  it('refuses the next audit page once the creator is no longer a manager', async () => {
+    const fresh = new Date();
+    const requested = await requestExport({
+      pool: runtimePool,
+      identity: identity(secondManagerId, fresh),
+      roomId,
+      preset: 'room-index-audit',
+      selectedDocumentIds: [],
+      includeOriginals: false,
+      now: fresh,
+    });
+    const lease = await leaseExportJob(requested.exportId);
+    const page = () =>
+      workerPool.query('SELECT * FROM read_export_audit_page($1,$2,$3,$4,0)', [
+        requested.exportId,
+        lease.jobId,
+        lease.leaseOwner,
+        lease.leaseToken,
+      ]);
+    await expect(page()).resolves.toHaveProperty('rows');
+    await migrationPool.query(
+      "UPDATE room_assignment SET room_role='contributor' WHERE room_id=$1 AND member_id=$2",
+      [roomId, secondManagerId],
+    );
+    await expect(page()).rejects.toMatchObject({
+      code: '55000',
+      message: 'export unavailable',
+    });
   });
 });

@@ -264,6 +264,14 @@ export async function startS3TestEndpoint(
         );
         return;
       }
+      if (request.method === 'POST' && url.searchParams.has('delete')) {
+        // Like S3, an absent key counts as deleted; a quiet result lists only failures.
+        const requested = (await body(request)).toString('utf8');
+        for (const [, key] of requested.matchAll(/<Key>([^<]*)<\/Key>/gu))
+          if (key !== undefined) objects.delete(key);
+        xml(response, 200, '<DeleteResult></DeleteResult>');
+        return;
+      }
       const key = keyFrom(url, bucket);
       if (key === undefined) {
         xml(response, 404, '<Error><Code>NoSuchBucket</Code></Error>');

@@ -7,8 +7,8 @@ Owns installation identity, member authentication and sessions, organization mem
 - [Module declaration](src/declaration.ts) — composed routes, migrations, jobs, and configuration.
 - [Authorization identities](src/authorization.ts) and [sessions](src/sessions.ts) — authenticated member/viewer boundaries.
 - [Authentication](src/auth/) — OIDC, OTP, and required mail behavior.
-- [Database layer](src/db/) — schema migration and database connection behavior.
-- [Audit](src/audit.ts) — application-facing audit types and helpers; migrations remain authoritative for transactional audit.
+- [Database layer](src/db/) — the schema migration runner.
+- [Audit](src/audit.ts) — the security audit event-type catalogue; migrations remain authoritative for transactional audit.
 
 ## Organization administration
 

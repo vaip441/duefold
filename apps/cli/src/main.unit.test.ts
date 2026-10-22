@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { runCli } from './main.ts';
 
@@ -48,5 +50,19 @@ describe('preflight sandbox', () => {
   it('rejects a preflight invocation that is not the sandbox report', async () => {
     await expect(runCli(['preflight'], {})).rejects.toThrow('usage:');
     await expect(runCli(['preflight', 'sandbox', 'extra'], {})).rejects.toThrow('usage:');
+  });
+});
+
+describe('command line usage', () => {
+  it('prints the usage text, and nothing else, for an unrecognized command', async () => {
+    const failure: unknown = await promisify(execFile)(
+      'node',
+      ['apps/cli/src/main.ts', 'db', 'migrat'],
+      { cwd: process.cwd(), env: { PATH: process.env['PATH'], HOME: process.env['HOME'] } },
+    ).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: 1, stdout: '' });
+    expect((failure as { readonly stderr: string }).stderr).toMatch(
+      /^usage: db migrate \| [^\n]+ \| restore enable-external\n$/u,
+    );
   });
 });

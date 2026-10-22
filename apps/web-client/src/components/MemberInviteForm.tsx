@@ -9,10 +9,11 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 export interface MemberInviteFormProps {
   readonly failure: PresentedFailure | null;
   readonly pending: boolean;
+  /** Resolves true once the invitation is sent, which clears the address. */
   readonly onInvite: (input: {
     readonly email: string;
     readonly intendedRole: AssignableGlobalRole;
-  }) => void;
+  }) => Promise<boolean>;
 }
 
 export function MemberInviteForm({
@@ -29,9 +30,11 @@ export function MemberInviteForm({
   const submit = (): void => {
     setAttempted(true);
     if (!valid) return;
-    onInvite({ email: email.trim(), intendedRole: role });
-    setEmail('');
-    setAttempted(false);
+    void onInvite({ email: email.trim(), intendedRole: role }).then((sent) => {
+      if (!sent) return;
+      setEmail('');
+      setAttempted(false);
+    });
   };
 
   return (

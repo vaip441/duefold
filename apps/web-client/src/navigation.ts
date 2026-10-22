@@ -96,8 +96,12 @@ export function formatMemberLocation(location: MemberLocation): string {
   }
 }
 
+/*
+ * Investor locations live under /read, where invitations land, so a reload after the
+ * session ended offers the investor sign-in. A link from before the prefix still opens.
+ */
 export function parseViewerLocation(pathname: string, search: string): ViewerLocation {
-  const [first, second, third, fourth] = segments(pathname);
+  const [first, second, third, fourth] = segments(pathname.replace(/^\/read(?=\/|$)/u, ''));
   if (first !== 'rooms' || second === undefined || !OPAQUE_ID.test(second))
     return { kind: 'rooms' };
   const documentId = documentFrom(third, fourth);
@@ -105,8 +109,8 @@ export function parseViewerLocation(pathname: string, search: string): ViewerLoc
 }
 
 export function formatViewerLocation(location: ViewerLocation): string {
-  if (location.kind === 'rooms') return '/';
-  return documentPath(`/rooms/${location.roomId}`, location.documentId, location.page);
+  if (location.kind === 'rooms') return '/read';
+  return documentPath(`/read/rooms/${location.roomId}`, location.documentId, location.page);
 }
 
 export type Navigate<T> = (next: T, mode?: 'push' | 'replace') => void;

@@ -70,6 +70,28 @@ describe('streaming export archive', () => {
     ).rejects.toThrow('EXPORT_ZIP_NAME_INVALID');
   });
 
+  it('writes the standard CRC-32 of an entry streamed in several chunks', async () => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of streamingZip([
+      {
+        name: 'check.txt',
+        open: () => ({
+          async *[Symbol.asyncIterator]() {
+            await Promise.resolve();
+            yield Buffer.from('1234', 'utf8');
+            yield Buffer.from('56789', 'utf8');
+          },
+        }),
+      },
+    ]))
+      chunks.push(chunk);
+    const archive = Buffer.concat(chunks);
+    // Local header (30) + name (9) + data (9), then the descriptor signature.
+    const descriptor = 30 + 9 + 9;
+    expect(archive.readUInt32LE(descriptor)).toBe(0x08074b50);
+    expect(archive.readUInt32LE(descriptor + 4)).toBe(0xcbf43926);
+  });
+
   it('refuses to grow past the 32-bit ZIP offset limit before writing an out-of-range field', async () => {
     // A reported length stands in for gigabytes of source bytes.
     function reported(byteLength: number): Uint8Array {

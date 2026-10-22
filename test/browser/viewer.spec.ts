@@ -83,7 +83,7 @@ test.describe('viewer reading room', () => {
   }) => {
     await signIn(page, { roomTitle: 'Series B diligence', documentTitle: 'Investor model' });
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Series B diligence');
-    await expect(page).toHaveURL(/\/rooms\/[A-Za-z0-9_-]+$/u);
+    await expect(page).toHaveURL(/\/read\/rooms\/[A-Za-z0-9_-]+$/u);
     await expect(page.getByText('Materials prepared for your review.')).toBeVisible();
     const collection = page.getByRole('navigation', { name: 'Collection' });
     await expect(collection.getByRole('button', { name: 'Investor model' })).toBeVisible();
@@ -124,6 +124,16 @@ test.describe('viewer reading room', () => {
     // Page turns replace history, so Back leaves the document for the room.
     await page.goBack();
     await expect(page.getByRole('navigation', { name: 'Room contents' })).toBeVisible();
+  });
+
+  test('moves a link from before the /read prefix under it', async ({ page }) => {
+    // Only a /read address offers the investor sign-in once the session has ended.
+    const { roomId, documentId } = await signIn(page);
+    await page.goto(`${server.baseUrl}/rooms/${roomId}/documents/${documentId}`);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Investor model');
+    await expect(page).toHaveURL(
+      `${server.baseUrl}/read/rooms/${roomId}/documents/${documentId}`,
+    );
   });
 
   test('shows an explicit state when the protected room introduction fails to load', async ({
@@ -435,7 +445,7 @@ test.describe('viewer reading room under late answers', () => {
     await openDocument(page);
     const pages = page.getByRole('navigation', { name: 'Document pages' });
     await expect(pages).toContainText('Page 1 of 2');
-    await travelTo(page, `/rooms/${roomId}/documents/${LONGER}?page=4`);
+    await travelTo(page, `/read/rooms/${roomId}/documents/${LONGER}?page=4`);
     await expect(pages).toContainText('Page 4 of 5');
     await expect(page).toHaveURL(new RegExp(`/documents/${LONGER}\\?page=4$`, 'u'));
   });
@@ -515,7 +525,7 @@ test.describe('viewer reading room under late answers', () => {
     await expect(page.getByRole('button', { name: 'Cancel download' })).toBeVisible();
     await expect.poll(() => heldLease).toBeDefined();
 
-    await travelTo(page, `/rooms/${roomId}/documents/${LONGER}`);
+    await travelTo(page, `/read/rooms/${roomId}/documents/${LONGER}`);
     await expect(page.getByRole('navigation', { name: 'Document pages' })).toContainText(
       'Page 1 of 5',
     );
@@ -542,6 +552,39 @@ test.describe('viewer reading room under late answers', () => {
       'Download cancelled. Nothing was saved.',
     );
     await expect(page.getByText(/% downloaded/u)).toHaveCount(0);
+  });
+
+  test('keeps the next document open when the refused one is re-read late', async ({
+    page,
+  }) => {
+    await serveLongerDocument(page);
+    const { roomId, documentId } = await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await page.route('**/api/viewer/previews', (route) =>
+      (route.request().postDataJSON() as { documentId: string }).documentId === LONGER
+        ? route.fallback()
+        : route.fulfill({
+            status: 404,
+            json: {
+              error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' },
+            },
+          }),
+    );
+    let heldRead: Route | undefined;
+    await page.route(`**/api/viewer/document?*documentId=${documentId}`, (route) => {
+      heldRead = route;
+    });
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect.poll(() => heldRead).toBeDefined();
+
+    await travelTo(page, `/read/rooms/${roomId}/documents/${LONGER}`);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 5');
+    // Unpublished meanwhile: the answer belongs to the document the reader left.
+    await heldRead?.fulfill({ json: { document: null } });
+    if (heldRead !== undefined) await settled(page, heldRead.request());
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 5');
+    await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
   });
 
   test('stops heartbeats once Back leaves the document', async ({ page }) => {
@@ -597,7 +640,7 @@ test.describe('viewer reading room under late answers', () => {
     await page.clock.runFor(60_000);
     await expect.poll(() => heldBeat).toBeDefined();
 
-    await travelTo(page, `/rooms/${roomId}/documents/${LONGER}`);
+    await travelTo(page, `/read/rooms/${roomId}/documents/${LONGER}`);
     await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 5');
     // The first document's activity is closed by now, so its heartbeat is refused.
     await heldBeat?.fulfill({ json: { accepted: false } });
@@ -605,6 +648,294 @@ test.describe('viewer reading room under late answers', () => {
 
     await page.clock.runFor(60_000);
     await expect.poll(() => beats).toContain(LONGER_ACTIVITY);
+    await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
+  });
+});
+
+test.describe('viewer reading room after its preview activity ended', () => {
+  const pageImageWidth = (page: Page): Promise<number> =>
+    page.locator('.df-page__image').evaluate((image: HTMLImageElement) => image.naturalWidth);
+
+  /** Unpublishes the open document: its activity is refused and its metadata is gone. */
+  const withdraw = async (page: Page, documentId: string): Promise<void> => {
+    await page.route('**/api/viewer/previews', (route) =>
+      (route.request().postDataJSON() as { documentId: string }).documentId === LONGER
+        ? route.fallback()
+        : route.fulfill({
+            status: 404,
+            json: {
+              error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' },
+            },
+          }),
+    );
+    await page.route(`**/api/viewer/document?*documentId=${documentId}`, (route) =>
+      route.fulfill({ json: { document: null } }),
+    );
+  };
+
+  test('loads the next page after another tab or the server ended the activity', async ({
+    page,
+  }) => {
+    const { viewerId } = await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    // Tabs of one session share the row, and a paused tab's row is ended by the server.
+    await server.migrationPool.query(
+      "UPDATE preview_activity SET state='closed',summarized_at=statement_timestamp() WHERE viewer_id=$1",
+      [viewerId],
+    );
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.locator('.df-page__caption')).toContainText('Page 2 of 2');
+    await expect.poll(() => pageImageWidth(page)).toBeGreaterThan(0);
+    await expect(page.getByText('This page could not be shown.')).toHaveCount(0);
+  });
+
+  test('reads on from a version published while open, and returns to the room once it is withdrawn', async ({
+    page,
+  }) => {
+    const { roomId, documentId } = await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    const republished = 'W'.repeat(32);
+    let disclosed = true;
+    await page.route('**/api/viewer/previews', (route) =>
+      disclosed &&
+      (route.request().postDataJSON() as { versionId: string }).versionId === republished
+        ? route.fulfill({
+            status: 201,
+            json: { activityId: LONGER_ACTIVITY, correlationId: `corr_${'C'.repeat(32)}` },
+          })
+        : route.fulfill({
+            status: 404,
+            json: {
+              error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' },
+            },
+          }),
+    );
+    await page.route('**/api/viewer/document?*', (route) =>
+      route.fulfill({
+        json: {
+          document: disclosed
+            ? {
+                documentId,
+                displayTitle: 'Investor model',
+                publishedVersionId: republished,
+                pageCount: 3,
+                downloadPolicy: 'allow',
+              }
+            : null,
+        },
+      }),
+    );
+    await page.route('**/api/viewer/pages/cache', (route) =>
+      route.fulfill({
+        status: 201,
+        json: {
+          cacheId: 'K'.repeat(32),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      }),
+    );
+    await page.route('**/api/viewer/pages/text?*', (route) =>
+      route.fulfill({ json: { versionId: republished, accessibleLabel: 'Page', items: [] } }),
+    );
+    await page.route(`**/api/viewer/pages/image?cacheId=${'K'.repeat(32)}*`, (route) =>
+      route.fulfill({ contentType: 'image/png', body: PIXEL }),
+    );
+
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.locator('.df-page__caption')).toContainText('Page 2 of 3');
+    await expect.poll(() => pageImageWidth(page)).toBeGreaterThan(0);
+    await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
+
+    disclosed = false;
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(
+      page.getByRole('main').getByText('This document is not available to read.'),
+    ).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Status' })).toContainText(
+      'This document is not available to read.',
+    );
+    await expect(page).toHaveURL(`${server.baseUrl}/read/rooms/${roomId}`);
+    await expect(page.getByRole('navigation', { name: 'Room contents' })).toBeVisible();
+    await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
+  });
+
+  for (const [outcome, answer] of [
+    ['finds nothing left to read', { json: { entries: [] } }],
+    [
+      'is refused',
+      {
+        status: 403,
+        json: { error: { code: 'FORBIDDEN', message: 'The request is not permitted.' } },
+      },
+    ],
+  ] as const)
+    test(`stops the room when its re-read after a withdrawal ${outcome}`, async ({ page }) => {
+      const { documentId } = await signIn(page);
+      await openDocument(page);
+      await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+      await withdraw(page, documentId);
+      await page.route('**/api/viewer/structure?*', (route) => route.fulfill(answer));
+      await page.getByRole('button', { name: 'Next page' }).click();
+      await expect(page.getByText('Your access to this room has changed.')).toBeVisible();
+    });
+
+  test('shows the withdrawn document as unavailable while the room cannot be re-read', async ({
+    page,
+  }) => {
+    const { documentId } = await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await withdraw(page, documentId);
+    await page.route('**/api/viewer/structure?*', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
+    );
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(
+      page.getByRole('main').getByText('This document is not available to read.'),
+    ).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Document pages' })).toHaveCount(0);
+    await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
+  });
+
+  test('keeps the next document open when the room is re-read late', async ({ page }) => {
+    await serveLongerDocument(page);
+    const { roomId, documentId } = await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await withdraw(page, documentId);
+    let heldStructure: Route | undefined;
+    await page.route('**/api/viewer/structure?*', (route) => {
+      heldStructure = route;
+    });
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect.poll(() => heldStructure).toBeDefined();
+
+    await travelTo(page, `/read/rooms/${roomId}/documents/${LONGER}`);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 5');
+    // The real room still discloses documents, so a stale answer would return to the room.
+    await heldStructure?.continue();
+    if (heldStructure !== undefined) await settled(page, heldStructure.request());
+    await expect(page).toHaveURL(new RegExp(`/documents/${LONGER}$`, 'u'));
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 5');
+  });
+
+  test("keeps the room's re-read when its first read of a directly opened document answers late", async ({
+    page,
+  }) => {
+    const { roomId, documentId } = await signIn(page);
+    await expect(page.getByRole('navigation', { name: 'Room contents' })).toBeVisible();
+    await withdraw(page, documentId);
+    let metadataReads = 0;
+    await page.route(`**/api/viewer/document?*documentId=${documentId}`, (route) =>
+      (metadataReads += 1) === 1 ? route.continue() : route.fallback(),
+    );
+    let firstRead: Route | undefined;
+    await page.route('**/api/viewer/structure?*', (route) => {
+      if (firstRead === undefined) {
+        firstRead = route;
+        return;
+      }
+      return route.fulfill({
+        json: {
+          entries: [
+            {
+              entryId: 'E'.repeat(32),
+              resourceKind: 'document',
+              resourceId: LONGER,
+              parentFolderId: null,
+              displayName: 'Board pack',
+              description: '',
+              publishedVersionId: 'V'.repeat(32),
+              siblingPosition: 0,
+            },
+          ],
+        },
+      });
+    });
+    await page.goto(`${server.baseUrl}/read/rooms/${roomId}/documents/${documentId}`);
+    const contents = page.getByRole('navigation', { name: 'Room contents' });
+    await expect(contents.getByRole('button', { name: 'Board pack' })).toBeVisible();
+
+    await firstRead?.continue();
+    if (firstRead !== undefined) await settled(page, firstRead.request());
+    await expect(contents.getByRole('button', { name: 'Board pack' })).toBeVisible();
+    await expect(contents.getByRole('button', { name: 'Investor model' })).toHaveCount(0);
+  });
+});
+
+test.describe('viewer reading room after losing access', () => {
+  const refusePages = async (page: Page, status: 401 | 403): Promise<void> => {
+    await page.route('**/api/viewer/pages/text?*', (route) =>
+      route.fulfill({ status, contentType: 'application/json', body: '{}' }),
+    );
+  };
+
+  test('returns to a re-read room list when one room refuses, keeping the others', async ({
+    page,
+  }) => {
+    await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    let roomReads = 0;
+    await page.route('**/api/viewer/rooms', async (route) => {
+      roomReads += 1;
+      const response = await route.fetch();
+      const { rooms } = (await response.json()) as { rooms: unknown[] };
+      await route.fulfill({
+        response,
+        json: {
+          rooms: [...rooms, { roomId: 'O'.repeat(32), title: 'Seed round', description: '' }],
+        },
+      });
+    });
+    await refusePages(page, 403);
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.getByText('Your access to this room has changed.')).toBeVisible();
+    await expect(page).toHaveURL(`${server.baseUrl}/read`);
+    await expect(
+      page.getByRole('main').getByRole('button', { name: 'Seed round' }),
+    ).toBeVisible();
+    expect(roomReads).toBe(1);
+  });
+
+  test('keeps a lost single room on the room list when it refuses before the list first answers', async ({
+    page,
+  }) => {
+    const { roomId, documentId } = await signIn(page);
+    await expect(page.getByRole('navigation', { name: 'Room contents' })).toBeVisible();
+    let firstRoomsRead = true;
+    await page.route('**/api/viewer/rooms', (route) => {
+      if (firstRoomsRead) {
+        firstRoomsRead = false;
+        return;
+      }
+      return route.continue();
+    });
+    await refusePages(page, 403);
+    await page.goto(`${server.baseUrl}/read/rooms/${roomId}/documents/${documentId}`);
+    await expect(
+      page.getByRole('main').getByRole('button', { name: 'Series B diligence' }),
+    ).toBeVisible();
+    // The single-room landing would act on this re-read, so give it a frame to do so.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    await expect(page).toHaveURL(`${server.baseUrl}/read`);
+    await expect(page.getByText('Your access to this room has changed.')).toBeVisible();
+  });
+
+  test('stops every room once the session has ended', async ({ page }) => {
+    await signIn(page);
+    await openDocument(page);
+    await expect(page.locator('.df-page__caption')).toContainText('Page 1 of 2');
+    await refusePages(page, 401);
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(
+      page
+        .getByRole('main')
+        .getByText('Your session has ended. Sign in again to keep reading.'),
+    ).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Document pages' })).toHaveCount(0);
     await expect(page.getByText('Your access to this room has changed.')).toHaveCount(0);
   });
 });

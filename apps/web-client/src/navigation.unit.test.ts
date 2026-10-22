@@ -60,10 +60,36 @@ describe('member locations', () => {
 describe('viewer locations', () => {
   it('keeps the room, document, and page', () => {
     const location = { kind: 'room', roomId: ROOM, documentId: DOCUMENT, page: 3 } as const;
-    expect(formatViewerLocation(location)).toBe(`/rooms/${ROOM}/documents/${DOCUMENT}?page=3`);
-    expect(parseViewerLocation(`/rooms/${ROOM}/documents/${DOCUMENT}`, '?page=3')).toEqual(
+    expect(formatViewerLocation(location)).toBe(
+      `/read/rooms/${ROOM}/documents/${DOCUMENT}?page=3`,
+    );
+    expect(parseViewerLocation(`/read/rooms/${ROOM}/documents/${DOCUMENT}`, '?page=3')).toEqual(
       location,
     );
+  });
+
+  it('keeps every location under the investor sign-in path', () => {
+    // App offers the investor sign-in for /read paths once the session has ended.
+    expect(formatViewerLocation({ kind: 'rooms' })).toBe('/read');
+    for (const location of [
+      { kind: 'rooms' },
+      { kind: 'room', roomId: ROOM, documentId: null, page: 1 },
+      { kind: 'room', roomId: ROOM, documentId: DOCUMENT, page: 1 },
+    ] as const) {
+      const path = formatViewerLocation(location);
+      expect(path.startsWith('/read')).toBe(true);
+      expect(parseViewerLocation(path, '')).toEqual(location);
+    }
+  });
+
+  it('still opens a link written before the investor prefix', () => {
+    expect(parseViewerLocation(`/rooms/${ROOM}`, '')).toEqual({
+      kind: 'room',
+      roomId: ROOM,
+      documentId: null,
+      page: 1,
+    });
+    expect(parseViewerLocation(`/reading/rooms/${ROOM}`, '')).toEqual({ kind: 'rooms' });
   });
 
   it('reads a missing or nonsensical page as the first', () => {

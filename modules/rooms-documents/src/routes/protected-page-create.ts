@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: ViewerIdentity) {
   return createWatermarkHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('protected page create route runtime not initialized');
-}

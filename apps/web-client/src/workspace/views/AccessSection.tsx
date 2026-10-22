@@ -41,17 +41,19 @@ export function AccessSection({
         impactLoading={section.impactPending}
         applyPending={section.applyPending}
         changeFailure={section.changeFailure}
-        onInvite={(email) => {
-          if (room === null) return;
-          section.invite({ roomId, email, expectedRoomRevision: room.revision });
-        }}
+        onInvite={(email) =>
+          room === null
+            ? Promise.resolve(false)
+            : section.invite({ roomId, email, expectedRoomRevision: room.revision })
+        }
         onReview={(submission) => {
           section.review(roomId, submission);
         }}
-        onApply={(confirmation) => {
-          if (room === null) return;
-          section.apply({ roomId, expectedRoomRevision: room.revision, confirmation });
-        }}
+        onApply={(confirmation) =>
+          room === null
+            ? Promise.resolve(false)
+            : section.apply({ roomId, expectedRoomRevision: room.revision, confirmation })
+        }
         onCancelChange={section.cancelChange}
         onReload={() => {
           section.beginLoading();

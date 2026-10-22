@@ -101,14 +101,7 @@ interface RuntimeHandlerInput {
   readonly authenticate: (request: FastifyRequest) => Promise<AuthenticatedSession | null>;
 }
 type RuntimeRouteFactory = (input: RuntimeHandlerInput) => RouteHandlerMethod;
-const PUBLIC_RUNTIME_HANDLER: RuntimeRouteFactory = () => {
-  throw new Error('public route handler must be selected by route id');
-};
 const ROUTE_FACTORIES = {
-  'health.live': PUBLIC_RUNTIME_HANDLER,
-  'health.ready': () => {
-    throw new Error('readiness dependencies missing');
-  },
   'auth.session': ({ runtime, authenticate }) =>
     routeById('auth.session').handlerFactory(runtime, authenticate),
   'auth.oidc.begin': ({ runtime }) => routeById('auth.oidc.begin').handlerFactory(runtime),
@@ -173,7 +166,10 @@ const ROUTE_FACTORIES = {
   'branding.viewer-introduction': viewerFactory('branding.viewer-introduction'),
   'branding.asset.get': ({ runtime }) =>
     routeById('branding.asset.get').handlerFactory(runtime),
-} satisfies Record<GeneratedRouteId, RuntimeRouteFactory>;
+} satisfies Record<
+  Exclude<GeneratedRouteId, 'health.live' | 'health.ready'>,
+  RuntimeRouteFactory
+>;
 
 function routeById<Id extends GeneratedRouteId>(
   id: Id,
@@ -264,11 +260,7 @@ function runtimeHandler(
   dependencies: WebDependencies,
   session: AuthenticatedSession | null,
 ): RouteHandlerMethod {
-  if (route.id === 'health.live') {
-    if (typeof route.handler !== 'function')
-      throw new Error(`invalid route handler: ${route.id}`);
-    return route.handler;
-  }
+  if (route.id === 'health.live') return route.handler;
   if (route.id === 'health.ready') return route.handlerFactory(dependencies.readiness);
   return ROUTE_FACTORIES[route.id]({
     runtime: dependencies.runtime,
@@ -300,8 +292,6 @@ export function createWebLogger(destination?: pino.DestinationStream): pino.Logg
 }
 
 export async function buildWebApp(dependencies: WebDependencies) {
-  if (dependencies.runtime.watermarkProgram === undefined)
-    throw new Error('WATERMARK_ADAPTER_UNAVAILABLE');
   const logger = createWebLogger(dependencies.logDestination);
   const app = Fastify({
     bodyLimit: MAX_BODY_BYTES,
@@ -349,16 +339,17 @@ export async function buildWebApp(dependencies: WebDependencies) {
    *
    * Messages stay uniform and non-enumerating: a denied request must not reveal
    * whether the room, folder, or document exists, so every 403 says the same
-   * thing regardless of which predicate refused. The server-side log keeps the
-   * detail.
+   * thing regardless of which predicate refused.
    */
   app.setErrorHandler((error, _request, reply) => {
-    app.log.error({ err: error });
     const classified = classifyFailure(error);
     if (classified !== null) {
+      // Like Fastify's default handler: a refusal is an expected outcome, so only faults log as errors.
+      app.log.info({ event: 'request.failed', status: classified.status });
       void reply.code(classified.status).send({ error: classified.body });
       return;
     }
+    app.log.error({ err: error });
     void reply.code(500).send({
       error: { code: 'INTERNAL', message: 'The request could not be completed.' },
     });

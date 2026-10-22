@@ -75,7 +75,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return readRoomSettings({ pool: runtime.pool, identity, roomId });
   };
 }
-
-export function handler(): never {
-  throw new Error('room settings route runtime not initialized');
-}

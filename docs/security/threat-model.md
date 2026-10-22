@@ -51,7 +51,7 @@ Primary boundaries:
 | Malware/scanner bypass | Scanner outage, stale signatures, malformed response, and timeout fail closed; malware cannot advance or be downloaded. |
 | Spreadsheet active content/exfiltration | Macro/legacy/encrypted/ambiguous formats rejected; external relationships/DDE/formulas stripped before converter; affected formats disabled by signed release policy until qualified. |
 | Storage exposure | Private bucket, blocked public access, TLS/protected transport, opaque keys, separate web/worker credentials, application-authorized delivery. |
-| Audit deletion or split-brain | Audit insert shares the mutation transaction; runtime roles cannot update/delete/truncate; failure rolls back mutation. No tamper-proof claim. |
+| Audit deletion or split-brain | Audit insert shares the mutation transaction; runtime roles cannot update/delete/truncate; only the worker's lease-fenced retention sweep deletes rows whose retention has passed; failure rolls back mutation. No tamper-proof claim. |
 | Log/support leakage | Structured allowlisted fields and redaction tests; no bodies, email, names, IDs, tokens, keys, URLs, or raw IPs. |
 | SSRF/open redirect/active preview content | No native sources served inline; raster previews and sanitized positional text; HTTPS-only normalized link interstitial; ImageMagick URL/SVG/@path coders denied. |
 | Resource exhaustion | Body/query/pagination limits, 250 MiB source cap, parser/container bounds, bounded job retries/leases, converter concurrency pool, output/time/scratch limits, streaming downloads/exports. |

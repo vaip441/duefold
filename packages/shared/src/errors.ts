@@ -20,30 +20,6 @@ export const SAFE_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   INTERNAL: 'The request could not be completed.',
 };
 
-export interface ExternalError {
-  readonly error: { readonly code: ErrorCode; readonly message: string };
-}
-
-export class DuefoldError extends Error {
-  public readonly code: ErrorCode;
-  public readonly internalDetail: Readonly<Record<string, unknown>>;
-
-  public constructor(
-    code: ErrorCode,
-    internalMessage: string,
-    internalDetail: Readonly<Record<string, unknown>> = {},
-  ) {
-    super(internalMessage);
-    this.name = 'DuefoldError';
-    this.code = code;
-    this.internalDetail = internalDetail;
-  }
-
-  public external(): ExternalError {
-    return { error: { code: this.code, message: SAFE_MESSAGES[this.code] } };
-  }
-}
-
 /** Deliberately identical whether or not an account or invitation exists. */
 export const NEUTRAL_AUTH_RESPONSE = {
   accepted: true,

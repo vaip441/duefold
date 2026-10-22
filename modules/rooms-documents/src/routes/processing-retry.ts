@@ -25,6 +25,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     return null;
   };
 }
-export function handler(): never {
-  throw new Error('processing retry route runtime not initialized');
-}

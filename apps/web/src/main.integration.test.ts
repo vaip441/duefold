@@ -1,4 +1,6 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
@@ -58,5 +60,35 @@ describe('web startup without a stated client-address source', () => {
         stage: 'config',
       })}\n`,
     });
+  });
+});
+
+describe('web shutdown', () => {
+  it('exits cleanly on SIGTERM instead of waiting to be killed', async () => {
+    /* An issuer that accepts the connection and never answers holds startup in the OIDC
+       stage, after the signal handlers are installed. */
+    const sockets: Socket[] = [];
+    const issuer = createServer((socket) => sockets.push(socket));
+    issuer.listen(0, '127.0.0.1');
+    await once(issuer, 'listening');
+    const { port } = issuer.address() as AddressInfo;
+    try {
+      const child = spawn('node', ['apps/web/src/main.ts'], {
+        cwd: process.cwd(),
+        env: {
+          ...webEnvironment,
+          DUEFOLD_TRUSTED_PROXIES: 'false',
+          DUEFOLD_OIDC_ISSUER: `https://127.0.0.1:${port}`,
+        },
+        stdio: 'ignore',
+      });
+      await once(issuer, 'connection');
+      child.kill('SIGTERM');
+      const [code, signal] = (await once(child, 'exit')) as [number | null, string | null];
+      expect({ code, signal }).toEqual({ code: 0, signal: null });
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      issuer.close();
+    }
   });
 });

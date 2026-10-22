@@ -30,7 +30,3 @@ export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
     settings: await readInstallationSettings({ pool: runtime.pool, identity }),
   });
 }
-
-export function handler(): never {
-  throw new Error('installation route runtime not initialized');
-}

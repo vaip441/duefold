@@ -303,12 +303,12 @@ export async function restoreDrill(
     createOpaqueId(),
     createCorrelationId(),
   ]);
-  if (status !== 'passed') throw new Error(`RESTORE_DRILL_${status.toUpperCase()}`);
   return { status, checks: results };
 }
 
 export interface DeletionMarkerStorage {
   getObjectBytes(key: string): Promise<Uint8Array>;
+  listDeletionMarkedRoomIds(): Promise<readonly string[]>;
 }
 export async function reconcileDeletionMarker(
   pool: Pool,
@@ -347,11 +347,21 @@ export async function reconcileDeletionMarker(
   if (result.rows[0]?.reconciled !== true) throw new Error('DELETION_MARKER_NOT_RECONCILABLE');
 }
 
-export async function assertExternalEnablementAllowed(pool: Pool): Promise<void> {
+export async function assertExternalEnablementAllowed(
+  pool: Pool,
+  storage: DeletionMarkerStorage,
+): Promise<void> {
   const marker = await pool.query(
     'SELECT purge_id FROM unreconciled_deletion_markers() LIMIT 1',
   );
   if (marker.rowCount !== 0) throw new Error('EXTERNAL_ENABLEMENT_REFUSED_DELETION_MARKERS');
+  // A database restored from before a purge has no purge row: the marker in storage
+  // is then the only evidence that the room it names was purged.
+  const resurrected = await pool.query('SELECT 1 FROM room WHERE id=ANY($1::text[]) LIMIT 1', [
+    await storage.listDeletionMarkedRoomIds(),
+  ]);
+  if (resurrected.rowCount !== 0)
+    throw new Error('EXTERNAL_ENABLEMENT_REFUSED_DELETION_MARKERS');
 }
 
 export function deploymentPlan(

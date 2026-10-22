@@ -16,6 +16,8 @@
 import { useId, useState } from 'react';
 import { translate } from '../i18n/translate.ts';
 import type { TrashEntry, WorkingEntry } from '../api/client.ts';
+import { formatDate } from '../workspace/grants.ts';
+import { destinationOptions } from './StructureControls.tsx';
 
 export interface TrashViewProps {
   readonly trash: readonly TrashEntry[];
@@ -27,17 +29,6 @@ export interface TrashViewProps {
     readonly displayName: string;
     readonly destinationFolderId: string | null;
   }) => void;
-}
-
-/** Absolute server date, rendered in the reader's locale without arithmetic. */
-function formatInstant(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return iso;
-  return parsed.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
 }
 
 export function TrashView({
@@ -92,8 +83,8 @@ export function TrashView({
                       </span>
                     ) : null}
                   </th>
-                  <td data-numeric="true">{formatInstant(entry.trashedAt)}</td>
-                  <td data-numeric="true">{formatInstant(entry.purgeAfter)}</td>
+                  <td data-numeric="true">{formatDate(entry.trashedAt)}</td>
+                  <td data-numeric="true">{formatDate(entry.purgeAfter)}</td>
                   <td>
                     <div className="df-register__actions">
                       {restoring === entry.trashId ? (
@@ -140,11 +131,13 @@ export function TrashView({
                               <option value="">
                                 {translate('structure.move.destinationRoot')}
                               </option>
-                              {folders.map((folder) => (
-                                <option key={folder.resourceId} value={folder.resourceId}>
-                                  {folder.displayName}
-                                </option>
-                              ))}
+                              {destinationOptions(folders, null).map(
+                                ({ entry: folder, label }) => (
+                                  <option key={folder.resourceId} value={folder.resourceId}>
+                                    {label}
+                                  </option>
+                                ),
+                              )}
                             </select>
                           </div>
                           <button

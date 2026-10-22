@@ -28,6 +28,7 @@ import type {
   WorkingEntry,
 } from '../api/client.ts';
 import { translate, translateCount } from '../i18n/translate.ts';
+import type { PathOption } from '../viewer/structure-depth.ts';
 import {
   describeGrant,
   formatExpiryDay,
@@ -59,9 +60,11 @@ export interface ParticipantsPanelProps {
   readonly impactLoading: boolean;
   readonly applyPending: boolean;
   readonly changeFailure: PresentedFailure | null;
-  readonly onInvite: (email: string) => void;
+  /** Resolves true once the invitation is sent, which clears the address. */
+  readonly onInvite: (email: string) => Promise<boolean>;
   readonly onReview: (submission: GrantSubmission) => void;
-  readonly onApply: (confirmation: string) => void;
+  /** Resolves true once the change is committed, which closes the form. */
+  readonly onApply: (confirmation: string) => Promise<boolean>;
   readonly onCancelChange: () => void;
   readonly onReload: () => void;
 }
@@ -356,7 +359,16 @@ export function ParticipantsPanel({
                 failure={changeFailure}
                 typed={typed}
                 typedAttempted={typedAttempted}
-                onDraftChange={setDraft}
+                onDraftChange={(next) => {
+                  /* The reviewed impact and phrase describe the old draft, and apply
+                     commits the reviewed submission: any edit needs a fresh review, and
+                     none is accepted while that submission is being committed. */
+                  if (applyPending) return;
+                  setDraft(next);
+                  setTyped('');
+                  setTypedAttempted(false);
+                  onCancelChange();
+                }}
                 onReview={() => {
                   setDraftAttempted(true);
                   if (problems.length > 0) return;
@@ -373,8 +385,10 @@ export function ParticipantsPanel({
                 onTypedChange={setTyped}
                 onApply={() => {
                   setTypedAttempted(true);
-                  if (impact !== null && typed.trim() === impact.confirmation)
-                    onApply(typed.trim());
+                  if (typed.trim() !== impact?.confirmation) return;
+                  void onApply(typed.trim()).then((applied) => {
+                    if (applied) setEditing((open) => (open === editing ? null : open));
+                  });
                 }}
                 onCancel={() => {
                   setEditing(null);
@@ -394,9 +408,11 @@ export function ParticipantsPanel({
           setEmailAttempted(true);
           if (!emailValid) return;
           setGrantAfterInvite(email.trim().toLowerCase());
-          onInvite(email.trim());
-          setEmail('');
-          setEmailAttempted(false);
+          void onInvite(email.trim()).then((sent) => {
+            if (!sent) return;
+            setEmail('');
+            setEmailAttempted(false);
+          });
         }}
       >
         <h3 className="df-panel__subheading">{translate('participants.invite')}</h3>
@@ -466,8 +482,8 @@ interface GrantChangeFormProps {
   readonly action: GrantChangeAction;
   readonly draft: GrantDraft;
   readonly problems: readonly GrantDraftProblem[];
-  readonly folders: readonly WorkingEntry[];
-  readonly documents: readonly WorkingEntry[];
+  readonly folders: readonly PathOption<WorkingEntry>[];
+  readonly documents: readonly PathOption<WorkingEntry>[];
   readonly impact: GrantImpact | null;
   readonly impactLoading: boolean;
   readonly applyPending: boolean;

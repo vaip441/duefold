@@ -25,6 +25,7 @@ import { ApiError, type TextLayer, type TextLayerItem } from '../api/client.ts';
 import { translate } from '../i18n/translate.ts';
 import { splitRuns, type FindMatch } from '../viewer/find.ts';
 import type { PageSource } from '../viewer/page-source.ts';
+import type { AccessLoss } from '../viewer/usePreviewEvidence.ts';
 import { Notice } from './Notice.tsx';
 
 export interface PageReaderProps {
@@ -38,7 +39,7 @@ export interface PageReaderProps {
   readonly currentMatch: number | null;
   readonly onTextLayer: (layer: TextLayer | null) => void;
   readonly onLinkActivate: (item: TextLayerItem) => void;
-  readonly onUnauthorized: () => void;
+  readonly onUnauthorized: (failure: AccessLoss) => void;
 }
 
 type PageState =
@@ -112,7 +113,7 @@ export function PageReader({
           error instanceof ApiError &&
           (error.failure === 'unauthenticated' || error.failure === 'denied')
         ) {
-          unauthorizedSink.current();
+          unauthorizedSink.current(error.failure);
           return;
         }
         setState({

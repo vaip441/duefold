@@ -516,14 +516,7 @@ function textType(bytes: Uint8Array, binaryMatched = false): SourceMediaType {
   )
     throw new Error('SOURCE_ACTIVE_CONTENT_REJECTED');
   if (binaryMatched) throw new Error('SOURCE_TYPE_REJECTED');
-  const lines = text.split(/\r?\n/u).filter((line) => line !== '');
-  const commaCounts = lines.map((line) => line.length - line.replaceAll(',', '').length);
-  const firstCommaCount = commaCounts[0] ?? 0;
-  const csv =
-    lines.length >= 2 &&
-    firstCommaCount > 0 &&
-    commaCounts.every((count) => count === firstCommaCount);
-  return csv ? 'text/csv' : 'text/plain';
+  return 'text/plain';
 }
 
 /** Detects type from bytes only and rejects ambiguous/active/container inputs. */
@@ -554,8 +547,11 @@ export function validateSourceBytes(
   }
   const matches = [...binaryMatches, ...(textMatch === undefined ? [] : [textMatch])];
   if (matches.length > 1) throw new Error('SOURCE_POLYGLOT_REJECTED');
-  const detected = matches[0];
-  if (detected === undefined) throw new Error('SOURCE_TYPE_REJECTED');
+  const match = matches[0];
+  if (match === undefined) throw new Error('SOURCE_TYPE_REJECTED');
+  // Plain text and CSV are one byte class rendered identically; the declared type is kept.
+  const detected =
+    match === 'text/plain' && declaredMediaType === 'text/csv' ? 'text/csv' : match;
   if (detected !== declaredMediaType) throw new Error('SOURCE_TYPE_MISMATCH');
   return {
     mediaType: detected,

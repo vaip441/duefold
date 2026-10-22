@@ -6,7 +6,7 @@ import {
   composeWatermarkPage,
   parseTextLayer,
 } from './protected-delivery.ts';
-import { sandboxProgram } from './processing/sandbox.ts';
+import { sandboxProgram, type SandboxProgram } from './processing/sandbox.ts';
 import { fileURLToPath } from 'node:url';
 
 describe('protected delivery security normalization', () => {
@@ -25,9 +25,53 @@ describe('protected delivery security normalization', () => {
       'image-bytes\nviewer@example.com|2026-03-01|Published room',
     );
   });
+  it('runs at most two watermark compositions at once and queues the rest', async () => {
+    const program = sandboxProgram(process.execPath, [
+      '-e',
+      'const start=Date.now();setTimeout(()=>process.stdout.write(start+","+Date.now()),300)',
+    ]);
+    const intervals = (
+      await Promise.all(
+        Array.from({ length: 6 }, () =>
+          composeWatermarkPage({
+            program,
+            source: Buffer.from('image-bytes'),
+            viewerEmail: 'viewer@example.com',
+            accessDateUtc: '2026-03-01',
+            roomName: 'Published room',
+          }),
+        ),
+      )
+    ).map((output) => Buffer.from(output).toString('utf8').split(',').map(Number));
+    const overlapping = intervals.map(
+      ([start = 0]) =>
+        intervals.filter(([from = 0, to = 0]) => from <= start && start < to).length,
+    );
+    expect(Math.max(...overlapping)).toBe(2);
+  });
+  it('gives a failed composition slot to the next queued page', async () => {
+    const page = (program: SandboxProgram) =>
+      composeWatermarkPage({
+        program,
+        source: Buffer.from('image-bytes'),
+        viewerEmail: 'viewer@example.com',
+        accessDateUtc: '2026-03-01',
+        roomName: 'Published room',
+      });
+    const failing = sandboxProgram(process.execPath, ['-e', 'process.exit(1)']);
+    await Promise.all([
+      expect(page(failing)).rejects.toThrow('SANDBOX_CHILD_FAILED'),
+      expect(page(failing)).rejects.toThrow('SANDBOX_CHILD_FAILED'),
+    ]);
+    // A leaked slot leaves this page queued forever, so the test timeout fails it.
+    await expect(
+      page(sandboxProgram(process.execPath, ['-e', 'process.stdout.write("composed")'])),
+    ).resolves.toEqual(Buffer.from('composed'));
+  });
   it('accepts legitimate international HTTPS domains and binds display to navigation', () => {
     const link = normalizeSafeHttpsLink('https://münchen.example/Größe?q=1');
     expect(link).toEqual({
+      href: 'https://xn--mnchen-3ya.example/Gr%C3%B6%C3%9Fe?q=1',
       interstitialPath:
         '/api/viewer/links/interstitial?target=https%3A%2F%2Fxn--mnchen-3ya.example%2FGr%25C3%25B6%25C3%259Fe%3Fq%3D1',
       normalizedDomain: 'münchen.example',
@@ -53,6 +97,7 @@ describe('protected delivery security normalization', () => {
   });
   it('canonicalizes case from the exact navigated host', () => {
     expect(normalizeSafeHttpsLink('HTTPS://MÜNCHEN.EXAMPLE/path')).toEqual({
+      href: 'https://xn--mnchen-3ya.example/path',
       interstitialPath:
         '/api/viewer/links/interstitial?target=https%3A%2F%2Fxn--mnchen-3ya.example%2Fpath',
       normalizedDomain: 'münchen.example',

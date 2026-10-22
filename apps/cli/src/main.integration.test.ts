@@ -1,11 +1,15 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { generatedConfigSchema } from '../../../.duefold/generated/config-schema.ts';
+import { composedManifest } from '../../../.duefold/generated/manifest.ts';
+import { SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT } from '../../../modules/rooms-documents/src/processing/preflight.ts';
 
 const execute = promisify(execFile);
 const databaseName = 'duefold_cli_reset_test';
@@ -100,6 +104,32 @@ function fatalEnvironment(port: number): NodeJS.ProcessEnv {
 }
 
 /**
+ * The worker refuses keys outside its own schema at config load, so the shared fixture
+ * would stop it before it ever reached the database.
+ */
+function workerEnvironment(port: number): NodeJS.ProcessEnv {
+  const workerKeys = new Set(
+    generatedConfigSchema
+      .filter((field) => field.service === 'worker' || field.service === 'shared')
+      .map((field) => field.key),
+  );
+  return {
+    ...Object.fromEntries(
+      Object.entries(fatalEnvironment(port)).filter(
+        ([key]) =>
+          !key.startsWith('DUEFOLD_') || (workerKeys.has(key) && key !== 'DUEFOLD_SMTP_URL'),
+      ),
+    ),
+    ...(composedManifest.adapters.mail === 'smtp'
+      ? { DUEFOLD_SMTP_URL: `smtp://127.0.0.1:${String(port)}` }
+      : { DUEFOLD_RESEND_API_KEY: 're_entry_point_test' }),
+    // The database path is under test, not the host's sandbox support.
+    DUEFOLD_SANDBOX_MODE: 'development',
+    DUEFOLD_SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT: SANDBOX_DEVELOPMENT_ACKNOWLEDGEMENT,
+  };
+}
+
+/**
  * Waits until no backend remains connected to the test database.
  *
  * `DROP DATABASE ... WITH (FORCE)` terminates other backends, which races a
@@ -154,7 +184,10 @@ describe('CLI operator guards', () => {
             ],
             {
               cwd: process.cwd(),
-              env: fatalEnvironment(dependency.port),
+              env:
+                service === 'worker'
+                  ? workerEnvironment(dependency.port)
+                  : fatalEnvironment(dependency.port),
               timeout: 10_000,
               killSignal: 'SIGKILL',
             },
@@ -237,4 +270,50 @@ describe('CLI operator guards', () => {
       await verification.end();
     }
   });
+});
+
+describe('worker shutdown', () => {
+  it('exits within the shutdown bound when stopped while the database never answers', async () => {
+    const sockets: Socket[] = [];
+    let reached = (): void => undefined;
+    const connected = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const stalling = createServer((socket) => {
+      sockets.push(socket);
+      reached();
+    });
+    await new Promise<void>((resolve) => stalling.listen(0, '127.0.0.1', resolve));
+    const address = stalling.address();
+    if (address === null || typeof address === 'string')
+      throw new Error('ephemeral TCP port unavailable');
+    const child = spawn('node', [entryPoints.worker], {
+      cwd: process.cwd(),
+      env: workerEnvironment(address.port),
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    const exited = once(child, 'exit');
+    const killer = setTimeout(() => child.kill('SIGKILL'), 20_000);
+    try {
+      await Promise.race([
+        connected,
+        exited.then(() => {
+          throw new Error('worker exited before reaching the database');
+        }),
+      ]);
+      const stoppedAt = Date.now();
+      child.kill('SIGTERM');
+      expect(await exited).toEqual([0, null]);
+      expect(Date.now() - stoppedAt).toBeLessThan(10_000);
+      expect(stderr).toBe('');
+    } finally {
+      clearTimeout(killer);
+      for (const socket of sockets) socket.destroy();
+      stalling.close();
+    }
+  }, 30_000);
 });

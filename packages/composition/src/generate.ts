@@ -119,14 +119,6 @@ function renderManifest(manifest: CompositionManifest): string {
 import type { CompositionManifest } from '@duefold/composition/contract';
 
 export const composedManifest: CompositionManifest = ${JSON.stringify(manifest, null, 2)} as const;
-
-export const composedModuleIds = ${JSON.stringify(manifest.modules)} as const;
-
-export type ComposedModuleId = (typeof composedModuleIds)[number];
-
-export function isComposedModule(id: string): id is ComposedModuleId {
-  return (composedModuleIds as readonly string[]).includes(id);
-}
 `;
 }
 
@@ -141,17 +133,16 @@ function renderRoutes(
 
   for (const declaration of declarations) {
     for (const route of declaration.routes) {
-      const local = `handler${index}`;
-      index += 1;
       const target = resolve(moduleDirectory(repoRoot, declaration.id), 'src', route.handler);
-      const schemaLocal = `schema${index - 1}`;
-      const factoryLocal = `factory${index - 1}`;
-      const factoryImport =
+      const [handlerImport, handlerField] =
         route.handlerFactoryExport === undefined
-          ? ''
-          : `, ${route.handlerFactoryExport} as ${factoryLocal}`;
+          ? [`handler as handler${index}`, `handler: handler${index}`]
+          : [
+              `${route.handlerFactoryExport} as factory${index}`,
+              `handlerFactory: factory${index}`,
+            ];
       imports.push(
-        `import { ${route.handlerExport ?? 'handler'} as ${local}, schema as ${schemaLocal}${factoryImport} } from '${importSpecifier(
+        `import { ${handlerImport}, schema as schema${index} } from '${importSpecifier(
           resolve(outDir, 'routes.ts'),
           target,
         )}';`,
@@ -164,12 +155,11 @@ function renderRoutes(
     path: ${JSON.stringify(route.path)},
     audience: ${JSON.stringify(route.audience)},
     csrf: ${routeRequiresCsrf(route)},
-    handler: ${local},${
-      route.handlerFactoryExport === undefined ? '' : `\n    handlerFactory: ${factoryLocal},`
-    }
-    schema: ${schemaLocal},
+    ${handlerField},
+    schema: schema${index},
   },`,
       );
+      index += 1;
     }
   }
 
@@ -277,10 +267,6 @@ import type { GeneratedConfigField } from '@duefold/composition/registry-types';
 export const generatedConfigSchema: readonly GeneratedConfigField[] = [
 ${entries.join('\n')}
 ];
-
-export const generatedConfigKeys: readonly string[] = generatedConfigSchema.map(
-  (field) => field.key,
-);
 `;
 }
 

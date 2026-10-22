@@ -3,7 +3,6 @@ import type { FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { Clock } from '@duefold/shared/clock';
 import type { CoarseClient } from '../../../modules/core-security/src/auth/otp.ts';
-import type { PrincipalIdentity } from '../../../modules/core-security/src/authorization.ts';
 import type { SessionPolicy } from '../../../modules/core-security/src/sessions.ts';
 import type {
   WebStorage,
@@ -32,12 +31,9 @@ export interface WebRuntime {
   readonly clock: Clock;
   readonly storage: WebStorage;
   readonly deliveryStorage: DeliveryStorage;
-  /** Absent in production until a qualified credential-free watermark adapter
-   * is explicitly configured. Protected-page creation fails closed without it. */
-  readonly watermarkProgram?: SandboxProgram;
+  readonly watermarkProgram: SandboxProgram;
   /** Absent means the namespaced boundary. Set only when the deployment has
    * explicitly acknowledged a host without namespace support. */
   readonly sandboxIsolation?: SandboxIsolation;
   classifyClient(request: FastifyRequest): CoarseClient;
-  revokeSession(sessionId: string, principal: PrincipalIdentity): Promise<void>;
 }

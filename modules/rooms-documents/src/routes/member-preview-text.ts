@@ -5,6 +5,3 @@ export { schema };
 export function createHandler(runtime: WebRuntime, identity: MemberIdentity) {
   return createTextHandler(runtime, identity);
 }
-export function handler(): never {
-  throw new Error('member preview text route runtime not initialized');
-}

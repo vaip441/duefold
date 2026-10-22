@@ -138,7 +138,9 @@ describe('branding quarantine lifecycle', () => {
         return Promise.resolve();
       },
       putSystemDeletionMarker: () => Promise.reject(new Error('UNUSED')),
+      listDeletionMarkedRoomIds: () => Promise.reject(new Error('UNUSED')),
       putDerivative: () => Promise.reject(new Error('UNUSED')),
+      deleteObjects: () => Promise.reject(new Error('UNUSED')),
       deleteObject: (key: string) => {
         deleted.push(key);
         return Promise.resolve();
