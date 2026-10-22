@@ -514,7 +514,11 @@ test.describe('structure controls and bulk selection', () => {
     // Review refreshes the room again; the held read it supersedes must not end the wait.
     await openSection(page, 'Processing');
     await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
-    await openSection(page, 'Collection');
+    // On a phone the section menu also names the current section "Collection".
+    await page
+      .getByRole('navigation', { name: 'Room preparation' })
+      .getByRole('button', { name: 'Collection', exact: true })
+      .click();
     await page.getByRole('button', { name: 'Reorder collection' }).click();
     await expect(moveDown).toBeDisabled();
     release();
