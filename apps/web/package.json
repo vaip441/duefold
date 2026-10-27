@@ -9,7 +9,7 @@
     "@duefold/core-security": "1.5.0",
     "@fastify/cookie": "11.1.2",
     "@fastify/helmet": "13.1.1",
-    "fastify": "5.12.5",
+    "fastify": "5.12.6",
     "pino": "10.3.1"
   }
 }
